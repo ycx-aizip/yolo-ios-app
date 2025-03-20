@@ -1,3 +1,10 @@
+# IDEs
+.vscode/
+.cursorrules
+.cursorignore
+.cursor/
+*.code-workspace
+
 # Repo-specific GitIgnore ----------------------------------------------------------------------------------------------
 
 
