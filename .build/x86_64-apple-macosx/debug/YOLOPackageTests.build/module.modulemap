@@ -1,0 +1,4 @@
+module YOLOPackageTests {
+    header "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLOPackageTests.build/YOLOPackageTests-Swift.h"
+    requires objc
+}
