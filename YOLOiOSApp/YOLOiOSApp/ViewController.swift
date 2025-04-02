@@ -76,12 +76,13 @@ class ViewController: UIViewController {
   }
 
   private let tasks: [(name: String, folder: String)] = [
-    // Comment out other tasks to focus only on Detect
     // ("Classify", "ClassifyModels"),  // index 0
     // ("Segment", "SegmentModels"),  // index 1
-    ("Detect", "DetectModels"),  // index 2 (now index 0)
+    // ("Detect", "DetectModels"),  // index 2
     // ("Pose", "PoseModels"),  // index 3
     // ("Obb", "ObbModels"),  // index 4
+    ("Detect", "DetectModels"),       // index 0
+    ("Fish Count", "FishCountModels") // index 1
   ]
 
   private var modelsForTask: [String: [String]] = [:]
@@ -111,7 +112,7 @@ class ViewController: UIViewController {
     setupTaskSegmentedControl()
     loadModelsForAllTasks()
 
-    // Always select Detect task (now at index 0)
+    // Select Detect task by default (index 0)
     segmentedControl.selectedSegmentIndex = 0
     currentTask = tasks[0].name
     reloadModelEntriesAndLoadFirst(for: currentTask)
@@ -175,22 +176,22 @@ class ViewController: UIViewController {
         options: [.skipsHiddenFiles]
       )
       
-      // Filter to only include our specific models
+      // Get all model files in the directory
       let modelFiles =
         fileURLs
         .filter { $0.pathExtension == "mlmodel" || $0.pathExtension == "mlpackage" }
         .map { $0.lastPathComponent }
-        .filter { $0.contains("FishCount") || $0.contains("yolov8") } // Only include FishCount and yolov8 models
       
-      // Always prioritize our FishCount model
-      return modelFiles.sorted { first, second in
-        if first.contains("FishCount") {
-          return true
-        } else if second.contains("FishCount") {
-          return false
-        } else {
-          return first < second
-        }
+      // Filter models based on folder/task
+      if folderName == "DetectModels" {
+        // For Detect task, show all yolov* models
+        return modelFiles.filter { $0.lowercased().contains("yolov") }.sorted()
+      } else if folderName == "FishCountModels" {
+        // For Fish Count task, show all FishCount_v* models
+        return modelFiles.filter { $0.contains("FishCount") }.sorted()
+      } else {
+        // For other tasks (not visible in our UI), return all models
+        return modelFiles.sorted()
       }
     } catch {
       print("Error reading contents of folder \(folderName): \(error)")
@@ -438,6 +439,7 @@ class ViewController: UIViewController {
     case "Classify": return .classify
     case "Pose": return .pose
     case "Obb": return .obb
+    case "Fish Count": return .fishCount
     default: return .detect
     }
   }
