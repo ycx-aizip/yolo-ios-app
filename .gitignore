@@ -6,7 +6,7 @@
 *.code-workspace
 
 # Repo-specific GitIgnore ----------------------------------------------------------------------------------------------
-
+.build
 
 # Xcode GitIgnore ------------------------------------------------------------------------------------------------------
 # gitignore contributors: remember to update Global/Xcode.gitignore, Objective-C.gitignore & Swift.gitignore
