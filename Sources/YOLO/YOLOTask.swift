@@ -48,4 +48,10 @@ public enum YOLOTask {
   /// Classification models predict what an image contains without localizing objects,
   /// returning class labels and confidence scores for the entire image.
   case classify
+  
+  /// Fish counting task that tracks and counts fish crossing thresholds.
+  ///
+  /// Fish counting models detect fish and apply tracking to maintain identity across frames,
+  /// allowing for accurate counting when fish cross defined threshold lines.
+  case fishCount
 }
