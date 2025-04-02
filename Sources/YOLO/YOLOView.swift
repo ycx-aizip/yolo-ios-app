@@ -257,6 +257,24 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         }
       }
 
+    case .fishCount:
+      // // For now, just use ObjectDetector for fish counting - we'll implement dedicated 
+      // tracking later
+      // // Create an ObjectDetector instance using the provided model URL
+      // ObjectDetector.create(unwrappedModelURL: unwrappedModelURL) { result in
+
+      // Use TrackingDetector instead of ObjectDetector for fish counting
+      // Create a TrackingDetector instance using the provided model URL
+      TrackingDetector.create(unwrappedModelURL: unwrappedModelURL, isRealTime: true) {
+        [weak self] result in
+        switch result {
+        case .success(let predictor):
+          handleSuccess(predictor: predictor)
+        case .failure(let error):
+          handleFailure(error)
+        }
+      }
+
     default:
       ObjectDetector.create(unwrappedModelURL: unwrappedModelURL, isRealTime: true) {
         [weak self] result in
