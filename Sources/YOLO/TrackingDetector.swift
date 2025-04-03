@@ -212,18 +212,39 @@ class TrackingDetector: ObjectDetector {
         
         // Set active thresholds based on camera angle
         switch angle {
-        case "Front View":
+        case "Front":
             activeThresholds.insert("upper")
             activeThresholds.insert("bottom")
             activeThresholds.insert("left")
             activeThresholds.insert("right")
-        case "Top View", "Bottom View":
-            activeThresholds.insert("upper")
+            
+            // Set threshold values to match counting_demo.py
+            upperThreshold = 0.2
+            bottomThreshold = 0.8
+            leftThreshold = 0.2
+            rightThreshold = 0.8
+            
+        case "Top", "Bottom":
+            // For Top/Bottom views, only show bottom threshold (matching counting_demo.py)
             activeThresholds.insert("bottom")
-        case "Left View":
+            
+            // Set threshold values to match counting_demo.py
+            bottomThreshold = 0.8
+            
+        case "Left":
+            // For Left view, only show right threshold (matching counting_demo.py)
             activeThresholds.insert("right")
-        case "Right View":
+            
+            // Set threshold values to match counting_demo.py
+            rightThreshold = 0.7
+            
+        case "Right":
+            // For Right view, only show left threshold (matching counting_demo.py)
             activeThresholds.insert("left")
+            
+            // Set threshold values to match counting_demo.py
+            leftThreshold = 0.5
+            
         default:
             // Default to all thresholds
             activeThresholds.insert("upper")

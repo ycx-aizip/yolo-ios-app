@@ -100,27 +100,6 @@ public class YOLO {
           handleFailure(error)
         }
       }
-      
-    // case .fishCount:
-    //   // // For now, just use ObjectDetector for fish counting - we'll implement dedicated 
-    //   // tracking later
-    //   // // Create an ObjectDetector instance using the provided model URL
-    //   // ObjectDetector.create(unwrappedModelURL: unwrappedModelURL) { result in
-
-    //   // Use TrackingDetector instead of ObjectDetector for fish counting
-    //   // Create a TrackingDetector instance using the provided model URL
-    //   TrackingDetector.create(unwrappedModelURL: unwrappedModelURL) { 
-    //     result in
-    //     // Handle the result of the detector creation
-    //     switch result {
-    //     case .success(let predictor):
-    //       // If successful, call the common success handler with the created predictor
-    //       handleSuccess(predictor: predictor)
-    //     case .failure(let error):
-    //       // If failed, call the common failure handler with the error
-    //       handleFailure(error)
-    //     }
-    //   }
 
     default:
       ObjectDetector.create(unwrappedModelURL: unwrappedModelURL) { result in

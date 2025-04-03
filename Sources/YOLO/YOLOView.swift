@@ -17,11 +17,11 @@ import Vision
 
 /// Camera angle configuration for fish counting
 public enum CameraAngle: String, CaseIterable {
-    case front = "Front View"
-    case top = "Top View"
-    case bottom = "Bottom View"
-    case left = "Left View"
-    case right = "Right View"
+    case front = "Front"
+    case top = "Top"
+    case bottom = "Bottom"
+    case left = "Left"
+    case right = "Right"
 }
 
 /// A UIView component that provides real-time object detection, segmentation, and pose estimation capabilities.
@@ -197,7 +197,15 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     }
     removeClassificationLayers()
 
+    // Store previous task to check if we're changing to/from fish counting
+    let previousTask = self.task
     self.task = task
+    
+    // For fish counting, make overlay invisible
+    if task == .fishCount {
+      ensureOverlayIsInvisible()
+    }
+    
     setupSublayers()
 
     var modelURL: URL?
@@ -235,6 +243,14 @@ public class YOLOView: UIView, VideoCaptureDelegate {
       self.videoCapture.predictor = predictor
       self.activityIndicator.stopAnimating()
       self.labelName.text = modelName
+      
+      // If we're switching to fish counting from another task, set up the UI
+      if task == .fishCount && previousTask != .fishCount {
+        DispatchQueue.main.async {
+          self.setupFishCountingUI()
+        }
+      }
+      
       completion?(.success(()))
     }
 
@@ -333,12 +349,30 @@ public class YOLOView: UIView, VideoCaptureDelegate {
           // Add the video preview into the UI.
           if let previewLayer = self.videoCapture.previewLayer {
             self.layer.insertSublayer(previewLayer, at: 0)
-            self.videoCapture.previewLayer?.frame = self.bounds  // resize preview layer
+            
+            // Configure preview layer for optimal appearance
+            if self.task == .fishCount {
+                previewLayer.frame = self.bounds
+                previewLayer.videoGravity = .resizeAspectFill
+                previewLayer.cornerRadius = 10
+                previewLayer.masksToBounds = true
+            } else {
+                previewLayer.frame = self.bounds
+            }
+            
             for box in self.boundingBoxViews {
               box.addToLayer(previewLayer)
             }
           }
-          self.videoCapture.previewLayer?.addSublayer(self.overlayLayer)
+          
+          // Only add overlay for non-fish counting tasks
+          if self.task == .fishCount {
+            // Make overlay invisible for fish count task using our guaranteed method
+            self.ensureOverlayIsInvisible()
+          } else {
+            self.videoCapture.previewLayer?.addSublayer(self.overlayLayer)
+          }
+          
           // Once everything is set up, we can start capturing live video.
           self.videoCapture.start()
 
@@ -365,6 +399,13 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   }
 
   func setupOverlayLayer() {
+    if task == .fishCount {
+        // For fish counting, use our guaranteed method to make overlay invisible
+        ensureOverlayIsInvisible()
+        return
+    }
+    
+    // Original code for other tasks
     let width = self.bounds.width
     let height = self.bounds.height
 
@@ -387,6 +428,8 @@ public class YOLOView: UIView, VideoCaptureDelegate {
       self.overlayLayer.frame = CGRect(
         x: 0, y: -margin, width: self.bounds.width, height: offSet)
     }
+    
+    self.videoCapture.previewLayer?.frame = self.bounds
   }
 
   func setupMaskLayerIfNeeded() {
@@ -465,7 +508,64 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   }
 
   func showBoxes(predictions: YOLOResult) {
-
+    // For fish counting mode, handle bounding boxes differently
+    if task == .fishCount {
+      let resultCount = predictions.boxes.count
+      
+      // Make sure overlay is kept invisible
+      ensureOverlayIsInvisible()
+      
+      // Process detections
+      for i in 0..<boundingBoxViews.count {
+        if i < resultCount && i < 50 {
+          let prediction = predictions.boxes[i]
+          let confidence = CGFloat(prediction.conf)
+          
+          // Skip boxes with confidence below threshold
+          if confidence < CGFloat(sliderConf.value) {
+            boundingBoxViews[i].hide()
+            continue
+          }
+          
+          // Direct conversion from normalized coordinates to screen coordinates
+          let viewWidth = self.bounds.width
+          let viewHeight = self.bounds.height
+          
+          let rect = CGRect(
+            x: prediction.xywhn.minX,
+            y: 1 - prediction.xywhn.maxY,
+            width: prediction.xywhn.width,
+            height: prediction.xywhn.height
+          )
+          
+          // Convert normalized coordinates to screen coordinates
+          let displayRect = CGRect(
+            x: rect.minX * viewWidth,
+            y: rect.minY * viewHeight,
+            width: rect.width * viewWidth,
+            height: rect.height * viewHeight
+          )
+          
+          // Show box with label
+          let colorIndex = prediction.index % ultralyticsColors.count
+          let boxColor = ultralyticsColors[colorIndex]
+          let label = String(format: "%@ %.1f", prediction.cls, confidence * 100)
+          let alpha = CGFloat((confidence - 0.2) / (1.0 - 0.2) * 0.9)
+          
+          boundingBoxViews[i].show(
+            frame: displayRect,
+            label: label,
+            color: boxColor,
+            alpha: alpha
+          )
+        } else {
+          boundingBoxViews[i].hide()
+        }
+      }
+      return
+    }
+    
+    // Original code for other tasks
     let width = self.bounds.width
     let height = self.bounds.height
     var resultCount = 0
@@ -473,7 +573,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     resultCount = predictions.boxes.count
 
     if UIDevice.current.orientation == .portrait {
-
       var ratio: CGFloat = 1.0
 
       if videoCapture.captureSession.sessionPreset == .photo {
@@ -666,6 +765,26 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     }
   }
 
+  private func setupFishCountingUI() {
+    // Make the overlay completely invisible using our guaranteed method
+    ensureOverlayIsInvisible()
+    
+    // Create threshold layers for fish counting
+    setupThresholdLayers()
+    
+    // Setup fish count display
+    setupCountDisplay()
+    
+    // Setup camera angle selection UI
+    setupCameraAngleSelection()
+    
+    // Setup reset button
+    setupResetButton()
+    
+    // Configure UI elements for fish counting
+    configureUIForFishCounting()
+  }
+
   func overlayYOLOClassificationsCALayer(on view: UIView, result: YOLOResult) {
 
     removeClassificationLayers()
@@ -718,24 +837,27 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   }
 
   private func setupUI() {
-    labelName.text = modelName
-    labelName.textAlignment = .center
-    labelName.font = UIFont.systemFont(ofSize: 24, weight: .medium)
-    labelName.textColor = .black
-    labelName.font = UIFont.preferredFont(forTextStyle: .title1)
-    self.addSubview(labelName)
-
+    // labelName.text = modelName
+    // labelName.textAlignment = .center
+    // labelName.font = UIFont.systemFont(ofSize: 24, weight: .medium)
+    // labelName.textColor = .black
+    // labelName.font = UIFont.preferredFont(forTextStyle: .title1)
+    // self.addSubview(labelName)
+    labelName.isHidden = true
+    
     labelFPS.text = String(format: "%.1f FPS - %.1f ms", 0.0, 0.0)
     labelFPS.textAlignment = .center
     labelFPS.textColor = .black
     labelFPS.font = UIFont.preferredFont(forTextStyle: .body)
     self.addSubview(labelFPS)
 
+    // Hide items slider for fish counting
     labelSliderNumItems.text = "0 items (max 30)"
     labelSliderNumItems.textAlignment = .left
     labelSliderNumItems.textColor = .black
     labelSliderNumItems.font = UIFont.preferredFont(forTextStyle: .subheadline)
     self.addSubview(labelSliderNumItems)
+    labelSliderNumItems.isHidden = true
 
     sliderNumItems.minimumValue = 0
     sliderNumItems.maximumValue = 100
@@ -744,7 +866,9 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     sliderNumItems.maximumTrackTintColor = .systemGray.withAlphaComponent(0.7)
     sliderNumItems.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
     self.addSubview(sliderNumItems)
-
+    sliderNumItems.isHidden = true
+    
+    // Keep confidence slider
     labelSliderConf.text = "0.25 Confidence Threshold"
     labelSliderConf.textAlignment = .left
     labelSliderConf.textColor = .black
@@ -759,6 +883,7 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     sliderConf.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
     self.addSubview(sliderConf)
 
+    // Add back IoU slider
     labelSliderIoU.text = "0.45 IoU Threshold"
     labelSliderIoU.textAlignment = .left
     labelSliderIoU.textColor = .black
@@ -773,16 +898,8 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     sliderIoU.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
     self.addSubview(sliderIoU)
 
-    self.labelSliderNumItems.text = "0 items (max " + String(Int(sliderNumItems.value)) + ")"
-    self.labelSliderConf.text = "0.25 Confidence Threshold"
-    self.labelSliderIoU.text = "0.45 IoU Threshold"
-
-    labelZoom.text = "1.00x"
-    labelZoom.textColor = .black
-    labelZoom.font = UIFont.systemFont(ofSize: 14)
-    labelZoom.textAlignment = .center
-    labelZoom.font = UIFont.preferredFont(forTextStyle: .body)
-    self.addSubview(labelZoom)
+    // Hide zoom label
+    labelZoom.isHidden = true
 
     let config = UIImage.SymbolConfiguration(pointSize: 20, weight: .regular, scale: .default)
 
@@ -809,200 +926,30 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   }
 
   public override func layoutSubviews() {
-    setupOverlayLayer()
+    super.layoutSubviews()
+    
+    if task == .fishCount {
+      // Use our guaranteed method to make overlay invisible
+      ensureOverlayIsInvisible()
+      
+      // Ensure the video preview takes the full view
+      videoCapture.previewLayer?.frame = self.bounds
+      
+      // Update threshold positions
+      updateThresholdPositions()
+      
+      // Position fish counting UI elements
+      positionFishCountingUI()
+    } else {
+      setupOverlayLayer()
+    }
+    
     let isLandscape = bounds.width > bounds.height
     activityIndicator.frame = CGRect(x: center.x - 50, y: center.y - 50, width: 100, height: 100)
     
-    // Update threshold positions if in fish counting mode
-    if task == .fishCount {
-      updateThresholdPositions()
-      
-      // Reposition fish counting UI elements
-      fishCountLabel?.frame = CGRect(x: 20, y: 120, width: 200, height: 40)
-      resetCountButton?.frame = CGRect(x: 230, y: 120, width: 100, height: 40)
-      cameraAngleLabel?.frame = CGRect(x: 20, y: self.bounds.height - 120, width: 150, height: 30)
-      cameraAngleControl?.frame = CGRect(x: 20, y: self.bounds.height - 90, width: self.bounds.width - 40, height: 30)
-    }
-    
-    if isLandscape {
-      toolbar.backgroundColor = .clear
-      playButton.tintColor = .darkGray
-      pauseButton.tintColor = .darkGray
-      switchCameraButton.tintColor = .darkGray
-
-      let width = bounds.width
-      let height = bounds.height
-
-      let topMargin: CGFloat = 0
-
-      let titleLabelHeight: CGFloat = height * 0.1
-      labelName.frame = CGRect(
-        x: 0,
-        y: topMargin,
-        width: width,
-        height: titleLabelHeight
-      )
-
-      let subLabelHeight: CGFloat = height * 0.04
-      labelFPS.frame = CGRect(
-        x: 0,
-        y: center.y - height * 0.24 - subLabelHeight,
-        width: width,
-        height: subLabelHeight
-      )
-
-      let sliderWidth: CGFloat = width * 0.2
-      let sliderHeight: CGFloat = height * 0.1
-
-      labelSliderNumItems.frame = CGRect(
-        x: width * 0.1,
-        y: labelFPS.frame.minY - sliderHeight,
-        width: sliderWidth,
-        height: sliderHeight
-      )
-
-      sliderNumItems.frame = CGRect(
-        x: width * 0.1,
-        y: labelSliderNumItems.frame.maxY + 10,
-        width: sliderWidth,
-        height: sliderHeight
-      )
-
-      labelSliderConf.frame = CGRect(
-        x: width * 0.1,
-        y: sliderNumItems.frame.maxY + 10,
-        width: sliderWidth * 1.5,
-        height: sliderHeight
-      )
-
-      sliderConf.frame = CGRect(
-        x: width * 0.1,
-        y: labelSliderConf.frame.maxY + 10,
-        width: sliderWidth,
-        height: sliderHeight
-      )
-
-      labelSliderIoU.frame = CGRect(
-        x: width * 0.1,
-        y: sliderConf.frame.maxY + 10,
-        width: sliderWidth * 1.5,
-        height: sliderHeight
-      )
-
-      sliderIoU.frame = CGRect(
-        x: width * 0.1,
-        y: labelSliderIoU.frame.maxY + 10,
-        width: sliderWidth,
-        height: sliderHeight
-      )
-
-      let zoomLabelWidth: CGFloat = width * 0.2
-      labelZoom.frame = CGRect(
-        x: center.x - zoomLabelWidth / 2,
-        y: self.bounds.maxY - 120,
-        width: zoomLabelWidth,
-        height: height * 0.03
-      )
-
-      let toolBarHeight: CGFloat = 66
-      let buttonHeihgt: CGFloat = toolBarHeight * 0.75
-      toolbar.frame = CGRect(x: 0, y: height - toolBarHeight, width: width, height: toolBarHeight)
-      playButton.frame = CGRect(x: 0, y: 0, width: buttonHeihgt, height: buttonHeihgt)
-      pauseButton.frame = CGRect(
-        x: playButton.frame.maxX, y: 0, width: buttonHeihgt, height: buttonHeihgt)
-      switchCameraButton.frame = CGRect(
-        x: pauseButton.frame.maxX, y: 0, width: buttonHeihgt, height: buttonHeihgt)
-    } else {
-      toolbar.backgroundColor = .darkGray.withAlphaComponent(0.7)
-      playButton.tintColor = .systemGray
-      pauseButton.tintColor = .systemGray
-      switchCameraButton.tintColor = .systemGray
-
-      let width = bounds.width
-      let height = bounds.height
-
-      let topMargin: CGFloat = height * 0.02
-
-      let titleLabelHeight: CGFloat = height * 0.1
-      labelName.frame = CGRect(
-        x: 0,
-        y: topMargin,
-        width: width,
-        height: titleLabelHeight
-      )
-
-      let subLabelHeight: CGFloat = height * 0.04
-      labelFPS.frame = CGRect(
-        x: 0,
-        y: labelName.frame.maxY + 15,
-        width: width,
-        height: subLabelHeight
-      )
-
-      let sliderWidth: CGFloat = width * 0.46
-      let sliderHeight: CGFloat = height * 0.02
-
-      sliderNumItems.frame = CGRect(
-        x: width * 0.01,
-        y: center.y - sliderHeight - height * 0.24,
-        width: sliderWidth,
-        height: sliderHeight
-      )
-
-      labelSliderNumItems.frame = CGRect(
-        x: width * 0.01,
-        y: sliderNumItems.frame.minY - sliderHeight - 10,
-        width: sliderWidth,
-        height: sliderHeight
-      )
-
-      labelSliderConf.frame = CGRect(
-        x: width * 0.01,
-        y: center.y + height * 0.24,
-        width: sliderWidth * 1.5,
-        height: sliderHeight
-      )
-
-      sliderConf.frame = CGRect(
-        x: width * 0.01,
-        y: labelSliderConf.frame.maxY + 10,
-        width: sliderWidth,
-        height: sliderHeight
-      )
-
-      labelSliderIoU.frame = CGRect(
-        x: width * 0.01,
-        y: sliderConf.frame.maxY + 10,
-        width: sliderWidth * 1.5,
-        height: sliderHeight
-      )
-
-      sliderIoU.frame = CGRect(
-        x: width * 0.01,
-        y: labelSliderIoU.frame.maxY + 10,
-        width: sliderWidth,
-        height: sliderHeight
-      )
-
-      let zoomLabelWidth: CGFloat = width * 0.2
-      labelZoom.frame = CGRect(
-        x: center.x - zoomLabelWidth / 2,
-        y: self.bounds.maxY - 120,
-        width: zoomLabelWidth,
-        height: height * 0.03
-      )
-
-      let toolBarHeight: CGFloat = 66
-      let buttonHeihgt: CGFloat = toolBarHeight * 0.75
-      toolbar.frame = CGRect(x: 0, y: height - toolBarHeight, width: width, height: toolBarHeight)
-      playButton.frame = CGRect(x: 0, y: 0, width: buttonHeihgt, height: buttonHeihgt)
-      pauseButton.frame = CGRect(
-        x: playButton.frame.maxX, y: 0, width: buttonHeihgt, height: buttonHeihgt)
-      switchCameraButton.frame = CGRect(
-        x: pauseButton.frame.maxX, y: 0, width: buttonHeihgt, height: buttonHeihgt)
-    }
-
-    self.videoCapture.previewLayer?.frame = self.bounds
+    // Position other UI elements (hiding the ones we don't need)
+    labelName.isHidden = true  // Hide the model name
+    labelZoom.isHidden = true  // Hide the zoom label
   }
 
   private func setUpOrientationChangeNotification() {
@@ -1146,26 +1093,87 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   
   // MARK: - Fish Counting Methods
   
-  /// Setup fish counting UI components
-  public func setupFishCountingUI() {
-      setupThresholdLayers()
-      setupCountDisplay()
-      setupCameraAngleSelection()
-      setupResetButton()
-      
-      // Initially hide some sliders for a cleaner UI
-      if task == .fishCount {
-          configureUIForFishCounting()
+  /// Create and configure threshold layers for fish counting
+  private func setupThresholdLayers() {
+      // Create upper threshold layer
+      if upperThresholdLayer == nil {
+          upperThresholdLayer = CAShapeLayer()
+          upperThresholdLayer?.strokeColor = UIColor.red.cgColor
+          upperThresholdLayer?.lineWidth = 2.0
+          upperThresholdLayer?.lineDashPattern = [5, 5] // Dashed line
+          upperThresholdLayer?.opacity = 0.8
+          upperThresholdLayer?.zPosition = 10 // Ensure it appears above other layers
       }
+      
+      // Create bottom threshold layer
+      if bottomThresholdLayer == nil {
+          bottomThresholdLayer = CAShapeLayer()
+          bottomThresholdLayer?.strokeColor = UIColor.green.cgColor
+          bottomThresholdLayer?.lineWidth = 2.0
+          bottomThresholdLayer?.lineDashPattern = [5, 5] // Dashed line
+          bottomThresholdLayer?.opacity = 0.8
+          bottomThresholdLayer?.zPosition = 10 // Ensure it appears above other layers
+      }
+      
+      // Create left threshold layer
+      if leftThresholdLayer == nil {
+          leftThresholdLayer = CAShapeLayer()
+          leftThresholdLayer?.strokeColor = UIColor.blue.cgColor
+          leftThresholdLayer?.lineWidth = 2.0
+          leftThresholdLayer?.lineDashPattern = [5, 5] // Dashed line
+          leftThresholdLayer?.opacity = 0.8
+          leftThresholdLayer?.zPosition = 10 // Ensure it appears above other layers
+      }
+      
+      // Create right threshold layer
+      if rightThresholdLayer == nil {
+          rightThresholdLayer = CAShapeLayer()
+          rightThresholdLayer?.strokeColor = UIColor.yellow.cgColor
+          rightThresholdLayer?.lineWidth = 2.0
+          rightThresholdLayer?.lineDashPattern = [5, 5] // Dashed line
+          rightThresholdLayer?.opacity = 0.8
+          rightThresholdLayer?.zPosition = 10 // Ensure it appears above other layers
+      }
+      
+      // Add layers to the preview layer for proper z-ordering
+      if let previewLayer = videoCapture.previewLayer {
+          previewLayer.addSublayer(upperThresholdLayer!)
+          previewLayer.addSublayer(bottomThresholdLayer!)
+          previewLayer.addSublayer(leftThresholdLayer!)
+          previewLayer.addSublayer(rightThresholdLayer!)
+      } else {
+          // Fall back to adding to self.layer if preview layer isn't available yet
+          self.layer.addSublayer(upperThresholdLayer!)
+          self.layer.addSublayer(bottomThresholdLayer!)
+          self.layer.addSublayer(leftThresholdLayer!)
+          self.layer.addSublayer(rightThresholdLayer!)
+      }
+      
+      // Update threshold positions based on initial camera angle
+      updateThresholdPositions()
   }
   
-  /// Configure fish counting based on camera angle
-  public func configureCameraAngle(_ angle: CameraAngle) {
+  /// Configure camera angle and update threshold positions
+  private func configureCameraAngle(_ angle: CameraAngle) {
       currentCameraAngle = angle
-      updateThresholdPositions()
       
-      // Reset fish count when changing camera angle
-      resetFishCount()
+      // Update UI for camera angle
+      DispatchQueue.main.async {
+          // First, clear all threshold paths
+          self.upperThresholdLayer?.path = nil
+          self.bottomThresholdLayer?.path = nil
+          self.leftThresholdLayer?.path = nil
+          self.rightThresholdLayer?.path = nil
+          
+          // Hide all by default
+          self.upperThresholdLayer?.isHidden = true
+          self.bottomThresholdLayer?.isHidden = true
+          self.leftThresholdLayer?.isHidden = true
+          self.rightThresholdLayer?.isHidden = true
+          
+          // Update threshold positions for the new angle
+          self.updateThresholdPositions()
+      }
   }
   
   /// Reset the fish count
@@ -1180,144 +1188,17 @@ public class YOLOView: UIView, VideoCaptureDelegate {
       updateCountDisplay()
   }
   
-  /// Setup threshold visualization layers
-  private func setupThresholdLayers() {
-      // Upper threshold
-      upperThresholdLayer = CAShapeLayer()
-      upperThresholdLayer?.strokeColor = UIColor.green.cgColor
-      upperThresholdLayer?.lineWidth = 2.0
-      upperThresholdLayer?.lineDashPattern = [6, 3] // Dashed line
-      
-      // Bottom threshold
-      bottomThresholdLayer = CAShapeLayer()
-      bottomThresholdLayer?.strokeColor = UIColor.red.cgColor
-      bottomThresholdLayer?.lineWidth = 2.0
-      bottomThresholdLayer?.lineDashPattern = [6, 3]
-      
-      // Left threshold
-      leftThresholdLayer = CAShapeLayer()
-      leftThresholdLayer?.strokeColor = UIColor.yellow.cgColor
-      leftThresholdLayer?.lineWidth = 2.0
-      leftThresholdLayer?.lineDashPattern = [6, 3]
-      
-      // Right threshold
-      rightThresholdLayer = CAShapeLayer()
-      rightThresholdLayer?.strokeColor = UIColor.blue.cgColor
-      rightThresholdLayer?.lineWidth = 2.0
-      rightThresholdLayer?.lineDashPattern = [6, 3]
-      
-      // Add layers to overlay layer
-      if let overlay = videoCapture.previewLayer {
-          overlay.addSublayer(upperThresholdLayer!)
-          overlay.addSublayer(bottomThresholdLayer!)
-          overlay.addSublayer(leftThresholdLayer!)
-          overlay.addSublayer(rightThresholdLayer!)
-      }
-      
-      // Initial update of threshold positions
-      updateThresholdPositions()
-  }
-  
-  /// Update threshold lines based on camera angle
-  private func updateThresholdPositions() {
-      // Get view bounds
-      let bounds = self.bounds
-      
-      // Create paths for threshold lines
-      let upperPath = CGMutablePath()
-      let bottomPath = CGMutablePath()
-      let leftPath = CGMutablePath()
-      let rightPath = CGMutablePath()
-      
-      // Set positions based on camera angle
-      switch currentCameraAngle {
-      case .front:
-          // Show all thresholds for front view
-          let upperY = bounds.height * 0.3
-          let bottomY = bounds.height * 0.7
-          let leftX = bounds.width * 0.3
-          let rightX = bounds.width * 0.7
-          
-          upperPath.move(to: CGPoint(x: 0, y: upperY))
-          upperPath.addLine(to: CGPoint(x: bounds.width, y: upperY))
-          
-          bottomPath.move(to: CGPoint(x: 0, y: bottomY))
-          bottomPath.addLine(to: CGPoint(x: bounds.width, y: bottomY))
-          
-          leftPath.move(to: CGPoint(x: leftX, y: 0))
-          leftPath.addLine(to: CGPoint(x: leftX, y: bounds.height))
-          
-          rightPath.move(to: CGPoint(x: rightX, y: 0))
-          rightPath.addLine(to: CGPoint(x: rightX, y: bounds.height))
-          
-          // Show all threshold layers
-          upperThresholdLayer?.isHidden = false
-          bottomThresholdLayer?.isHidden = false
-          leftThresholdLayer?.isHidden = false
-          rightThresholdLayer?.isHidden = false
-          
-      case .top, .bottom:
-          // For top/bottom views, only show horizontal thresholds
-          let upperY = bounds.height * 0.3
-          let bottomY = bounds.height * 0.7
-          
-          upperPath.move(to: CGPoint(x: 0, y: upperY))
-          upperPath.addLine(to: CGPoint(x: bounds.width, y: upperY))
-          
-          bottomPath.move(to: CGPoint(x: 0, y: bottomY))
-          bottomPath.addLine(to: CGPoint(x: bounds.width, y: bottomY))
-          
-          // Show only relevant threshold layers
-          upperThresholdLayer?.isHidden = false
-          bottomThresholdLayer?.isHidden = false
-          leftThresholdLayer?.isHidden = true
-          rightThresholdLayer?.isHidden = true
-          
-      case .left:
-          // For left view, only show right threshold
-          let rightX = bounds.width * 0.7
-          
-          rightPath.move(to: CGPoint(x: rightX, y: 0))
-          rightPath.addLine(to: CGPoint(x: rightX, y: bounds.height))
-          
-          // Show only relevant threshold layers
-          upperThresholdLayer?.isHidden = true
-          bottomThresholdLayer?.isHidden = true
-          leftThresholdLayer?.isHidden = true
-          rightThresholdLayer?.isHidden = false
-          
-      case .right:
-          // For right view, only show left threshold
-          let leftX = bounds.width * 0.3
-          
-          leftPath.move(to: CGPoint(x: leftX, y: 0))
-          leftPath.addLine(to: CGPoint(x: leftX, y: bounds.height))
-          
-          // Show only relevant threshold layers
-          upperThresholdLayer?.isHidden = true
-          bottomThresholdLayer?.isHidden = true
-          leftThresholdLayer?.isHidden = false
-          rightThresholdLayer?.isHidden = true
-      }
-      
-      // Update paths
-      upperThresholdLayer?.path = upperPath
-      bottomThresholdLayer?.path = bottomPath
-      leftThresholdLayer?.path = leftPath
-      rightThresholdLayer?.path = rightPath
-  }
-  
   /// Setup count display label
   private func setupCountDisplay() {
       // Create fish count label if needed
       if fishCountLabel == nil {
-          fishCountLabel = UILabel(frame: CGRect(x: 20, y: 120, width: 200, height: 40))
+          fishCountLabel = UILabel(frame: CGRect(x: 20, y: 120, width: 150, height: 30))  // Make smaller
           fishCountLabel?.backgroundColor = UIColor.black.withAlphaComponent(0.6)
-          fishCountLabel?.layer.cornerRadius = 10
+          fishCountLabel?.layer.cornerRadius = 8  // Adjust corner radius for smaller label
           fishCountLabel?.layer.masksToBounds = true
           fishCountLabel?.textColor = UIColor.white
           fishCountLabel?.textAlignment = .center
-          fishCountLabel?.font = UIFont.systemFont(ofSize: 20, weight: .bold)
+          fishCountLabel?.font = UIFont.systemFont(ofSize: 16, weight: .bold)  // Smaller font
           self.addSubview(fishCountLabel!)
       }
       
@@ -1357,11 +1238,21 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   /// Setup reset count button
   private func setupResetButton() {
       if resetCountButton == nil {
-          resetCountButton = UIButton(frame: CGRect(x: 230, y: 120, width: 100, height: 40))
+          let buttonWidth: CGFloat = 80
+          let buttonHeight: CGFloat = 30
+          let rightMargin: CGFloat = 20
+          
+          resetCountButton = UIButton(frame: CGRect(
+              x: self.bounds.width - buttonWidth - rightMargin, 
+              y: 120, 
+              width: buttonWidth, 
+              height: buttonHeight))
+              
           resetCountButton?.setTitle("Reset", for: .normal)
           resetCountButton?.backgroundColor = UIColor.darkGray
-          resetCountButton?.layer.cornerRadius = 10
+          resetCountButton?.layer.cornerRadius = 8
           resetCountButton?.addTarget(self, action: #selector(resetButtonTapped), for: .touchUpInside)
+          resetCountButton?.titleLabel?.font = UIFont.systemFont(ofSize: 14, weight: .medium)
           self.addSubview(resetCountButton!)
       }
   }
@@ -1371,12 +1262,14 @@ public class YOLOView: UIView, VideoCaptureDelegate {
       // Hide unnecessary sliders
       sliderNumItems.isHidden = true
       labelSliderNumItems.isHidden = true
-      sliderIoU.isHidden = true
-      labelSliderIoU.isHidden = true
       
       // Keep confidence slider for fish detection threshold
       sliderConf.isHidden = false
       labelSliderConf.isHidden = false
+      
+      // Add back IoU slider as requested
+      sliderIoU.isHidden = false
+      labelSliderIoU.isHidden = false
       
       // Show fish counting UI elements
       fishCountLabel?.isHidden = false
@@ -1430,6 +1323,157 @@ public class YOLOView: UIView, VideoCaptureDelegate {
       if let trackingDetector = videoCapture.predictor as? TrackingDetector {
           trackingDetector.resetCount()
       }
+  }
+
+  /// Update threshold lines based on camera angle
+  private func updateThresholdPositions() {
+      // First, clear ALL threshold paths
+      upperThresholdLayer?.path = nil
+      bottomThresholdLayer?.path = nil
+      leftThresholdLayer?.path = nil
+      rightThresholdLayer?.path = nil
+      
+      // Hide all by default
+      upperThresholdLayer?.isHidden = true
+      bottomThresholdLayer?.isHidden = true
+      leftThresholdLayer?.isHidden = true
+      rightThresholdLayer?.isHidden = true
+      
+      // Get view bounds
+      let bounds = self.bounds
+      
+      // Create paths for threshold lines
+      let upperPath = CGMutablePath()
+      let bottomPath = CGMutablePath()
+      let leftPath = CGMutablePath()
+      let rightPath = CGMutablePath()
+      
+      // Set positions based on camera angle, exactly matching counting_demo.py
+      switch currentCameraAngle {
+      case .front:
+          // *** Front: Show all four thresholds (matches counting_demo.py) ***
+          // Upper threshold at 0.2 (20%)
+          let upperY = bounds.height * 0.2
+          // Bottom threshold at 0.8 (80%)
+          let bottomY = bounds.height * 0.8
+          // Left threshold at 0.2 (20%)
+          let leftX = bounds.width * 0.2
+          // Right threshold at 0.8 (80%)
+          let rightX = bounds.width * 0.8
+          
+          upperPath.move(to: CGPoint(x: 0, y: upperY))
+          upperPath.addLine(to: CGPoint(x: bounds.width, y: upperY))
+          
+          bottomPath.move(to: CGPoint(x: 0, y: bottomY))
+          bottomPath.addLine(to: CGPoint(x: bounds.width, y: bottomY))
+          
+          leftPath.move(to: CGPoint(x: leftX, y: 0))
+          leftPath.addLine(to: CGPoint(x: leftX, y: bounds.height))
+          
+          rightPath.move(to: CGPoint(x: rightX, y: 0))
+          rightPath.addLine(to: CGPoint(x: rightX, y: bounds.height))
+          
+          // Show all threshold layers
+          upperThresholdLayer?.isHidden = false
+          bottomThresholdLayer?.isHidden = false
+          leftThresholdLayer?.isHidden = false
+          rightThresholdLayer?.isHidden = false
+          
+          // Set paths
+          upperThresholdLayer?.path = upperPath
+          bottomThresholdLayer?.path = bottomPath
+          leftThresholdLayer?.path = leftPath
+          rightThresholdLayer?.path = rightPath
+          
+      case .top, .bottom:
+          // *** Top/Bottom: Only show bottom threshold (matches counting_demo.py) ***
+          // Bottom threshold at 0.8 (80%)
+          let bottomY = bounds.height * 0.8
+          
+          bottomPath.move(to: CGPoint(x: 0, y: bottomY))
+          bottomPath.addLine(to: CGPoint(x: bounds.width, y: bottomY))
+          
+          // Show only bottom threshold layer
+          bottomThresholdLayer?.isHidden = false
+          bottomThresholdLayer?.path = bottomPath
+          
+      case .left:
+          // *** Left: Only show right threshold (matches counting_demo.py) ***
+          // Right threshold at 0.7 (70%)
+          let rightX = bounds.width * 0.7
+          
+          rightPath.move(to: CGPoint(x: rightX, y: 0))
+          rightPath.addLine(to: CGPoint(x: rightX, y: bounds.height))
+          
+          // Show only right threshold layer
+          rightThresholdLayer?.isHidden = false
+          rightThresholdLayer?.path = rightPath
+          
+      case .right:
+          // *** Right: Only show left threshold (matches counting_demo.py) ***
+          // Left threshold at 0.5 (50%)
+          let leftX = bounds.width * 0.5
+          
+          leftPath.move(to: CGPoint(x: leftX, y: 0))
+          leftPath.addLine(to: CGPoint(x: leftX, y: bounds.height))
+          
+          // Show only left threshold layer
+          leftThresholdLayer?.isHidden = false
+          leftThresholdLayer?.path = leftPath
+      }
+  }
+
+  // Helper method to position fish counting UI elements
+  private func positionFishCountingUI() {
+    // Position fish count label
+    fishCountLabel?.frame = CGRect(x: 20, y: 120, width: 150, height: 30)
+    
+    // Position reset button
+    if let resetButton = resetCountButton {
+      let buttonWidth = resetButton.frame.width
+      let rightMargin: CGFloat = 20
+      resetButton.frame = CGRect(
+        x: self.bounds.width - buttonWidth - rightMargin, 
+        y: 120, 
+        width: buttonWidth, 
+        height: 30)
+    }
+    
+    // Position camera angle controls
+    cameraAngleLabel?.frame = CGRect(x: 20, y: self.bounds.height - 120, width: 150, height: 30)
+    cameraAngleControl?.frame = CGRect(x: 20, y: self.bounds.height - 90, width: self.bounds.width - 40, height: 30)
+    
+    // Position the sliders
+    labelSliderConf.frame = CGRect(x: 20, y: self.bounds.height - 210, width: 200, height: 20)
+    sliderConf.frame = CGRect(x: 20, y: self.bounds.height - 190, width: self.bounds.width - 40, height: 20)
+    
+    // Position IoU slider
+    labelSliderIoU.frame = CGRect(x: 20, y: self.bounds.height - 170, width: 200, height: 20)
+    sliderIoU.frame = CGRect(x: 20, y: self.bounds.height - 150, width: self.bounds.width - 40, height: 20)
+  }
+
+  // Guaranteed method to always force overlay to be invisible for fish counting
+  private func ensureOverlayIsInvisible() {
+    // This is a complete solution to make the overlay invisible
+    // It must be applied consistently in multiple places
+    overlayLayer.frame = CGRect.zero
+    overlayLayer.opacity = 0 // Critical: Must be 0
+    overlayLayer.isHidden = true
+    overlayLayer.backgroundColor = UIColor.clear.cgColor
+    
+    // No content
+    overlayLayer.contents = nil
+    
+    // Clear sublayers
+    if let sublayers = overlayLayer.sublayers {
+      for layer in sublayers {
+        layer.removeFromSuperlayer()
+      }
+    }
+    overlayLayer.sublayers = nil
+    
+    // Debug message
+    print("Fish counting mode: Overlay made invisible")
   }
 }
 
