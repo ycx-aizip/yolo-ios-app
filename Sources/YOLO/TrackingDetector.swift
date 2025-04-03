@@ -18,6 +18,22 @@ class TrackingDetector: ObjectDetector {
     /// List of tracks from the previous frame
     private var tracks: [STrack] = []
     
+    /// Callback for when count changes
+    var onCountChanged: ((Int) -> Void)?
+    
+    /// Fish counting properties
+    private var fishCount: Int = 0
+    private var fishPassingInfo: [Int: (crossed: Bool, direction: String?)] = [:]
+    
+    /// Threshold values (normalized 0-1)
+    var upperThreshold: CGFloat = 0.3
+    var bottomThreshold: CGFloat = 0.7
+    var leftThreshold: CGFloat = 0.3
+    var rightThreshold: CGFloat = 0.7
+    
+    /// Active thresholds based on camera angle
+    var activeThresholds: Set<String> = ["upper", "bottom", "left", "right"]
+    
     /// Factory method to create a TrackingDetector instance
     /// - Parameters:
     ///   - unwrappedModelURL: URL to the CoreML model
@@ -61,9 +77,6 @@ class TrackingDetector: ObjectDetector {
         
         // Then, extract the bounding boxes from the most recent result
         if let onResultsListener = self.currentOnResultsListener {
-            // For testing only - convert detected boxes to the format needed by ByteTracker
-            print("DEBUG: TrackingDetector processing observations")
-            
             // Get the detection boxes from the most recent result
             if let results = request.results as? [VNRecognizedObjectObservation] {
                 var boxes: [CGRect] = []
@@ -91,11 +104,140 @@ class TrackingDetector: ObjectDetector {
                 // Update tracks with ByteTracker
                 if !boxes.isEmpty {
                     self.tracks = tracker.update(detections: boxes, scores: scores, classIds: classIds)
-                    print("DEBUG: TrackingDetector updated tracks, now has \(tracks.count) active tracks")
+                    print("DEBUG: TrackingDetector has \(tracks.count) active tracks")
                     
-                    // TODO: In the future, we'll add fish counting logic here
+                    // Process tracks for fish counting
+                    processTracksForCounting()
                 }
             }
         }
+    }
+    
+    /// Process tracks for fish counting
+    private func processTracksForCounting() {
+        // Skip if no active thresholds
+        if activeThresholds.isEmpty {
+            return
+        }
+        
+        // For each active track, check if it crossed a threshold
+        for track in tracks {
+            let trackId = track.trackId
+            let trackRect = track.bbox
+            
+            // Center point of the track
+            let centerX = trackRect.midX / inputSize.width
+            let centerY = trackRect.midY / inputSize.height
+            
+            // Check if this is a new track
+            if fishPassingInfo[trackId] == nil {
+                fishPassingInfo[trackId] = (crossed: false, direction: nil)
+            }
+            
+            // Check upper threshold crossing
+            if activeThresholds.contains("upper") && !fishPassingInfo[trackId]!.crossed {
+                if centerY < upperThreshold {
+                    // Track crossed upper threshold
+                    fishPassingInfo[trackId] = (crossed: true, direction: "up")
+                    fishCount += 1
+                    print("DEBUG: Fish #\(trackId) crossed upper threshold, count = \(fishCount)")
+                    notifyCountChanged()
+                }
+            }
+            
+            // Check bottom threshold crossing
+            if activeThresholds.contains("bottom") && !fishPassingInfo[trackId]!.crossed {
+                if centerY > bottomThreshold {
+                    // Track crossed bottom threshold
+                    fishPassingInfo[trackId] = (crossed: true, direction: "down")
+                    fishCount += 1
+                    print("DEBUG: Fish #\(trackId) crossed bottom threshold, count = \(fishCount)")
+                    notifyCountChanged()
+                }
+            }
+            
+            // Check left threshold crossing
+            if activeThresholds.contains("left") && !fishPassingInfo[trackId]!.crossed {
+                if centerX < leftThreshold {
+                    // Track crossed left threshold
+                    fishPassingInfo[trackId] = (crossed: true, direction: "left")
+                    fishCount += 1
+                    print("DEBUG: Fish #\(trackId) crossed left threshold, count = \(fishCount)")
+                    notifyCountChanged()
+                }
+            }
+            
+            // Check right threshold crossing
+            if activeThresholds.contains("right") && !fishPassingInfo[trackId]!.crossed {
+                if centerX > rightThreshold {
+                    // Track crossed right threshold
+                    fishPassingInfo[trackId] = (crossed: true, direction: "right")
+                    fishCount += 1
+                    print("DEBUG: Fish #\(trackId) crossed right threshold, count = \(fishCount)")
+                    notifyCountChanged()
+                }
+            }
+        }
+        
+        // Clean up old tracks
+        cleanupOldTracks()
+    }
+    
+    /// Clean up tracks that are no longer active
+    private func cleanupOldTracks() {
+        let activeTrackIds = Set(tracks.map { $0.trackId })
+        let inactiveTrackIds = Set(fishPassingInfo.keys).subtracting(activeTrackIds)
+        
+        for trackId in inactiveTrackIds {
+            fishPassingInfo.removeValue(forKey: trackId)
+        }
+    }
+    
+    /// Reset the fish count
+    func resetCount() {
+        fishCount = 0
+        fishPassingInfo.removeAll()
+        notifyCountChanged()
+    }
+    
+    /// Get the current fish count
+    var currentCount: Int {
+        return fishCount
+    }
+    
+    /// Configure active thresholds based on camera angle
+    func configureForCameraAngle(_ angle: String) {
+        // Reset active thresholds
+        activeThresholds.removeAll()
+        
+        // Set active thresholds based on camera angle
+        switch angle {
+        case "Front View":
+            activeThresholds.insert("upper")
+            activeThresholds.insert("bottom")
+            activeThresholds.insert("left")
+            activeThresholds.insert("right")
+        case "Top View", "Bottom View":
+            activeThresholds.insert("upper")
+            activeThresholds.insert("bottom")
+        case "Left View":
+            activeThresholds.insert("right")
+        case "Right View":
+            activeThresholds.insert("left")
+        default:
+            // Default to all thresholds
+            activeThresholds.insert("upper")
+            activeThresholds.insert("bottom")
+            activeThresholds.insert("left")
+            activeThresholds.insert("right")
+        }
+        
+        // Reset count when changing angles
+        resetCount()
+    }
+    
+    /// Notify when count changes
+    private func notifyCountChanged() {
+        onCountChanged?(fishCount)
     }
 } 

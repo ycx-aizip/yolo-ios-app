@@ -15,6 +15,15 @@ import AVFoundation
 import UIKit
 import Vision
 
+/// Camera angle configuration for fish counting
+public enum CameraAngle: String, CaseIterable {
+    case front = "Front View"
+    case top = "Top View"
+    case bottom = "Bottom View"
+    case left = "Left View"
+    case right = "Right View"
+}
+
 /// A UIView component that provides real-time object detection, segmentation, and pose estimation capabilities.
 @MainActor
 public class YOLOView: UIView, VideoCaptureDelegate {
@@ -117,6 +126,32 @@ public class YOLOView: UIView, VideoCaptureDelegate {
 
   public var capturedImage: UIImage?
   private var photoCaptureCompletion: ((UIImage?) -> Void)?
+  
+  // MARK: - Fish Counting Properties
+  
+  /// Layers for threshold line visualization
+  private var upperThresholdLayer: CAShapeLayer?
+  private var bottomThresholdLayer: CAShapeLayer?
+  private var leftThresholdLayer: CAShapeLayer?
+  private var rightThresholdLayer: CAShapeLayer?
+  
+  /// Label for displaying fish count
+  private var fishCountLabel: UILabel?
+  
+  /// Label for camera angle selection
+  private var cameraAngleLabel: UILabel?
+  
+  /// Reset count button
+  private var resetCountButton: UIButton?
+  
+  /// Segmented control for camera angle selection
+  private var cameraAngleControl: UISegmentedControl?
+  
+  /// Current camera angle
+  private var currentCameraAngle: CameraAngle = .front
+  
+  /// Current fish count
+  private var fishCount: Int = 0
 
   public init(
     frame: CGRect,
@@ -258,11 +293,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
       }
 
     case .fishCount:
-      // // For now, just use ObjectDetector for fish counting - we'll implement dedicated 
-      // tracking later
-      // // Create an ObjectDetector instance using the provided model URL
-      // ObjectDetector.create(unwrappedModelURL: unwrappedModelURL) { result in
-
       // Use TrackingDetector instead of ObjectDetector for fish counting
       // Create a TrackingDetector instance using the provided model URL
       TrackingDetector.create(unwrappedModelURL: unwrappedModelURL, isRealTime: true) {
@@ -270,6 +300,10 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         switch result {
         case .success(let predictor):
           handleSuccess(predictor: predictor)
+          // Setup fish counting UI components after the model is loaded
+          DispatchQueue.main.async {
+            self?.setupFishCountingUI()
+          }
         case .failure(let error):
           handleFailure(error)
         }
@@ -778,6 +812,18 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     setupOverlayLayer()
     let isLandscape = bounds.width > bounds.height
     activityIndicator.frame = CGRect(x: center.x - 50, y: center.y - 50, width: 100, height: 100)
+    
+    // Update threshold positions if in fish counting mode
+    if task == .fishCount {
+      updateThresholdPositions()
+      
+      // Reposition fish counting UI elements
+      fishCountLabel?.frame = CGRect(x: 20, y: 120, width: 200, height: 40)
+      resetCountButton?.frame = CGRect(x: 230, y: 120, width: 100, height: 40)
+      cameraAngleLabel?.frame = CGRect(x: 20, y: self.bounds.height - 120, width: 150, height: 30)
+      cameraAngleControl?.frame = CGRect(x: 20, y: self.bounds.height - 90, width: self.bounds.width - 40, height: 30)
+    }
+    
     if isLandscape {
       toolbar.backgroundColor = .clear
       playButton.tintColor = .darkGray
@@ -1096,6 +1142,294 @@ public class YOLOView: UIView, VideoCaptureDelegate {
 
   public func setInferenceFlag(ok: Bool) {
     videoCapture.inferenceOK = ok
+  }
+  
+  // MARK: - Fish Counting Methods
+  
+  /// Setup fish counting UI components
+  public func setupFishCountingUI() {
+      setupThresholdLayers()
+      setupCountDisplay()
+      setupCameraAngleSelection()
+      setupResetButton()
+      
+      // Initially hide some sliders for a cleaner UI
+      if task == .fishCount {
+          configureUIForFishCounting()
+      }
+  }
+  
+  /// Configure fish counting based on camera angle
+  public func configureCameraAngle(_ angle: CameraAngle) {
+      currentCameraAngle = angle
+      updateThresholdPositions()
+      
+      // Reset fish count when changing camera angle
+      resetFishCount()
+  }
+  
+  /// Reset the fish count
+  public func resetFishCount() {
+      fishCount = 0
+      updateCountDisplay()
+  }
+  
+  /// Update the fish count (should be called by TrackingDetector)
+  public func updateFishCount(_ newCount: Int) {
+      fishCount = newCount
+      updateCountDisplay()
+  }
+  
+  /// Setup threshold visualization layers
+  private func setupThresholdLayers() {
+      // Upper threshold
+      upperThresholdLayer = CAShapeLayer()
+      upperThresholdLayer?.strokeColor = UIColor.green.cgColor
+      upperThresholdLayer?.lineWidth = 2.0
+      upperThresholdLayer?.lineDashPattern = [6, 3] // Dashed line
+      
+      // Bottom threshold
+      bottomThresholdLayer = CAShapeLayer()
+      bottomThresholdLayer?.strokeColor = UIColor.red.cgColor
+      bottomThresholdLayer?.lineWidth = 2.0
+      bottomThresholdLayer?.lineDashPattern = [6, 3]
+      
+      // Left threshold
+      leftThresholdLayer = CAShapeLayer()
+      leftThresholdLayer?.strokeColor = UIColor.yellow.cgColor
+      leftThresholdLayer?.lineWidth = 2.0
+      leftThresholdLayer?.lineDashPattern = [6, 3]
+      
+      // Right threshold
+      rightThresholdLayer = CAShapeLayer()
+      rightThresholdLayer?.strokeColor = UIColor.blue.cgColor
+      rightThresholdLayer?.lineWidth = 2.0
+      rightThresholdLayer?.lineDashPattern = [6, 3]
+      
+      // Add layers to overlay layer
+      if let overlay = videoCapture.previewLayer {
+          overlay.addSublayer(upperThresholdLayer!)
+          overlay.addSublayer(bottomThresholdLayer!)
+          overlay.addSublayer(leftThresholdLayer!)
+          overlay.addSublayer(rightThresholdLayer!)
+      }
+      
+      // Initial update of threshold positions
+      updateThresholdPositions()
+  }
+  
+  /// Update threshold lines based on camera angle
+  private func updateThresholdPositions() {
+      // Get view bounds
+      let bounds = self.bounds
+      
+      // Create paths for threshold lines
+      let upperPath = CGMutablePath()
+      let bottomPath = CGMutablePath()
+      let leftPath = CGMutablePath()
+      let rightPath = CGMutablePath()
+      
+      // Set positions based on camera angle
+      switch currentCameraAngle {
+      case .front:
+          // Show all thresholds for front view
+          let upperY = bounds.height * 0.3
+          let bottomY = bounds.height * 0.7
+          let leftX = bounds.width * 0.3
+          let rightX = bounds.width * 0.7
+          
+          upperPath.move(to: CGPoint(x: 0, y: upperY))
+          upperPath.addLine(to: CGPoint(x: bounds.width, y: upperY))
+          
+          bottomPath.move(to: CGPoint(x: 0, y: bottomY))
+          bottomPath.addLine(to: CGPoint(x: bounds.width, y: bottomY))
+          
+          leftPath.move(to: CGPoint(x: leftX, y: 0))
+          leftPath.addLine(to: CGPoint(x: leftX, y: bounds.height))
+          
+          rightPath.move(to: CGPoint(x: rightX, y: 0))
+          rightPath.addLine(to: CGPoint(x: rightX, y: bounds.height))
+          
+          // Show all threshold layers
+          upperThresholdLayer?.isHidden = false
+          bottomThresholdLayer?.isHidden = false
+          leftThresholdLayer?.isHidden = false
+          rightThresholdLayer?.isHidden = false
+          
+      case .top, .bottom:
+          // For top/bottom views, only show horizontal thresholds
+          let upperY = bounds.height * 0.3
+          let bottomY = bounds.height * 0.7
+          
+          upperPath.move(to: CGPoint(x: 0, y: upperY))
+          upperPath.addLine(to: CGPoint(x: bounds.width, y: upperY))
+          
+          bottomPath.move(to: CGPoint(x: 0, y: bottomY))
+          bottomPath.addLine(to: CGPoint(x: bounds.width, y: bottomY))
+          
+          // Show only relevant threshold layers
+          upperThresholdLayer?.isHidden = false
+          bottomThresholdLayer?.isHidden = false
+          leftThresholdLayer?.isHidden = true
+          rightThresholdLayer?.isHidden = true
+          
+      case .left:
+          // For left view, only show right threshold
+          let rightX = bounds.width * 0.7
+          
+          rightPath.move(to: CGPoint(x: rightX, y: 0))
+          rightPath.addLine(to: CGPoint(x: rightX, y: bounds.height))
+          
+          // Show only relevant threshold layers
+          upperThresholdLayer?.isHidden = true
+          bottomThresholdLayer?.isHidden = true
+          leftThresholdLayer?.isHidden = true
+          rightThresholdLayer?.isHidden = false
+          
+      case .right:
+          // For right view, only show left threshold
+          let leftX = bounds.width * 0.3
+          
+          leftPath.move(to: CGPoint(x: leftX, y: 0))
+          leftPath.addLine(to: CGPoint(x: leftX, y: bounds.height))
+          
+          // Show only relevant threshold layers
+          upperThresholdLayer?.isHidden = true
+          bottomThresholdLayer?.isHidden = true
+          leftThresholdLayer?.isHidden = false
+          rightThresholdLayer?.isHidden = true
+      }
+      
+      // Update paths
+      upperThresholdLayer?.path = upperPath
+      bottomThresholdLayer?.path = bottomPath
+      leftThresholdLayer?.path = leftPath
+      rightThresholdLayer?.path = rightPath
+  }
+  
+  /// Setup count display label
+  private func setupCountDisplay() {
+      // Create fish count label if needed
+      if fishCountLabel == nil {
+          fishCountLabel = UILabel(frame: CGRect(x: 20, y: 120, width: 200, height: 40))
+          fishCountLabel?.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+          fishCountLabel?.layer.cornerRadius = 10
+          fishCountLabel?.layer.masksToBounds = true
+          fishCountLabel?.textColor = UIColor.white
+          fishCountLabel?.textAlignment = .center
+          fishCountLabel?.font = UIFont.systemFont(ofSize: 20, weight: .bold)
+          self.addSubview(fishCountLabel!)
+      }
+      
+      // Set initial count text
+      updateCountDisplay()
+  }
+  
+  /// Update count display with current value
+  private func updateCountDisplay() {
+      DispatchQueue.main.async {
+          self.fishCountLabel?.text = "Fish Count: \(self.fishCount)"
+      }
+  }
+  
+  /// Setup camera angle selection UI
+  private func setupCameraAngleSelection() {
+      // Label for camera angle selection
+      if cameraAngleLabel == nil {
+          cameraAngleLabel = UILabel(frame: CGRect(x: 20, y: self.bounds.height - 120, width: 150, height: 30))
+          cameraAngleLabel?.text = "Camera Angle:"
+          cameraAngleLabel?.textColor = UIColor.black
+          cameraAngleLabel?.font = UIFont.systemFont(ofSize: 16)
+          self.addSubview(cameraAngleLabel!)
+      }
+      
+      // Segmented control for camera angle selection
+      if cameraAngleControl == nil {
+          let angles = CameraAngle.allCases.map { $0.rawValue }
+          cameraAngleControl = UISegmentedControl(items: angles)
+          cameraAngleControl?.frame = CGRect(x: 20, y: self.bounds.height - 90, width: self.bounds.width - 40, height: 30)
+          cameraAngleControl?.selectedSegmentIndex = 0
+          cameraAngleControl?.addTarget(self, action: #selector(cameraAngleChanged(_:)), for: .valueChanged)
+          self.addSubview(cameraAngleControl!)
+      }
+  }
+  
+  /// Setup reset count button
+  private func setupResetButton() {
+      if resetCountButton == nil {
+          resetCountButton = UIButton(frame: CGRect(x: 230, y: 120, width: 100, height: 40))
+          resetCountButton?.setTitle("Reset", for: .normal)
+          resetCountButton?.backgroundColor = UIColor.darkGray
+          resetCountButton?.layer.cornerRadius = 10
+          resetCountButton?.addTarget(self, action: #selector(resetButtonTapped), for: .touchUpInside)
+          self.addSubview(resetCountButton!)
+      }
+  }
+  
+  /// Configure UI elements based on fish counting mode
+  private func configureUIForFishCounting() {
+      // Hide unnecessary sliders
+      sliderNumItems.isHidden = true
+      labelSliderNumItems.isHidden = true
+      sliderIoU.isHidden = true
+      labelSliderIoU.isHidden = true
+      
+      // Keep confidence slider for fish detection threshold
+      sliderConf.isHidden = false
+      labelSliderConf.isHidden = false
+      
+      // Show fish counting UI elements
+      fishCountLabel?.isHidden = false
+      resetCountButton?.isHidden = false
+      cameraAngleLabel?.isHidden = false
+      cameraAngleControl?.isHidden = false
+      
+      // Update threshold positions
+      updateThresholdPositions()
+      
+      // Connect to the TrackingDetector for count updates
+      connectToTrackingDetector()
+  }
+  
+  /// Connect to the TrackingDetector to get count updates
+  private func connectToTrackingDetector() {
+      guard let trackingDetector = videoCapture.predictor as? TrackingDetector else {
+          print("ERROR: Could not connect to TrackingDetector")
+          return
+      }
+      
+      // Set up callback to update count
+      trackingDetector.onCountChanged = { [weak self] newCount in
+          self?.updateFishCount(newCount)
+      }
+      
+      // Configure initial camera angle
+      let angleText = CameraAngle.allCases[cameraAngleControl?.selectedSegmentIndex ?? 0].rawValue
+      trackingDetector.configureForCameraAngle(angleText)
+  }
+  
+  /// Handle camera angle changes
+  @objc private func cameraAngleChanged(_ sender: UISegmentedControl) {
+      if let selectedIndex = sender.selectedSegmentIndex as? Int,
+         selectedIndex < CameraAngle.allCases.count {
+          let newAngle = CameraAngle.allCases[selectedIndex]
+          configureCameraAngle(newAngle)
+          
+          // Update TrackingDetector with new camera angle
+          if let trackingDetector = videoCapture.predictor as? TrackingDetector {
+              trackingDetector.configureForCameraAngle(newAngle.rawValue)
+          }
+      }
+  }
+  
+  /// Handle reset button taps
+  @objc private func resetButtonTapped() {
+      resetFishCount()
+      
+      // Also reset count in the TrackingDetector
+      if let trackingDetector = videoCapture.predictor as? TrackingDetector {
+          trackingDetector.resetCount()
+      }
   }
 }
 
