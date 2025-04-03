@@ -197,15 +197,7 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     }
     removeClassificationLayers()
 
-    // Store previous task to check if we're changing to/from fish counting
-    let previousTask = self.task
     self.task = task
-    
-    // For fish counting, make overlay invisible
-    if task == .fishCount {
-      ensureOverlayIsInvisible()
-    }
-    
     setupSublayers()
 
     var modelURL: URL?
@@ -243,14 +235,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
       self.videoCapture.predictor = predictor
       self.activityIndicator.stopAnimating()
       self.labelName.text = modelName
-      
-      // If we're switching to fish counting from another task, set up the UI
-      if task == .fishCount && previousTask != .fishCount {
-        DispatchQueue.main.async {
-          self.setupFishCountingUI()
-        }
-      }
-      
       completion?(.success(()))
     }
 
@@ -349,30 +333,12 @@ public class YOLOView: UIView, VideoCaptureDelegate {
           // Add the video preview into the UI.
           if let previewLayer = self.videoCapture.previewLayer {
             self.layer.insertSublayer(previewLayer, at: 0)
-            
-            // Configure preview layer for optimal appearance
-            if self.task == .fishCount {
-                previewLayer.frame = self.bounds
-                previewLayer.videoGravity = .resizeAspectFill
-                previewLayer.cornerRadius = 10
-                previewLayer.masksToBounds = true
-            } else {
-                previewLayer.frame = self.bounds
-            }
-            
+            self.videoCapture.previewLayer?.frame = self.bounds  // resize preview layer
             for box in self.boundingBoxViews {
               box.addToLayer(previewLayer)
             }
           }
-          
-          // Only add overlay for non-fish counting tasks
-          if self.task == .fishCount {
-            // Make overlay invisible for fish count task using our guaranteed method
-            self.ensureOverlayIsInvisible()
-          } else {
-            self.videoCapture.previewLayer?.addSublayer(self.overlayLayer)
-          }
-          
+          self.videoCapture.previewLayer?.addSublayer(self.overlayLayer)
           // Once everything is set up, we can start capturing live video.
           self.videoCapture.start()
 
@@ -399,13 +365,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   }
 
   func setupOverlayLayer() {
-    if task == .fishCount {
-        // For fish counting, use our guaranteed method to make overlay invisible
-        ensureOverlayIsInvisible()
-        return
-    }
-    
-    // Original code for other tasks
     let width = self.bounds.width
     let height = self.bounds.height
 
@@ -428,8 +387,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
       self.overlayLayer.frame = CGRect(
         x: 0, y: -margin, width: self.bounds.width, height: offSet)
     }
-    
-    self.videoCapture.previewLayer?.frame = self.bounds
   }
 
   func setupMaskLayerIfNeeded() {
@@ -511,9 +468,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     // For fish counting mode, handle bounding boxes differently
     if task == .fishCount {
       let resultCount = predictions.boxes.count
-      
-      // Make sure overlay is kept invisible
-      ensureOverlayIsInvisible()
       
       // Process detections
       for i in 0..<boundingBoxViews.count {
@@ -766,9 +720,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   }
 
   private func setupFishCountingUI() {
-    // Make the overlay completely invisible using our guaranteed method
-    ensureOverlayIsInvisible()
-    
     // Create threshold layers for fish counting
     setupThresholdLayers()
     
@@ -883,7 +834,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     sliderConf.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
     self.addSubview(sliderConf)
 
-    // Add back IoU slider
     labelSliderIoU.text = "0.45 IoU Threshold"
     labelSliderIoU.textAlignment = .left
     labelSliderIoU.textColor = .black
@@ -927,25 +877,17 @@ public class YOLOView: UIView, VideoCaptureDelegate {
 
   public override func layoutSubviews() {
     super.layoutSubviews()
+    setupOverlayLayer()
+    let isLandscape = bounds.width > bounds.height
+    activityIndicator.frame = CGRect(x: center.x - 50, y: center.y - 50, width: 100, height: 100)
     
+    // Update threshold positions if in fish counting mode
     if task == .fishCount {
-      // Use our guaranteed method to make overlay invisible
-      ensureOverlayIsInvisible()
-      
-      // Ensure the video preview takes the full view
-      videoCapture.previewLayer?.frame = self.bounds
-      
-      // Update threshold positions
       updateThresholdPositions()
       
       // Position fish counting UI elements
       positionFishCountingUI()
-    } else {
-      setupOverlayLayer()
     }
-    
-    let isLandscape = bounds.width > bounds.height
-    activityIndicator.frame = CGRect(x: center.x - 50, y: center.y - 50, width: 100, height: 100)
     
     // Position other UI elements (hiding the ones we don't need)
     labelName.isHidden = true  // Hide the model name
@@ -1450,30 +1392,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     // Position IoU slider
     labelSliderIoU.frame = CGRect(x: 20, y: self.bounds.height - 170, width: 200, height: 20)
     sliderIoU.frame = CGRect(x: 20, y: self.bounds.height - 150, width: self.bounds.width - 40, height: 20)
-  }
-
-  // Guaranteed method to always force overlay to be invisible for fish counting
-  private func ensureOverlayIsInvisible() {
-    // This is a complete solution to make the overlay invisible
-    // It must be applied consistently in multiple places
-    overlayLayer.frame = CGRect.zero
-    overlayLayer.opacity = 0 // Critical: Must be 0
-    overlayLayer.isHidden = true
-    overlayLayer.backgroundColor = UIColor.clear.cgColor
-    
-    // No content
-    overlayLayer.contents = nil
-    
-    // Clear sublayers
-    if let sublayers = overlayLayer.sublayers {
-      for layer in sublayers {
-        layer.removeFromSuperlayer()
-      }
-    }
-    overlayLayer.sublayers = nil
-    
-    // Debug message
-    print("Fish counting mode: Overlay made invisible")
   }
 }
 
