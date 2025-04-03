@@ -238,6 +238,10 @@ class TrackingDetector: ObjectDetector {
     
     /// Notify when count changes
     private func notifyCountChanged() {
-        onCountChanged?(fishCount)
+        // Ensure UI updates happen on the main thread
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.onCountChanged?(self.fishCount)
+        }
     }
 } 
