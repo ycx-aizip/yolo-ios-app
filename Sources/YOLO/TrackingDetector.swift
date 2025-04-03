@@ -238,10 +238,11 @@ class TrackingDetector: ObjectDetector {
     
     /// Notify when count changes
     private func notifyCountChanged() {
-        // Ensure UI updates happen on the main thread
+        // Ensure UI updates happen on the main thread since UI operations must be performed on main thread
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.onCountChanged?(self.fishCount)
+            // Use weak self to prevent retain cycles and memory leaks
+            guard let self = self else { return } // Safely unwrap self, return if self is nil
+            self.onCountChanged?(self.fishCount) // Call optional closure with current fish count
         }
     }
 } 
