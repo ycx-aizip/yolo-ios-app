@@ -104,6 +104,13 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   public var labelSliderConf = UILabel()
   public var sliderIoU = UISlider()
   public var labelSliderIoU = UILabel()
+  
+  // MARK: - New Threshold Sliders for Fish Counting
+  public var sliderThreshold1 = UISlider()
+  public var labelSliderThreshold1 = UILabel()
+  public var sliderThreshold2 = UISlider()
+  public var labelSliderThreshold2 = UILabel()
+  
   public var labelName = UILabel()
   public var labelFPS = UILabel()
   public var labelZoom = UILabel()
@@ -130,28 +137,31 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   // MARK: - Fish Counting Properties
   
   /// Layers for threshold line visualization
-  private var upperThresholdLayer: CAShapeLayer?
-  private var bottomThresholdLayer: CAShapeLayer?
-  private var leftThresholdLayer: CAShapeLayer?
-  private var rightThresholdLayer: CAShapeLayer?
+  private var thresholdLayers: [CAShapeLayer] = []
   
   /// Label for displaying fish count
   private var fishCountLabel: UILabel?
   
-  /// Label for camera angle selection
-  private var cameraAngleLabel: UILabel?
-  
   /// Reset count button
   private var resetCountButton: UIButton?
+  
+  // Comment out camera angle selection components as they're no longer needed
+  /*
+  /// Label for camera angle selection
+  private var cameraAngleLabel: UILabel?
   
   /// Segmented control for camera angle selection
   private var cameraAngleControl: UISegmentedControl?
   
   /// Current camera angle
   private var currentCameraAngle: CameraAngle = .front
+  */
   
   /// Current fish count
   private var fishCount: Int = 0
+  
+  /// Current threshold values (normalized 0-1) for fish counting
+  private var thresholdValues: [CGFloat] = [0.3, 0.5]
 
   public init(
     frame: CGRect,
@@ -726,9 +736,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     // Setup fish count display
     setupCountDisplay()
     
-    // Setup camera angle selection UI
-    setupCameraAngleSelection()
-    
     // Setup reset button
     setupResetButton()
     
@@ -819,31 +826,32 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     self.addSubview(sliderNumItems)
     sliderNumItems.isHidden = true
     
-    // Keep confidence slider
-    labelSliderConf.text = "0.25 Confidence Threshold"
+    // Configure confidence slider
+    labelSliderConf.text = String(format: "Conf: %.2f", 0.25)
     labelSliderConf.textAlignment = .left
-    labelSliderConf.textColor = .black
+    labelSliderConf.textColor = .white
     labelSliderConf.font = UIFont.preferredFont(forTextStyle: .subheadline)
     self.addSubview(labelSliderConf)
 
     sliderConf.minimumValue = 0
     sliderConf.maximumValue = 1
     sliderConf.value = 0.25
-    sliderConf.minimumTrackTintColor = .darkGray
+    sliderConf.minimumTrackTintColor = .white
     sliderConf.maximumTrackTintColor = .systemGray.withAlphaComponent(0.7)
     sliderConf.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
     self.addSubview(sliderConf)
 
-    labelSliderIoU.text = "0.45 IoU Threshold"
+    // Configure IoU slider
+    labelSliderIoU.text = String(format: "IoU: %.2f", 0.45)
     labelSliderIoU.textAlignment = .left
-    labelSliderIoU.textColor = .black
+    labelSliderIoU.textColor = .white
     labelSliderIoU.font = UIFont.preferredFont(forTextStyle: .subheadline)
     self.addSubview(labelSliderIoU)
 
     sliderIoU.minimumValue = 0
     sliderIoU.maximumValue = 1
     sliderIoU.value = 0.45
-    sliderIoU.minimumTrackTintColor = .darkGray
+    sliderIoU.minimumTrackTintColor = .white
     sliderIoU.maximumTrackTintColor = .systemGray.withAlphaComponent(0.7)
     sliderIoU.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
     self.addSubview(sliderIoU)
@@ -929,12 +937,14 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     }
     let conf = Double(round(100 * sliderConf.value)) / 100
     let iou = Double(round(100 * sliderIoU.value)) / 100
-    self.labelSliderConf.text = String(conf) + " Confidence Threshold"
-    self.labelSliderIoU.text = String(iou) + " IoU Threshold"
+    
+    // Update formatted text for slider labels
+    self.labelSliderConf.text = String(format: "Conf: %.2f", conf)
+    self.labelSliderIoU.text = String(format: "IoU: %.2f", iou)
+    
     if let detector = videoCapture.predictor as? ObjectDetector {
       detector.setIouThreshold(iou: iou)
       detector.setConfidenceThreshold(confidence: conf)
-
     }
   }
 
@@ -1037,361 +1047,308 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   
   /// Create and configure threshold layers for fish counting
   private func setupThresholdLayers() {
-      // Create upper threshold layer
-      if upperThresholdLayer == nil {
-          upperThresholdLayer = CAShapeLayer()
-          upperThresholdLayer?.strokeColor = UIColor.red.cgColor
-          upperThresholdLayer?.lineWidth = 2.0
-          upperThresholdLayer?.lineDashPattern = [5, 5] // Dashed line
-          upperThresholdLayer?.opacity = 0.8
-          upperThresholdLayer?.zPosition = 10 // Ensure it appears above other layers
-      }
-      
-      // Create bottom threshold layer
-      if bottomThresholdLayer == nil {
-          bottomThresholdLayer = CAShapeLayer()
-          bottomThresholdLayer?.strokeColor = UIColor.green.cgColor
-          bottomThresholdLayer?.lineWidth = 2.0
-          bottomThresholdLayer?.lineDashPattern = [5, 5] // Dashed line
-          bottomThresholdLayer?.opacity = 0.8
-          bottomThresholdLayer?.zPosition = 10 // Ensure it appears above other layers
-      }
-      
-      // Create left threshold layer
-      if leftThresholdLayer == nil {
-          leftThresholdLayer = CAShapeLayer()
-          leftThresholdLayer?.strokeColor = UIColor.blue.cgColor
-          leftThresholdLayer?.lineWidth = 2.0
-          leftThresholdLayer?.lineDashPattern = [5, 5] // Dashed line
-          leftThresholdLayer?.opacity = 0.8
-          leftThresholdLayer?.zPosition = 10 // Ensure it appears above other layers
-      }
-      
-      // Create right threshold layer
-      if rightThresholdLayer == nil {
-          rightThresholdLayer = CAShapeLayer()
-          rightThresholdLayer?.strokeColor = UIColor.yellow.cgColor
-          rightThresholdLayer?.lineWidth = 2.0
-          rightThresholdLayer?.lineDashPattern = [5, 5] // Dashed line
-          rightThresholdLayer?.opacity = 0.8
-          rightThresholdLayer?.zPosition = 10 // Ensure it appears above other layers
-      }
-      
-      // Add layers to the preview layer for proper z-ordering
-      if let previewLayer = videoCapture.previewLayer {
-          previewLayer.addSublayer(upperThresholdLayer!)
-          previewLayer.addSublayer(bottomThresholdLayer!)
-          previewLayer.addSublayer(leftThresholdLayer!)
-          previewLayer.addSublayer(rightThresholdLayer!)
-      } else {
-          // Fall back to adding to self.layer if preview layer isn't available yet
-          self.layer.addSublayer(upperThresholdLayer!)
-          self.layer.addSublayer(bottomThresholdLayer!)
-          self.layer.addSublayer(leftThresholdLayer!)
-          self.layer.addSublayer(rightThresholdLayer!)
-      }
-      
-      // Update threshold positions based on initial camera angle
-      updateThresholdPositions()
-  }
-  
-  /// Configure camera angle and update threshold positions
-  private func configureCameraAngle(_ angle: CameraAngle) {
-      currentCameraAngle = angle
-      
-      // Update UI for camera angle
-      DispatchQueue.main.async {
-          // First, clear all threshold paths
-          self.upperThresholdLayer?.path = nil
-          self.bottomThresholdLayer?.path = nil
-          self.leftThresholdLayer?.path = nil
-          self.rightThresholdLayer?.path = nil
-          
-          // Hide all by default
-          self.upperThresholdLayer?.isHidden = true
-          self.bottomThresholdLayer?.isHidden = true
-          self.leftThresholdLayer?.isHidden = true
-          self.rightThresholdLayer?.isHidden = true
-          
-          // Update threshold positions for the new angle
-          self.updateThresholdPositions()
-      }
-  }
-  
-  /// Reset the fish count
-  public func resetFishCount() {
-      fishCount = 0
-      updateCountDisplay()
-  }
-  
-  /// Update the fish count (should be called by TrackingDetector)
-  public func updateFishCount(_ newCount: Int) {
-      fishCount = newCount
-      updateCountDisplay()
-  }
-  
-  /// Setup count display label
-  private func setupCountDisplay() {
-      // Create fish count label if needed
-      if fishCountLabel == nil {
-          fishCountLabel = UILabel(frame: CGRect(x: 20, y: 120, width: 150, height: 30))  // Make smaller
-          fishCountLabel?.backgroundColor = UIColor.black.withAlphaComponent(0.6)
-          fishCountLabel?.layer.cornerRadius = 8  // Adjust corner radius for smaller label
-          fishCountLabel?.layer.masksToBounds = true
-          fishCountLabel?.textColor = UIColor.white
-          fishCountLabel?.textAlignment = .center
-          fishCountLabel?.font = UIFont.systemFont(ofSize: 16, weight: .bold)  // Smaller font
-          self.addSubview(fishCountLabel!)
-      }
-      
-      // Set initial count text
-      updateCountDisplay()
-  }
-  
-  /// Update count display with current value
-  private func updateCountDisplay() {
-      DispatchQueue.main.async {
-          self.fishCountLabel?.text = "Fish Count: \(self.fishCount)"
-      }
-  }
-  
-  /// Setup camera angle selection UI
-  private func setupCameraAngleSelection() {
-      // Label for camera angle selection
-      if cameraAngleLabel == nil {
-          cameraAngleLabel = UILabel(frame: CGRect(x: 20, y: self.bounds.height - 120, width: 150, height: 30))
-          cameraAngleLabel?.text = "Camera Angle:"
-          cameraAngleLabel?.textColor = UIColor.black
-          cameraAngleLabel?.font = UIFont.systemFont(ofSize: 16)
-          self.addSubview(cameraAngleLabel!)
-      }
-      
-      // Segmented control for camera angle selection
-      if cameraAngleControl == nil {
-          let angles = CameraAngle.allCases.map { $0.rawValue }
-          cameraAngleControl = UISegmentedControl(items: angles)
-          cameraAngleControl?.frame = CGRect(x: 20, y: self.bounds.height - 90, width: self.bounds.width - 40, height: 30)
-          cameraAngleControl?.selectedSegmentIndex = 0
-          cameraAngleControl?.addTarget(self, action: #selector(cameraAngleChanged(_:)), for: .valueChanged)
-          self.addSubview(cameraAngleControl!)
-      }
-  }
-  
-  /// Setup reset count button
-  private func setupResetButton() {
-      if resetCountButton == nil {
-          let buttonWidth: CGFloat = 80
-          let buttonHeight: CGFloat = 30
-          let rightMargin: CGFloat = 20
-          
-          resetCountButton = UIButton(frame: CGRect(
-              x: self.bounds.width - buttonWidth - rightMargin, 
-              y: 120, 
-              width: buttonWidth, 
-              height: buttonHeight))
-              
-          resetCountButton?.setTitle("Reset", for: .normal)
-          resetCountButton?.backgroundColor = UIColor.darkGray
-          resetCountButton?.layer.cornerRadius = 8
-          resetCountButton?.addTarget(self, action: #selector(resetButtonTapped), for: .touchUpInside)
-          resetCountButton?.titleLabel?.font = UIFont.systemFont(ofSize: 14, weight: .medium)
-          self.addSubview(resetCountButton!)
-      }
-  }
-  
-  /// Configure UI elements based on fish counting mode
-  private func configureUIForFishCounting() {
-      // Hide unnecessary sliders
-      sliderNumItems.isHidden = true
-      labelSliderNumItems.isHidden = true
-      
-      // Keep confidence slider for fish detection threshold
-      sliderConf.isHidden = false
-      labelSliderConf.isHidden = false
-      
-      // Add back IoU slider as requested
-      sliderIoU.isHidden = false
-      labelSliderIoU.isHidden = false
-      
-      // Show fish counting UI elements
-      fishCountLabel?.isHidden = false
-      resetCountButton?.isHidden = false
-      cameraAngleLabel?.isHidden = false
-      cameraAngleControl?.isHidden = false
-      
-      // Update threshold positions
-      updateThresholdPositions()
-      
-      // Connect to the TrackingDetector for count updates
-      connectToTrackingDetector()
-  }
-  
-  /// Connect to the TrackingDetector to get count updates
-  private func connectToTrackingDetector() {
-      guard let trackingDetector = videoCapture.predictor as? TrackingDetector else {
-          print("ERROR: Could not connect to TrackingDetector")
-          return
-      }
-      
-      // Set up callback to update count
-      trackingDetector.onCountChanged = { [weak self] newCount in
-          self?.updateFishCount(newCount)
-      }
-      
-      // Configure initial camera angle
-      let angleText = CameraAngle.allCases[cameraAngleControl?.selectedSegmentIndex ?? 0].rawValue
-      trackingDetector.configureForCameraAngle(angleText)
-  }
-  
-  /// Handle camera angle changes
-  @objc private func cameraAngleChanged(_ sender: UISegmentedControl) {
-      if let selectedIndex = sender.selectedSegmentIndex as? Int,
-         selectedIndex < CameraAngle.allCases.count {
-          let newAngle = CameraAngle.allCases[selectedIndex]
-          configureCameraAngle(newAngle)
-          
-          // Update TrackingDetector with new camera angle
-          if let trackingDetector = videoCapture.predictor as? TrackingDetector {
-              trackingDetector.configureForCameraAngle(newAngle.rawValue)
-          }
-      }
-  }
-  
-  /// Handle reset button taps
-  @objc private func resetButtonTapped() {
-      resetFishCount()
-      
-      // Also reset count in the TrackingDetector
-      if let trackingDetector = videoCapture.predictor as? TrackingDetector {
-          trackingDetector.resetCount()
-      }
-  }
-
-  /// Update threshold lines based on camera angle
-  private func updateThresholdPositions() {
-      // First, clear ALL threshold paths
-      upperThresholdLayer?.path = nil
-      bottomThresholdLayer?.path = nil
-      leftThresholdLayer?.path = nil
-      rightThresholdLayer?.path = nil
-      
-      // Hide all by default
-      upperThresholdLayer?.isHidden = true
-      bottomThresholdLayer?.isHidden = true
-      leftThresholdLayer?.isHidden = true
-      rightThresholdLayer?.isHidden = true
-      
-      // Get view bounds
-      let bounds = self.bounds
-      
-      // Create paths for threshold lines
-      let upperPath = CGMutablePath()
-      let bottomPath = CGMutablePath()
-      let leftPath = CGMutablePath()
-      let rightPath = CGMutablePath()
-      
-      // Set positions based on camera angle, exactly matching counting_demo.py
-      switch currentCameraAngle {
-      case .front:
-          // *** Front: Show all four thresholds (matches counting_demo.py) ***
-          // Upper threshold at 0.2 (20%)
-          let upperY = bounds.height * 0.2
-          // Bottom threshold at 0.8 (80%)
-          let bottomY = bounds.height * 0.8
-          // Left threshold at 0.2 (20%)
-          let leftX = bounds.width * 0.2
-          // Right threshold at 0.8 (80%)
-          let rightX = bounds.width * 0.8
-          
-          upperPath.move(to: CGPoint(x: 0, y: upperY))
-          upperPath.addLine(to: CGPoint(x: bounds.width, y: upperY))
-          
-          bottomPath.move(to: CGPoint(x: 0, y: bottomY))
-          bottomPath.addLine(to: CGPoint(x: bounds.width, y: bottomY))
-          
-          leftPath.move(to: CGPoint(x: leftX, y: 0))
-          leftPath.addLine(to: CGPoint(x: leftX, y: bounds.height))
-          
-          rightPath.move(to: CGPoint(x: rightX, y: 0))
-          rightPath.addLine(to: CGPoint(x: rightX, y: bounds.height))
-          
-          // Show all threshold layers
-          upperThresholdLayer?.isHidden = false
-          bottomThresholdLayer?.isHidden = false
-          leftThresholdLayer?.isHidden = false
-          rightThresholdLayer?.isHidden = false
-          
-          // Set paths
-          upperThresholdLayer?.path = upperPath
-          bottomThresholdLayer?.path = bottomPath
-          leftThresholdLayer?.path = leftPath
-          rightThresholdLayer?.path = rightPath
-          
-      case .top, .bottom:
-          // *** Top/Bottom: Only show bottom threshold (matches counting_demo.py) ***
-          // Bottom threshold at 0.8 (80%)
-          let bottomY = bounds.height * 0.8
-          
-          bottomPath.move(to: CGPoint(x: 0, y: bottomY))
-          bottomPath.addLine(to: CGPoint(x: bounds.width, y: bottomY))
-          
-          // Show only bottom threshold layer
-          bottomThresholdLayer?.isHidden = false
-          bottomThresholdLayer?.path = bottomPath
-          
-      case .left:
-          // *** Left: Only show right threshold (matches counting_demo.py) ***
-          // Right threshold at 0.7 (70%)
-          let rightX = bounds.width * 0.7
-          
-          rightPath.move(to: CGPoint(x: rightX, y: 0))
-          rightPath.addLine(to: CGPoint(x: rightX, y: bounds.height))
-          
-          // Show only right threshold layer
-          rightThresholdLayer?.isHidden = false
-          rightThresholdLayer?.path = rightPath
-          
-      case .right:
-          // *** Right: Only show left threshold (matches counting_demo.py) ***
-          // Left threshold at 0.5 (50%)
-          let leftX = bounds.width * 0.5
-          
-          leftPath.move(to: CGPoint(x: leftX, y: 0))
-          leftPath.addLine(to: CGPoint(x: leftX, y: bounds.height))
-          
-          // Show only left threshold layer
-          leftThresholdLayer?.isHidden = false
-          leftThresholdLayer?.path = leftPath
-      }
-  }
-
-  // Helper method to position fish counting UI elements
-  private func positionFishCountingUI() {
-    // Position fish count label
-    fishCountLabel?.frame = CGRect(x: 20, y: 120, width: 150, height: 30)
+    // Clear any existing layers
+    for layer in thresholdLayers {
+        layer.removeFromSuperlayer()
+    }
+    thresholdLayers.removeAll()
     
-    // Position reset button
-    if let resetButton = resetCountButton {
-      let buttonWidth = resetButton.frame.width
-      let rightMargin: CGFloat = 20
-      resetButton.frame = CGRect(
-        x: self.bounds.width - buttonWidth - rightMargin, 
-        y: 120, 
-        width: buttonWidth, 
-        height: 30)
+    // Create horizontal threshold layers - one for each threshold
+    for (index, _) in thresholdValues.enumerated() {
+        let thresholdLayer = CAShapeLayer()
+        thresholdLayer.strokeColor = index == 0 ? UIColor.red.cgColor : UIColor.green.cgColor
+        thresholdLayer.lineWidth = 2.0
+        thresholdLayer.lineDashPattern = [6, 3] // Dashed line
+        thresholdLayer.opacity = 0.8
+        thresholdLayer.zPosition = 10 // Ensure it appears above other layers
+        
+        // Add layers to the preview layer for proper z-ordering
+        if let previewLayer = videoCapture.previewLayer {
+            previewLayer.addSublayer(thresholdLayer)
+        } else {
+            // Fall back to adding to self.layer if preview layer isn't available yet
+            self.layer.addSublayer(thresholdLayer)
+        }
+        
+        thresholdLayers.append(thresholdLayer)
     }
     
-    // Position camera angle controls
-    cameraAngleLabel?.frame = CGRect(x: 20, y: self.bounds.height - 120, width: 150, height: 30)
-    cameraAngleControl?.frame = CGRect(x: 20, y: self.bounds.height - 90, width: self.bounds.width - 40, height: 30)
+    // Update threshold positions
+    updateThresholdPositions()
+  }
+
+  /// Setup threshold sliders
+  private func setupThresholdSliders() {
+    // Configure the threshold sliders
     
-    // Position the sliders
-    labelSliderConf.frame = CGRect(x: 20, y: self.bounds.height - 210, width: 200, height: 20)
-    sliderConf.frame = CGRect(x: 20, y: self.bounds.height - 190, width: self.bounds.width - 40, height: 20)
+    // First threshold slider
+    sliderThreshold1.minimumValue = 0.0
+    sliderThreshold1.maximumValue = 1.0
+    sliderThreshold1.value = Float(thresholdValues[0])
+    sliderThreshold1.addTarget(self, action: #selector(thresholdSliderChanged(_:)), for: .valueChanged)
+    sliderThreshold1.frame = CGRect(x: 20, y: self.bounds.height - 80, width: self.bounds.width / 2 - 30, height: 20)
+    sliderThreshold1.minimumTrackTintColor = UIColor.red
     
-    // Position IoU slider
-    labelSliderIoU.frame = CGRect(x: 20, y: self.bounds.height - 170, width: 200, height: 20)
-    sliderIoU.frame = CGRect(x: 20, y: self.bounds.height - 150, width: self.bounds.width - 40, height: 20)
+    labelSliderThreshold1.text = "Threshold 1: \(thresholdValues[0])"
+    labelSliderThreshold1.frame = CGRect(x: 20, y: self.bounds.height - 100, width: self.bounds.width / 2 - 30, height: 20)
+    labelSliderThreshold1.font = UIFont.systemFont(ofSize: 12)
+    labelSliderThreshold1.textColor = UIColor.red
+    
+    // Second threshold slider
+    sliderThreshold2.minimumValue = 0.0
+    sliderThreshold2.maximumValue = 1.0
+    sliderThreshold2.value = Float(thresholdValues[1])
+    sliderThreshold2.addTarget(self, action: #selector(thresholdSliderChanged(_:)), for: .valueChanged)
+    sliderThreshold2.frame = CGRect(x: self.bounds.width / 2 + 10, y: self.bounds.height - 80, width: self.bounds.width / 2 - 30, height: 20)
+    sliderThreshold2.minimumTrackTintColor = UIColor.green
+    
+    labelSliderThreshold2.text = "Threshold 2: \(thresholdValues[1])"
+    labelSliderThreshold2.frame = CGRect(x: self.bounds.width / 2 + 10, y: self.bounds.height - 100, width: self.bounds.width / 2 - 30, height: 20)
+    labelSliderThreshold2.font = UIFont.systemFont(ofSize: 12)
+    labelSliderThreshold2.textColor = UIColor.green
+    
+    // Add to view
+    self.addSubview(sliderThreshold1)
+    self.addSubview(labelSliderThreshold1)
+    self.addSubview(sliderThreshold2)
+    self.addSubview(labelSliderThreshold2)
+  }
+
+  /// Update threshold positions based on current values
+  private func updateThresholdPositions() {
+    guard let previewLayer = videoCapture.previewLayer else { return }
+    
+    let bounds = previewLayer.bounds
+    
+    // Update each threshold line
+    for (index, threshold) in thresholdValues.enumerated() {
+        guard index < thresholdLayers.count else { continue }
+        
+        let thresholdLayer = thresholdLayers[index]
+        
+        // Create a path for the horizontal line
+        let path = CGMutablePath()
+        let yPosition = bounds.height * threshold
+        path.move(to: CGPoint(x: 0, y: yPosition))
+        path.addLine(to: CGPoint(x: bounds.width, y: yPosition))
+        
+        thresholdLayer.path = path
+        thresholdLayer.isHidden = false
+    }
+  }
+
+  /// Update fish count display with current value
+  private func updateCountDisplay() {
+    DispatchQueue.main.async {
+        self.fishCountLabel?.text = "Fish Count: \(self.fishCount)"
+    }
+  }
+
+  /// Reset the fish count
+  public func resetFishCount() {
+    fishCount = 0
+    updateCountDisplay()
+    
+    // Also reset count in TrackingDetector
+    if let trackingDetector = videoCapture.predictor as? TrackingDetector {
+        trackingDetector.resetCount()
+    }
+  }
+
+  /// Update the fish count (should be called by TrackingDetector)
+  public func updateFishCount(_ newCount: Int) {
+    fishCount = newCount
+    updateCountDisplay()
+  }
+
+  /// Setup count display label
+  private func setupCountDisplay() {
+    // Create fish count label if needed
+    if fishCountLabel == nil {
+        fishCountLabel = UILabel(frame: CGRect(x: 20, y: 120, width: 150, height: 30))  // Make smaller
+        fishCountLabel?.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        fishCountLabel?.layer.cornerRadius = 8  // Adjust corner radius for smaller label
+        fishCountLabel?.layer.masksToBounds = true
+        fishCountLabel?.textColor = UIColor.white
+        fishCountLabel?.textAlignment = .center
+        fishCountLabel?.font = UIFont.systemFont(ofSize: 16, weight: .bold)  // Smaller font
+        self.addSubview(fishCountLabel!)
+    }
+    
+    // Set initial count text
+    updateCountDisplay()
+  }
+
+  /// Setup reset count button
+  private func setupResetButton() {
+    if resetCountButton == nil {
+        let buttonWidth: CGFloat = 80
+        let buttonHeight: CGFloat = 30
+        let rightMargin: CGFloat = 20
+        
+        resetCountButton = UIButton(frame: CGRect(
+            x: self.bounds.width - buttonWidth - rightMargin, 
+            y: 120, 
+            width: buttonWidth, 
+            height: buttonHeight))
+            
+        resetCountButton?.setTitle("Reset", for: .normal)
+        resetCountButton?.backgroundColor = UIColor.darkGray
+        resetCountButton?.layer.cornerRadius = 8
+        resetCountButton?.addTarget(self, action: #selector(resetButtonTapped), for: .touchUpInside)
+        resetCountButton?.titleLabel?.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+        self.addSubview(resetCountButton!)
+    }
+  }
+
+  /// Handle reset button tap
+  @objc private func resetButtonTapped() {
+    resetFishCount()
+  }
+
+  /// Handle threshold slider changes
+  @objc private func thresholdSliderChanged(_ sender: UISlider) {
+    if sender === sliderThreshold1 {
+        thresholdValues[0] = CGFloat(sender.value)
+        labelSliderThreshold1.text = String(format: "Threshold 1: %.2f", thresholdValues[0])
+    } else if sender === sliderThreshold2 {
+        thresholdValues[1] = CGFloat(sender.value)
+        labelSliderThreshold2.text = String(format: "Threshold 2: %.2f", thresholdValues[1])
+    }
+    
+    // Update threshold positions
+    updateThresholdPositions()
+    
+    // Update thresholds in TrackingDetector
+    if let trackingDetector = videoCapture.predictor as? TrackingDetector {
+        trackingDetector.updateThresholds(thresholds: thresholdValues)
+    }
+  }
+
+  /// Configure UI elements based on fish counting mode
+  private func configureUIForFishCounting() {
+    // Hide unnecessary sliders
+    sliderNumItems.isHidden = true
+    labelSliderNumItems.isHidden = true
+    
+    // Keep confidence slider for fish detection threshold
+    sliderConf.isHidden = false
+    labelSliderConf.isHidden = false
+    
+    // Keep IoU slider as requested
+    sliderIoU.isHidden = false
+    labelSliderIoU.isHidden = false
+    
+    // Show threshold sliders
+    setupThresholdSliders()
+    
+    // Show fish counting UI elements
+    fishCountLabel?.isHidden = false
+    resetCountButton?.isHidden = false
+    
+    // Setup threshold layers
+    setupThresholdLayers()
+    
+    // Connect to the TrackingDetector for count updates
+    connectToTrackingDetector()
+  }
+
+  /// Connect to the TrackingDetector to get count updates
+  private func connectToTrackingDetector() {
+    guard let predictor = videoCapture.predictor,
+          let trackingDetector = predictor as? TrackingDetector else {
+      print("ERROR: Could not connect to TrackingDetector")
+      return
+    }
+    
+    // Set up callback to update count
+    trackingDetector.onCountChanged = { [weak self] newCount in
+      self?.updateFishCount(newCount)
+    }
+    
+    // Configure initial thresholds
+    trackingDetector.updateThresholds(thresholds: thresholdValues)
+  }
+
+  /// Position UI elements for fish counting
+  private func positionFishCountingUI() {
+    // Position fish count label
+    fishCountLabel?.frame = CGRect(
+        x: 20,
+        y: 120,
+        width: 150,
+        height: 30)
+    
+    // Position reset button
+    let buttonWidth: CGFloat = 80
+    let buttonHeight: CGFloat = 30
+    let rightMargin: CGFloat = 20
+    
+    resetCountButton?.frame = CGRect(
+        x: self.bounds.width - buttonWidth - rightMargin,
+        y: 120,
+        width: buttonWidth,
+        height: buttonHeight)
+    
+    // Position confidence and IoU sliders side by side in one row
+    // Confidence slider (left half)
+    labelSliderConf.textColor = UIColor.white
+    labelSliderConf.frame = CGRect(x: 20, y: self.bounds.height - 150, width: self.bounds.width / 2 - 30, height: 20)
+    sliderConf.frame = CGRect(x: 20, y: self.bounds.height - 130, width: self.bounds.width / 2 - 30, height: 20)
+    sliderConf.minimumTrackTintColor = UIColor.white
+    
+    // IoU slider (right half)
+    labelSliderIoU.textColor = UIColor.white
+    labelSliderIoU.frame = CGRect(x: self.bounds.width / 2 + 10, y: self.bounds.height - 150, width: self.bounds.width / 2 - 30, height: 20)
+    sliderIoU.frame = CGRect(x: self.bounds.width / 2 + 10, y: self.bounds.height - 130, width: self.bounds.width / 2 - 30, height: 20)
+    sliderIoU.minimumTrackTintColor = UIColor.white
+    
+    // Position threshold sliders
+    sliderThreshold1.frame = CGRect(x: 20, y: self.bounds.height - 80, width: self.bounds.width / 2 - 30, height: 20)
+    labelSliderThreshold1.frame = CGRect(x: 20, y: self.bounds.height - 100, width: self.bounds.width / 2 - 30, height: 20)
+    
+    sliderThreshold2.frame = CGRect(x: self.bounds.width / 2 + 10, y: self.bounds.height - 80, width: self.bounds.width / 2 - 30, height: 20)
+    labelSliderThreshold2.frame = CGRect(x: self.bounds.width / 2 + 10, y: self.bounds.height - 100, width: self.bounds.width / 2 - 30, height: 20)
+  }
+
+  /// Show or hide UI controls for fish counting
+  public func setFishCountUIVisible(_ isVisible: Bool) {
+    // Fish count display
+    fishCountLabel?.isHidden = !isVisible
+    resetCountButton?.isHidden = !isVisible
+    
+    // Threshold sliders for counting lines
+    sliderThreshold1.isHidden = !isVisible
+    labelSliderThreshold1.isHidden = !isVisible
+    sliderThreshold2.isHidden = !isVisible
+    labelSliderThreshold2.isHidden = !isVisible
+    
+    // Update threshold layers visibility
+    for layer in thresholdLayers {
+      layer.isHidden = !isVisible
+    }
+    
+    // Note: Confidence and IoU sliders remain visible as they're needed for detection quality
+  }
+
+  /// Get the current predictor (internal use only)
+  func getPredictor() -> Predictor? {
+    return videoCapture.predictor
+  }
+  
+  /// Update the threshold values for fish counting (can be called from outside the module)
+  public func updateFishCountingThresholds(thresholds: [CGFloat]) {
+    // Store the new threshold values
+    self.thresholdValues = thresholds
+    
+    // Update threshold positions in UI
+    updateThresholdPositions()
+    
+    // Pass to the tracking detector if available
+    if let predictor = videoCapture.predictor,
+       let trackingDetector = predictor as? TrackingDetector {
+      trackingDetector.updateThresholds(thresholds: thresholdValues)
+    }
   }
 }
 

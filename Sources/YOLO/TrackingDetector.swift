@@ -25,6 +25,12 @@ class TrackingDetector: ObjectDetector {
     private var fishCount: Int = 0
     private var fishPassingInfo: [Int: (crossed: Bool, direction: String?)] = [:]
     
+    /// Threshold values for horizontal lines (normalized 0-1)
+    /// Multiple thresholds for top-down view (default: 0.3, 0.5)
+    var thresholds: [CGFloat] = [0.3, 0.5]
+    
+    // Comment out individual directional thresholds as they're replaced by the thresholds array
+    /*
     /// Threshold values (normalized 0-1)
     var upperThreshold: CGFloat = 0.3
     var bottomThreshold: CGFloat = 0.7
@@ -33,6 +39,7 @@ class TrackingDetector: ObjectDetector {
     
     /// Active thresholds based on camera angle
     var activeThresholds: Set<String> = ["upper", "bottom", "left", "right"]
+    */
     
     /// Factory method to create a TrackingDetector instance
     /// - Parameters:
@@ -113,10 +120,10 @@ class TrackingDetector: ObjectDetector {
         }
     }
     
-    /// Process tracks for fish counting
+    /// Process tracks for fish counting using the new top-down approach from counting_demo2.py
     private func processTracksForCounting() {
-        // Skip if no active thresholds
-        if activeThresholds.isEmpty {
+        // Skip if no thresholds defined
+        if thresholds.isEmpty {
             return
         }
         
@@ -125,57 +132,61 @@ class TrackingDetector: ObjectDetector {
             let trackId = track.trackId
             let trackRect = track.bbox
             
-            // Center point of the track
-            let centerX = trackRect.midX / inputSize.width
-            let centerY = trackRect.midY / inputSize.height
+            // Calculate weighted center point (80% toward bottom as in Python implementation)
+            // This matches the Python code: center_x, center_y = (x_min + x_max) / 2, (y_min + y_max*4) / 5
+            let centerX = trackRect.midX
+            let weightedCenterY = (trackRect.minY + trackRect.maxY * 4) / 5 // Weight toward bottom/tail
+            
+            // Normalize to 0-1 range
+            let normalizedCenterX = centerX / inputSize.width
+            let normalizedCenterY = weightedCenterY / inputSize.height
             
             // Check if this is a new track
             if fishPassingInfo[trackId] == nil {
                 fishPassingInfo[trackId] = (crossed: false, direction: nil)
+                continue // Skip first frame for this track since we need previous position
             }
             
-            // Check upper threshold crossing
-            if activeThresholds.contains("upper") && !fishPassingInfo[trackId]!.crossed {
-                if centerY < upperThreshold {
-                    // Track crossed upper threshold
-                    fishPassingInfo[trackId] = (crossed: true, direction: "up")
-                    fishCount += 1
-                    print("DEBUG: Fish #\(trackId) crossed upper threshold, count = \(fishCount)")
-                    notifyCountChanged()
-                }
-            }
+            // Get previous position
+            let lastPosition = fishPassingInfo[trackId]!
             
-            // Check bottom threshold crossing
-            if activeThresholds.contains("bottom") && !fishPassingInfo[trackId]!.crossed {
-                if centerY > bottomThreshold {
-                    // Track crossed bottom threshold
+            // Store current position for next frame
+            let currentPosition = (normalizedCenterX, normalizedCenterY)
+            
+            // Check forward threshold crossing (increment count)
+            var hasChanged = false
+            for threshold in thresholds {
+                let pixelThreshold = threshold * inputSize.height
+                
+                // Convert previous position to track state format
+                let lastY = trackRect.midY // Use previous position from state
+                
+                // Check if track crossed threshold from top to bottom (forward)
+                if !fishPassingInfo[trackId]!.crossed && lastY < pixelThreshold && weightedCenterY >= pixelThreshold {
                     fishPassingInfo[trackId] = (crossed: true, direction: "down")
                     fishCount += 1
-                    print("DEBUG: Fish #\(trackId) crossed bottom threshold, count = \(fishCount)")
-                    notifyCountChanged()
+                    hasChanged = true
+                    print("DEBUG: Fish #\(trackId) crossed threshold \(threshold), count = \(fishCount)")
                 }
             }
             
-            // Check left threshold crossing
-            if activeThresholds.contains("left") && !fishPassingInfo[trackId]!.crossed {
-                if centerX < leftThreshold {
-                    // Track crossed left threshold
-                    fishPassingInfo[trackId] = (crossed: true, direction: "left")
-                    fishCount += 1
-                    print("DEBUG: Fish #\(trackId) crossed left threshold, count = \(fishCount)")
-                    notifyCountChanged()
+            // Check reverse threshold crossing (decrement count) - only on first threshold to prevent fluctuations
+            if let firstThreshold = thresholds.first {
+                let pixelThreshold = firstThreshold * inputSize.height
+                let lastY = trackRect.midY
+                
+                // Check if track crossed back over first threshold
+                if fishPassingInfo[trackId]!.crossed && lastY > pixelThreshold && weightedCenterY <= pixelThreshold {
+                    fishPassingInfo[trackId] = (crossed: false, direction: nil)
+                    fishCount -= 1
+                    hasChanged = true
+                    print("DEBUG: Fish #\(trackId) crossed back over threshold \(firstThreshold), count = \(fishCount)")
                 }
             }
             
-            // Check right threshold crossing
-            if activeThresholds.contains("right") && !fishPassingInfo[trackId]!.crossed {
-                if centerX > rightThreshold {
-                    // Track crossed right threshold
-                    fishPassingInfo[trackId] = (crossed: true, direction: "right")
-                    fishCount += 1
-                    print("DEBUG: Fish #\(trackId) crossed right threshold, count = \(fishCount)")
-                    notifyCountChanged()
-                }
+            // Notify count change if needed
+            if hasChanged {
+                notifyCountChanged()
             }
         }
         
@@ -205,7 +216,22 @@ class TrackingDetector: ObjectDetector {
         return fishCount
     }
     
-    /// Configure active thresholds based on camera angle
+    /// Update thresholds for fish counting
+    func updateThresholds(thresholds: [CGFloat]) {
+        self.thresholds = thresholds
+        print("DEBUG: Updated thresholds to \(thresholds)")
+    }
+    
+    /// Notify count changed (thread-safe)
+    private func notifyCountChanged() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.onCountChanged?(self.fishCount)
+        }
+    }
+    
+    /// Configure for camera angle (commented out - keeping for reference)
+    /*
     func configureForCameraAngle(_ angle: String) {
         // Reset active thresholds
         activeThresholds.removeAll()
@@ -252,18 +278,6 @@ class TrackingDetector: ObjectDetector {
             activeThresholds.insert("left")
             activeThresholds.insert("right")
         }
-        
-        // Reset count when changing angles
-        resetCount()
     }
-    
-    /// Notify when count changes
-    private func notifyCountChanged() {
-        // Ensure UI updates happen on the main thread since UI operations must be performed on main thread
-        DispatchQueue.main.async { [weak self] in
-            // Use weak self to prevent retain cycles and memory leaks
-            guard let self = self else { return } // Safely unwrap self, return if self is nil
-            self.onCountChanged?(self.fishCount) // Call optional closure with current fish count
-        }
-    }
+    */
 } 

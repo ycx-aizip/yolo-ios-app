@@ -323,7 +323,7 @@ class ViewController: UIViewController {
         self.loadModel(entry: firstModel, forTask: self.currentTask)
       }
     } else {
-      print("⚠️ No models found for task: \(taskName)")
+      print("No models found for task: \(taskName)")
       
       // Display a message if no models found
       let message = "No Fish Count models found in the bundle. Please include models in the FishCountModels folder."
@@ -432,6 +432,15 @@ class ViewController: UIViewController {
         case .success(_):
           print("Model loaded successfully: \(entry.name)")
           self.downloadProgressLabel.text = "Model loaded successfully!"
+          
+          // Initialize fish counting with top-down view configuration
+          // This replaces the previous camera angle selection with fixed top-down mode
+          if taskName == .fishCount {
+            // Configure default thresholds for top-down view: [0.3, 0.5]
+            self.yoloView.updateFishCountingThresholds(thresholds: [0.3, 0.5])
+            print("DEBUG: Initialized fish counting with top-down thresholds [0.3, 0.5]")
+          }
+          
           // Keep success message visible for 2 seconds, then hide
           DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
             self?.downloadProgressLabel.isHidden = true
