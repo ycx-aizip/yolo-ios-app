@@ -147,22 +147,17 @@ class TrackingDetector: ObjectDetector {
                 continue // Skip first frame for this track since we need previous position
             }
             
-            // Get previous position
-            let lastPosition = fishPassingInfo[trackId]!
+            // Get track state and previous position
+            let trackState = fishPassingInfo[trackId]!
+            let lastY = trackRect.midY // Use previous position from state
             
-            // Store current position for next frame
-            let currentPosition = (normalizedCenterX, normalizedCenterY)
-            
-            // Check forward threshold crossing (increment count)
+            // Process forward crossing (increment count) on all thresholds
             var hasChanged = false
             for threshold in thresholds {
                 let pixelThreshold = threshold * inputSize.height
                 
-                // Convert previous position to track state format
-                let lastY = trackRect.midY // Use previous position from state
-                
                 // Check if track crossed threshold from top to bottom (forward)
-                if !fishPassingInfo[trackId]!.crossed && lastY < pixelThreshold && weightedCenterY >= pixelThreshold {
+                if !trackState.crossed && lastY < pixelThreshold && weightedCenterY >= pixelThreshold {
                     fishPassingInfo[trackId] = (crossed: true, direction: "down")
                     fishCount += 1
                     hasChanged = true
@@ -170,15 +165,15 @@ class TrackingDetector: ObjectDetector {
                 }
             }
             
-            // Check reverse threshold crossing (decrement count) - only on first threshold to prevent fluctuations
+            // Process reverse crossing (decrement count) only on first threshold
+            // This matches Python: check_reverse_threshold_crossing(thresholds[:1])
             if let firstThreshold = thresholds.first {
                 let pixelThreshold = firstThreshold * inputSize.height
-                let lastY = trackRect.midY
                 
                 // Check if track crossed back over first threshold
-                if fishPassingInfo[trackId]!.crossed && lastY > pixelThreshold && weightedCenterY <= pixelThreshold {
+                if trackState.crossed && lastY > pixelThreshold && weightedCenterY <= pixelThreshold {
                     fishPassingInfo[trackId] = (crossed: false, direction: nil)
-                    fishCount -= 1
+                    fishCount = max(0, fishCount - 1) // Prevent negative count
                     hasChanged = true
                     print("DEBUG: Fish #\(trackId) crossed back over threshold \(firstThreshold), count = \(fishCount)")
                 }
