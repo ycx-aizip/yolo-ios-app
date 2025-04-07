@@ -95,6 +95,15 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   public var labelSliderConf = UILabel()
   public var sliderIoU = UISlider()
   public var labelSliderIoU = UILabel()
+  
+  // Fish counting thresholds
+  public var threshold1Layer: CAShapeLayer?
+  public var threshold2Layer: CAShapeLayer?
+  public var threshold1Slider = UISlider()
+  public var threshold2Slider = UISlider()
+  public var labelThreshold1 = UILabel()
+  public var labelThreshold2 = UILabel()
+  
   public var labelName = UILabel()
   public var labelFPS = UILabel()
   public var labelZoom = UILabel()
@@ -213,6 +222,15 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         detector.setNumItemsThreshold(numItems: Int(sliderNumItems.value))
         
         print("Initial thresholds applied - Confidence: \(conf), IoU: \(iou), Max Items: \(Int(sliderNumItems.value))")
+        
+        // Initialize the fish counting threshold lines
+        if task == .fishCount {
+          // Setup the threshold layers
+          setupThresholdLayers()
+          
+          // The threshold values will be used by fish counting logic later
+          print("Fish counting thresholds set - Threshold 1: \(threshold1Slider.value), Threshold 2: \(threshold2Slider.value)")
+        }
       }
       
       completion?(.success(()))
@@ -712,7 +730,7 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     sliderNumItems.isHidden = true
     self.addSubview(sliderNumItems)
 
-    labelSliderConf.text = "Conf: 0.9"
+    labelSliderConf.text = "Conf: 0.75"
     labelSliderConf.textAlignment = .left
     labelSliderConf.textColor = .white
     labelSliderConf.font = UIFont.systemFont(ofSize: 16, weight: .medium)
@@ -720,7 +738,7 @@ public class YOLOView: UIView, VideoCaptureDelegate {
 
     sliderConf.minimumValue = 0
     sliderConf.maximumValue = 1
-    sliderConf.value = 0.9
+    sliderConf.value = 0.75
     sliderConf.minimumTrackTintColor = .white
     sliderConf.maximumTrackTintColor = .lightGray
     sliderConf.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
@@ -743,6 +761,37 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     self.labelSliderNumItems.text = "0 items (max " + String(Int(sliderNumItems.value)) + ")"
     self.labelSliderConf.text = "Conf: " + String(Double(round(100 * sliderConf.value)) / 100)
     self.labelSliderIoU.text = "IoU: " + String(Double(round(100 * sliderIoU.value)) / 100)
+
+    // Initialize fish counting threshold UI elements
+    let threshold1Value = String(format: "%.2f", 0.3)
+    labelThreshold1.text = "Threshold 1: " + threshold1Value
+    labelThreshold1.textAlignment = .left
+    labelThreshold1.textColor = UIColor.red
+    labelThreshold1.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+    self.addSubview(labelThreshold1)
+    
+    threshold1Slider.minimumValue = 0
+    threshold1Slider.maximumValue = 1
+    threshold1Slider.value = 0.3 // Initial value
+    threshold1Slider.minimumTrackTintColor = UIColor.red
+    threshold1Slider.maximumTrackTintColor = UIColor.lightGray
+    threshold1Slider.addTarget(self, action: #selector(threshold1Changed), for: .valueChanged)
+    self.addSubview(threshold1Slider)
+    
+    let threshold2Value = String(format: "%.2f", 0.5)
+    labelThreshold2.text = "Threshold 2: " + threshold2Value
+    labelThreshold2.textAlignment = .left
+    labelThreshold2.textColor = UIColor.green
+    labelThreshold2.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+    self.addSubview(labelThreshold2)
+    
+    threshold2Slider.minimumValue = 0
+    threshold2Slider.maximumValue = 1
+    threshold2Slider.value = 0.5 // Initial value
+    threshold2Slider.minimumTrackTintColor = UIColor.green
+    threshold2Slider.maximumTrackTintColor = UIColor.lightGray
+    threshold2Slider.addTarget(self, action: #selector(threshold2Changed), for: .valueChanged)
+    self.addSubview(threshold2Slider)
 
     labelZoom.text = "1.00x"
     labelZoom.textColor = .black
@@ -780,6 +829,10 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     setupOverlayLayer()
     let isLandscape = bounds.width > bounds.height
     activityIndicator.frame = CGRect(x: center.x - 50, y: center.y - 50, width: 100, height: 100)
+    
+    // Setup threshold lines if needed
+    setupThresholdLayers()
+    
     if isLandscape {
       toolbar.backgroundColor = .clear
       playButton.tintColor = .darkGray
@@ -844,7 +897,42 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         width: sliderWidth,
         height: sliderHeight
       )
-
+      
+      // Position fish threshold sliders - closer to confidence/IoU sliders
+      let thresholdY = sliderY + sliderHeight + 20 // Only 20px gap between slider groups
+      
+      labelThreshold1.frame = CGRect(
+        x: width * 0.1,
+        y: thresholdY - sliderLabelHeight - 5,
+        width: sliderWidth,
+        height: sliderLabelHeight
+      )
+      
+      threshold1Slider.frame = CGRect(
+        x: width * 0.1,
+        y: thresholdY,
+        width: sliderWidth,
+        height: sliderHeight
+      )
+      
+      labelThreshold2.frame = CGRect(
+        x: width * 0.5,
+        y: thresholdY - sliderLabelHeight - 5,
+        width: sliderWidth,
+        height: sliderLabelHeight
+      )
+      
+      threshold2Slider.frame = CGRect(
+        x: width * 0.5,
+        y: thresholdY,
+        width: sliderWidth,
+        height: sliderHeight
+      )
+      
+      // Update threshold line positions
+      updateThresholdLayer(threshold1Layer, position: CGFloat(threshold1Slider.value))
+      updateThresholdLayer(threshold2Layer, position: CGFloat(threshold2Slider.value))
+      
       // Number of items slider
       let numItemsSliderWidth: CGFloat = width * 0.2
       let numItemsSliderHeight: CGFloat = height * 0.1
@@ -944,7 +1032,42 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         width: sliderWidth,
         height: sliderHeight
       )
-
+      
+      // Position fish threshold sliders - closer to confidence/IoU sliders
+      let thresholdY = sliderY - sliderHeight - 40 // Position just above the confidence/IoU sliders
+      
+      labelThreshold1.frame = CGRect(
+        x: width * 0.05,
+        y: thresholdY - sliderLabelHeight - 5,
+        width: sliderWidth,
+        height: sliderLabelHeight
+      )
+      
+      threshold1Slider.frame = CGRect(
+        x: width * 0.05,
+        y: thresholdY,
+        width: sliderWidth,
+        height: sliderHeight
+      )
+      
+      labelThreshold2.frame = CGRect(
+        x: width * 0.55,
+        y: thresholdY - sliderLabelHeight - 5,
+        width: sliderWidth,
+        height: sliderLabelHeight
+      )
+      
+      threshold2Slider.frame = CGRect(
+        x: width * 0.55,
+        y: thresholdY,
+        width: sliderWidth,
+        height: sliderHeight
+      )
+      
+      // Update threshold line positions
+      updateThresholdLayer(threshold1Layer, position: CGFloat(threshold1Slider.value))
+      updateThresholdLayer(threshold2Layer, position: CGFloat(threshold2Slider.value))
+      
       // Number of items slider
       let numItemsSliderWidth: CGFloat = width * 0.46
       let numItemsSliderHeight: CGFloat = height * 0.02
@@ -1121,6 +1244,78 @@ public class YOLOView: UIView, VideoCaptureDelegate {
 
   public func setInferenceFlag(ok: Bool) {
     videoCapture.inferenceOK = ok
+  }
+
+  // Setup threshold layers for fish counting
+  private func setupThresholdLayers() {
+    if threshold1Layer == nil {
+      let layer = CAShapeLayer()
+      layer.strokeColor = UIColor.red.cgColor
+      layer.lineWidth = 3.0
+      layer.lineDashPattern = [5, 5] // Creates a dashed line
+      layer.zPosition = 999 // Ensure it's on top of other layers
+      layer.opacity = 0.5 // 50% transparency
+      self.layer.addSublayer(layer)
+      threshold1Layer = layer
+    }
+    
+    if threshold2Layer == nil {
+      let layer = CAShapeLayer()
+      layer.strokeColor = UIColor.green.cgColor
+      layer.lineWidth = 3.0
+      layer.lineDashPattern = [5, 5] // Creates a dashed line
+      layer.zPosition = 999 // Ensure it's on top of other layers
+      layer.opacity = 0.5 // 50% transparency
+      self.layer.addSublayer(layer)
+      threshold2Layer = layer
+    }
+    
+    // Force update the threshold lines immediately
+    DispatchQueue.main.async {
+      self.updateThresholdLayer(self.threshold1Layer, position: CGFloat(self.threshold1Slider.value))
+      self.updateThresholdLayer(self.threshold2Layer, position: CGFloat(self.threshold2Slider.value))
+    }
+  }
+  
+  // Update the position of a threshold line
+  private func updateThresholdLayer(_ layer: CAShapeLayer?, position: CGFloat) {
+    guard let layer = layer else { return }
+    
+    // Position is a value between 0 and 1 representing the vertical position
+    let path = UIBezierPath()
+    
+    // Calculate the y-position (vertical placement) based on the threshold value
+    let height = self.bounds.height
+    let yPosition = height * position
+    
+    // Draw a horizontal line across the width of the view
+    path.move(to: CGPoint(x: 0, y: yPosition))
+    path.addLine(to: CGPoint(x: self.bounds.width, y: yPosition))
+    
+    layer.path = path.cgPath
+    layer.isHidden = false
+  }
+  
+  // Threshold 1 slider changed
+  @objc func threshold1Changed(_ sender: UISlider) {
+    let value = sender.value
+    let formattedValue = String(format: "%.2f", value)
+    labelThreshold1.text = "Threshold 1: " + formattedValue
+    updateThresholdLayer(threshold1Layer, position: CGFloat(value))
+    
+    // This value will be used by fish counting logic later
+    // No need to implement now, but this will be exposed for use
+  }
+  
+  // Threshold 2 slider changed
+  @objc func threshold2Changed(_ sender: UISlider) {
+    let value = sender.value
+    let formattedValue = String(format: "%.2f", value)
+    labelThreshold2.text = "Threshold 2: " + formattedValue
+    updateThresholdLayer(threshold2Layer, position: CGFloat(value))
+    
+    // This value will be used by fish counting logic later
+    // No need to implement now, but this will be exposed for use
   }
 }
 
