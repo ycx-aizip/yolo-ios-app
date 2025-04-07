@@ -52,6 +52,14 @@ public class STrack {
     @MainActor
     private static var count: Int = 0
     
+    /// Track recently used IDs to prevent reuse
+    @MainActor
+    private static var recentlyUsedIds: Set<Int> = []
+    
+    /// Maximum size for the recently used IDs buffer
+    @MainActor
+    private static let maxRecentIdCount: Int = 1000
+    
     // MARK: - Instance properties
     
     /// Unique identifier for this track
@@ -114,7 +122,6 @@ public class STrack {
         self.lastDetection = detection
         self.score = score
         self.cls = cls
-        print("STrack: Created new track with ID \(trackId) at position (\(position.x), \(position.y))")
     }
     
     /// Backward compatibility initializer
@@ -221,8 +228,6 @@ public class STrack {
         
         self.state = .tracked
         self.isActivated = true
-        
-        print("STrack: Updated track \(trackId) to position (\(position.x), \(position.y))")
     }
     
     /// Backward compatibility update method
@@ -278,25 +283,21 @@ public class STrack {
     /// Mark track as lost
     public func markLost() {
         self.state = .lost
-        print("STrack: Track \(trackId) marked as lost")
     }
     
     /// Mark track as removed
     public func markRemoved() {
         self.state = .removed
-        print("STrack: Track \(trackId) marked as removed")
     }
     
     /// Mark this track as counted
     public func markCounted() {
-        counted = true
-        print("STrack: Track \(trackId) marked as counted")
+        self.counted = true
     }
     
     /// Mark this track as not counted
     public func markUncounted() {
-        counted = false
-        print("STrack: Track \(trackId) marked as uncounted")
+        self.counted = false
     }
     
     /// Decrease the TTL of the track
@@ -317,7 +318,25 @@ public class STrack {
      */
     @MainActor
     public static func nextId() -> Int {
+        // Generate new ID
         STrack.count += 1
+        
+        // Skip IDs that were recently used to avoid quick reuse
+        while recentlyUsedIds.contains(STrack.count) {
+            STrack.count += 1
+        }
+        
+        // Add to recently used IDs
+        recentlyUsedIds.insert(STrack.count)
+        
+        // Maintain reasonable size for the set
+        if recentlyUsedIds.count > maxRecentIdCount {
+            // Remove oldest IDs (approximation by removing smallest)
+            if let smallest = recentlyUsedIds.min() {
+                recentlyUsedIds.remove(smallest)
+            }
+        }
+        
         return STrack.count
     }
     
@@ -325,6 +344,7 @@ public class STrack {
     @MainActor
     public static func resetId() {
         STrack.count = 0
+        recentlyUsedIds.removeAll()
     }
     
     /**

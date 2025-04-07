@@ -54,6 +54,9 @@ public class ByteTracker {
     /// Max time to keep a track in lost state
     private let maxTimeLost: Int = 45  // Increased from 30 to give more time for reactivation
     
+    /// Maximum time to remember removed tracks to avoid ID reuse
+    private let maxTimeRemembered: Int = 300 // Remember removed tracks for ~10 seconds at 30fps
+    
     /// Buffer for potential new tracks - stores potential tracks before assigning real IDs
     /// Key: temporary ID, Value: (position, detection, confidence, class, framesObserved, lastUpdatedFrame)
     private var potentialTracks: [Int: (position: (x: CGFloat, y: CGFloat), detection: Box, score: Float, cls: String, frames: Int, lastFrame: Int)] = [:]
@@ -77,7 +80,7 @@ public class ByteTracker {
     // MARK: - Initialization
     
     public init() {
-        print("ByteTracker: Initialized")
+        // Removed print statement for performance
     }
     
     // MARK: - Public Methods
@@ -97,6 +100,9 @@ public class ByteTracker {
         
         // Estimate camera motion if we have previous frame data
         estimateCameraMotion(from: detections)
+        
+        // Clean up very old removed tracks to prevent memory growth
+        removeOldRemovedTracks()
         
         // Convert detections to STrack objects
         var detTrackArr: [STrack] = []
@@ -325,7 +331,7 @@ public class ByteTracker {
             activeTracks.remove(at: idx)
         }
         
-        print("ByteTracker: Updated with \(detections.count) detections, now tracking \(activeTracks.count) objects, potential: \(potentialTracks.count)")
+        // Print statement removed for performance
         return activeTracks
     }
     
@@ -431,10 +437,11 @@ public class ByteTracker {
             estimatedCameraMotion.dx = avgDx * 0.7 + estimatedCameraMotion.dx * 0.3
             estimatedCameraMotion.dy = avgDy * 0.7 + estimatedCameraMotion.dy * 0.3
             
-            // Print significant motion for debugging
-            if abs(estimatedCameraMotion.dx) > 0.05 || abs(estimatedCameraMotion.dy) > 0.05 {
-                print("ByteTracker: Camera motion estimated: dx=\(estimatedCameraMotion.dx), dy=\(estimatedCameraMotion.dy)")
-            }
+            // Apply exponential smoothing to avoid jitter
+            estimatedCameraMotion = (
+                estimatedCameraMotion.dx,
+                estimatedCameraMotion.dy
+            )
         } else {
             // Gradually decay the motion estimate if no matches
             estimatedCameraMotion.dx *= 0.8
@@ -478,5 +485,12 @@ public class ByteTracker {
                 "dy": estimatedCameraMotion.dy
             ]
         ]
+    }
+    
+    /// Remove old tracks from the removed tracks list to avoid memory growth
+    private func removeOldRemovedTracks() {
+        removedTracks = removedTracks.filter { track in
+            return frameId - track.endFrame < maxTimeRemembered
+        }
     }
 } 
