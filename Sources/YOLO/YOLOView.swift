@@ -258,6 +258,7 @@ public class YOLOView: UIView, VideoCaptureDelegate {
       }
 
     default:
+      // Handle both .detect and .fishCount using ObjectDetector
       ObjectDetector.create(unwrappedModelURL: unwrappedModelURL, isRealTime: true) {
         [weak self] result in
         switch result {

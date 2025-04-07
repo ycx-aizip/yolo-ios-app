@@ -81,6 +81,7 @@ class ViewController: UIViewController {
     ("Detect", "DetectModels"),  // index 2
     ("Pose", "PoseModels"),  // index 3
     ("Obb", "ObbModels"),  // index 4
+    ("FishCount", "FishCountModels"),  // index 5
   ]
 
   private var modelsForTask: [String: [String]] = [:]
@@ -110,9 +111,9 @@ class ViewController: UIViewController {
     setupTaskSegmentedControl()
     loadModelsForAllTasks()
 
-    if tasks.indices.contains(2) {
-      segmentedControl.selectedSegmentIndex = 2
-      currentTask = tasks[2].name
+    if tasks.indices.contains(5) {
+      segmentedControl.selectedSegmentIndex = 5
+      currentTask = tasks[5].name
       reloadModelEntriesAndLoadFirst(for: currentTask)
     }
 
@@ -181,6 +182,9 @@ class ViewController: UIViewController {
 
       if folderName == "DetectModels" {
         return reorderDetectionModels(modelFiles)
+      } else if folderName == "FishCountModels" {
+        // Special handling for FishCount models if needed
+        return modelFiles.sorted()
       } else {
         return modelFiles.sorted()
       }
@@ -431,6 +435,7 @@ class ViewController: UIViewController {
     case "Classify": return .classify
     case "Pose": return .pose
     case "Obb": return .obb
+    case "FishCount": return .fishCount
     default: return .detect
     }
   }
