@@ -104,6 +104,11 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   public var labelThreshold1 = UILabel()
   public var labelThreshold2 = UILabel()
   
+  // Fish Count display and reset
+  public var labelFishCount = UILabel()
+  public var resetButton = UIButton()
+  public var fishCount: Int = 0
+  
   public var labelName = UILabel()
   public var labelFPS = UILabel()
   public var labelZoom = UILabel()
@@ -793,6 +798,25 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     threshold2Slider.addTarget(self, action: #selector(threshold2Changed), for: .valueChanged)
     self.addSubview(threshold2Slider)
 
+    // Initialize Fish Count display and Reset button
+    labelFishCount.text = "Fish Count: 0"
+    labelFishCount.textAlignment = .center
+    labelFishCount.textColor = UIColor.white
+    labelFishCount.font = UIFont.systemFont(ofSize: 16, weight: .bold)
+    labelFishCount.backgroundColor = UIColor.darkGray.withAlphaComponent(0.7)
+    labelFishCount.layer.cornerRadius = 12
+    labelFishCount.layer.masksToBounds = true
+    self.addSubview(labelFishCount)
+    
+    resetButton.setTitle("Reset", for: .normal)
+    resetButton.setTitleColor(UIColor.white, for: .normal)
+    resetButton.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .bold)
+    resetButton.backgroundColor = UIColor.darkGray.withAlphaComponent(0.7)
+    resetButton.layer.cornerRadius = 12
+    resetButton.layer.masksToBounds = true
+    resetButton.addTarget(self, action: #selector(resetFishCount), for: .touchUpInside)
+    self.addSubview(resetButton)
+
     labelZoom.text = "1.00x"
     labelZoom.textColor = .black
     labelZoom.font = UIFont.systemFont(ofSize: 14)
@@ -851,7 +875,7 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         width: width,
         height: titleLabelHeight
       )
-
+      
       // Position FPS label just above the toolbar
       let toolBarHeight: CGFloat = 66
       let subLabelHeight: CGFloat = height * 0.03
@@ -900,6 +924,27 @@ public class YOLOView: UIView, VideoCaptureDelegate {
       
       // Position fish threshold sliders - closer to confidence/IoU sliders
       let thresholdY = sliderY + sliderHeight + 20 // Only 20px gap between slider groups
+      
+      // Position Fish Count display and Reset button above threshold togglers
+      let fishCountWidth = width * 0.3
+      let fishCountHeight: CGFloat = 40
+      let fishCountY = thresholdY - sliderHeight - fishCountHeight - 15  // Position above threshold sliders
+      let resetButtonWidth = fishCountWidth * 0.5
+      
+      labelFishCount.frame = CGRect(
+        x: width * 0.1,
+        y: fishCountY,
+        width: fishCountWidth,
+        height: fishCountHeight
+      )
+      
+      // Position the Reset button to align with the right edge of threshold2Slider
+      resetButton.frame = CGRect(
+        x: width * 0.5 + sliderWidth - resetButtonWidth,
+        y: fishCountY,
+        width: resetButtonWidth,
+        height: fishCountHeight
+      )
       
       labelThreshold1.frame = CGRect(
         x: width * 0.1,
@@ -986,7 +1031,7 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         width: width,
         height: titleLabelHeight
       )
-
+      
       // Position FPS label just above the toolbar
       let toolBarHeight: CGFloat = 66
       let subLabelHeight: CGFloat = height * 0.03
@@ -1035,6 +1080,27 @@ public class YOLOView: UIView, VideoCaptureDelegate {
       
       // Position fish threshold sliders - closer to confidence/IoU sliders
       let thresholdY = sliderY - sliderHeight - 40 // Position just above the confidence/IoU sliders
+      
+      // Position Fish Count display and Reset button above threshold togglers
+      let fishCountWidth = width * 0.4
+      let fishCountHeight: CGFloat = 40
+      let fishCountY = thresholdY - sliderHeight - fishCountHeight - 15 // Position above threshold sliders
+      let resetButtonWidth = fishCountWidth * 0.5
+      
+      labelFishCount.frame = CGRect(
+        x: width * 0.05,
+        y: fishCountY,
+        width: fishCountWidth,
+        height: fishCountHeight
+      )
+      
+      // Position the Reset button to align with the right edge of threshold2Slider
+      resetButton.frame = CGRect(
+        x: width * 0.55 + sliderWidth - resetButtonWidth,
+        y: fishCountY,
+        width: resetButtonWidth,
+        height: fishCountHeight
+      )
       
       labelThreshold1.frame = CGRect(
         x: width * 0.05,
@@ -1316,6 +1382,11 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     
     // This value will be used by fish counting logic later
     // No need to implement now, but this will be exposed for use
+  }
+
+  @objc func resetFishCount() {
+    fishCount = 0
+    labelFishCount.text = "Fish Count: \(fishCount)"
   }
 }
 
