@@ -200,6 +200,21 @@ public class YOLOView: UIView, VideoCaptureDelegate {
       self.videoCapture.predictor = predictor
       self.activityIndicator.stopAnimating()
       self.labelName.text = modelName
+      
+      // Apply the initial threshold values to the model
+      if let detector = predictor as? ObjectDetector {
+        // Get values from the sliders
+        let conf = Double(round(100 * sliderConf.value)) / 100
+        let iou = Double(round(100 * sliderIoU.value)) / 100
+        
+        // Apply thresholds to the model
+        detector.setConfidenceThreshold(confidence: conf)
+        detector.setIouThreshold(iou: iou)
+        detector.setNumItemsThreshold(numItems: Int(sliderNumItems.value))
+        
+        print("Initial thresholds applied - Confidence: \(conf), IoU: \(iou), Max Items: \(Int(sliderNumItems.value))")
+      }
+      
       completion?(.success(()))
     }
 
@@ -697,7 +712,7 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     sliderNumItems.isHidden = true
     self.addSubview(sliderNumItems)
 
-    labelSliderConf.text = "Conf: 0.5"
+    labelSliderConf.text = "Conf: 0.9"
     labelSliderConf.textAlignment = .left
     labelSliderConf.textColor = .white
     labelSliderConf.font = UIFont.systemFont(ofSize: 16, weight: .medium)
@@ -705,7 +720,7 @@ public class YOLOView: UIView, VideoCaptureDelegate {
 
     sliderConf.minimumValue = 0
     sliderConf.maximumValue = 1
-    sliderConf.value = 0.5
+    sliderConf.value = 0.9
     sliderConf.minimumTrackTintColor = .white
     sliderConf.maximumTrackTintColor = .lightGray
     sliderConf.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
