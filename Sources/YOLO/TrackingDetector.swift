@@ -33,7 +33,7 @@ import Vision
 class TrackingDetector: ObjectDetector {
     
     /// The ByteTracker instance used for tracking objects
-    private let byteTracker = ByteTracker()
+    @MainActor private let byteTracker = ByteTracker()
     
     /// Total count of objects that have crossed the threshold(s)
     private var totalCount: Int = 0
