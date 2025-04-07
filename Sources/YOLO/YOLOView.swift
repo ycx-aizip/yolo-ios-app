@@ -685,17 +685,19 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     labelSliderNumItems.textAlignment = .left
     labelSliderNumItems.textColor = .black
     labelSliderNumItems.font = UIFont.preferredFont(forTextStyle: .subheadline)
+    labelSliderNumItems.isHidden = true
     self.addSubview(labelSliderNumItems)
 
     sliderNumItems.minimumValue = 0
     sliderNumItems.maximumValue = 100
-    sliderNumItems.value = 30
+    sliderNumItems.value = 100
     sliderNumItems.minimumTrackTintColor = .darkGray
     sliderNumItems.maximumTrackTintColor = .systemGray.withAlphaComponent(0.7)
     sliderNumItems.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
+    sliderNumItems.isHidden = true
     self.addSubview(sliderNumItems)
 
-    labelSliderConf.text = "Conf: 0.25"
+    labelSliderConf.text = "Conf: 0.5"
     labelSliderConf.textAlignment = .left
     labelSliderConf.textColor = .white
     labelSliderConf.font = UIFont.systemFont(ofSize: 16, weight: .medium)
@@ -703,13 +705,13 @@ public class YOLOView: UIView, VideoCaptureDelegate {
 
     sliderConf.minimumValue = 0
     sliderConf.maximumValue = 1
-    sliderConf.value = 0.25
+    sliderConf.value = 0.5
     sliderConf.minimumTrackTintColor = .white
     sliderConf.maximumTrackTintColor = .lightGray
     sliderConf.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
     self.addSubview(sliderConf)
 
-    labelSliderIoU.text = "IoU: 0.45"
+    labelSliderIoU.text = "IoU: 0.5"
     labelSliderIoU.textAlignment = .left
     labelSliderIoU.textColor = .white
     labelSliderIoU.font = UIFont.systemFont(ofSize: 16, weight: .medium)
@@ -717,7 +719,7 @@ public class YOLOView: UIView, VideoCaptureDelegate {
 
     sliderIoU.minimumValue = 0
     sliderIoU.maximumValue = 1
-    sliderIoU.value = 0.45
+    sliderIoU.value = 0.5
     sliderIoU.minimumTrackTintColor = .white
     sliderIoU.maximumTrackTintColor = .lightGray
     sliderIoU.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
