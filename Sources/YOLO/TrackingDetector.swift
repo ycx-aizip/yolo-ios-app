@@ -195,14 +195,14 @@ class TrackingDetector: ObjectDetector {
         let upperThreshold = thresholds.first ?? 0.3
         let lowerThreshold = thresholds.last ?? 0.5
         
-        // Define a buffer zone to make detection more sensitive
-        let thresholdBufferZone: CGFloat = 0.02 // Buffer zone around threshold for more sensitive detection
+        // Define a larger buffer zone to make detection more sensitive
+        let thresholdBufferZone: CGFloat = 0.03 // Increased from 0.02 to 0.04 (4% of screen height)
         
         // Increment frame count for each update
         frameCount += 1
         
-        // Use more efficient iteration - only iterate through tracks that meet basic criteria
-        for track in trackedObjects where track.state == .tracked {
+        // Use more efficient iteration - consider all tracks for counting now, including newly created ones
+        for track in trackedObjects {
             let trackId = track.trackId
             
             // Skip tracks that have already been counted
@@ -219,8 +219,8 @@ class TrackingDetector: ObjectDetector {
             
             let lastY = lastPosition.y
             
-            // Store the 5-frame history position for detecting fast movements
-            if frameCount % 5 == 0 {
+            // Store the 3-frame history position for detecting fast movements (more frequent updates)
+            if frameCount % 3 == 0 {
                 historyPositions[trackId] = lastPosition
             }
             
@@ -233,25 +233,34 @@ class TrackingDetector: ObjectDetector {
             // Handle detection based on counting direction
             switch countingDirection {
             case .topToBottom:
-                // Count when crossing from above to below ANY threshold line
-                // More sensitive version with buffer zone
-                if (lastY < upperThreshold - thresholdBufferZone && y >= upperThreshold - thresholdBufferZone) || 
-                   (lastY < lowerThreshold - thresholdBufferZone && y >= lowerThreshold - thresholdBufferZone) {
+                // Count when crossing or approaching ANY threshold line
+                // More sensitive version with wider buffer zone
+                if (lastY < upperThreshold && y >= upperThreshold - thresholdBufferZone) || 
+                   (lastY < lowerThreshold && y >= lowerThreshold - thresholdBufferZone) {
                     countObject(trackId: trackId)
                 }
-                // Also count if position is close to threshold and moving downward (more sensitive)
-                else if ((abs(y - upperThreshold) < thresholdBufferZone && lastY < y) ||
-                        (abs(y - lowerThreshold) < thresholdBufferZone && lastY < y)) &&
-                        track.trackletLen > 5 { // Minimum tracking length to avoid noise
+                // Count if position is close to threshold and moving downward (even more sensitive)
+                else if ((abs(y - upperThreshold) < thresholdBufferZone * 1.5 && lastY < y) ||
+                        (abs(y - lowerThreshold) < thresholdBufferZone * 1.5 && lastY < y)) &&
+                        track.trackletLen > 3 { // Reduced from 5 to 3 for quicker counting
                     countObject(trackId: trackId)
                 }
-                // Detect rapid movements that might have skipped the threshold check
-                else if historyY < upperThreshold - thresholdBufferZone && y > upperThreshold + thresholdBufferZone && 
-                        track.trackletLen > 10 {
+                // Detect rapid movements that might have skipped the threshold check (more sensitive)
+                else if historyY < upperThreshold && y > upperThreshold && 
+                        track.trackletLen > 7 { // Reduced from 10 to 5
                     countObject(trackId: trackId)
                 }
-                else if historyY < lowerThreshold - thresholdBufferZone && y > lowerThreshold + thresholdBufferZone && 
-                        track.trackletLen > 10 {
+                else if historyY < lowerThreshold && y > lowerThreshold && 
+                        track.trackletLen > 7 { // Reduced from 10 to 5
+                    countObject(trackId: trackId)
+                }
+                // Count if fish is currently between thresholds and moving downward
+                else if y > upperThreshold && y < lowerThreshold && lastY < y && 
+                        track.trackletLen > 8 {
+                    countObject(trackId: trackId)
+                }
+                // Count if fish is currently below lower threshold and was recently activated
+                else if y > lowerThreshold && track.isActivated && track.trackletLen > 5 && track.trackletLen < 15 {
                     countObject(trackId: trackId)
                 }
                 // Handle reverse crossing only for first threshold
@@ -261,25 +270,34 @@ class TrackingDetector: ObjectDetector {
                 }
                 
             case .bottomToTop:
-                // Count when crossing from below to above ANY threshold line
-                // More sensitive version with buffer zone
-                if (lastY > upperThreshold + thresholdBufferZone && y <= upperThreshold + thresholdBufferZone) || 
-                   (lastY > lowerThreshold + thresholdBufferZone && y <= lowerThreshold + thresholdBufferZone) {
+                // Count when crossing or approaching ANY threshold line
+                // More sensitive version with wider buffer zone
+                if (lastY > upperThreshold && y <= upperThreshold + thresholdBufferZone) || 
+                   (lastY > lowerThreshold && y <= lowerThreshold + thresholdBufferZone) {
                     countObject(trackId: trackId)
                 }
-                // Also count if position is close to threshold and moving upward (more sensitive)
-                else if ((abs(y - upperThreshold) < thresholdBufferZone && lastY > y) ||
-                        (abs(y - lowerThreshold) < thresholdBufferZone && lastY > y)) &&
-                        track.trackletLen > 5 { // Minimum tracking length to avoid noise
+                // Count if position is close to threshold and moving upward (even more sensitive)
+                else if ((abs(y - upperThreshold) < thresholdBufferZone * 1.5 && lastY > y) ||
+                        (abs(y - lowerThreshold) < thresholdBufferZone * 1.5 && lastY > y)) &&
+                        track.trackletLen > 3 { // Reduced from 5 to 3 for quicker counting
                     countObject(trackId: trackId)
                 }
-                // Detect rapid movements that might have skipped the threshold check
-                else if historyY > upperThreshold + thresholdBufferZone && y < upperThreshold - thresholdBufferZone && 
-                        track.trackletLen > 10 {
+                // Detect rapid movements that might have skipped the threshold check (more sensitive)
+                else if historyY > upperThreshold && y < upperThreshold && 
+                        track.trackletLen > 5 { // Reduced from 10 to 5
                     countObject(trackId: trackId)
                 }
-                else if historyY > lowerThreshold + thresholdBufferZone && y < lowerThreshold - thresholdBufferZone && 
-                        track.trackletLen > 10 {
+                else if historyY > lowerThreshold && y < lowerThreshold && 
+                        track.trackletLen > 5 { // Reduced from 10 to 5
+                    countObject(trackId: trackId)
+                }
+                // Count if fish is currently between thresholds and moving upward
+                else if y < lowerThreshold && y > upperThreshold && lastY > y && 
+                        track.trackletLen > 8 {
+                    countObject(trackId: trackId)
+                }
+                // Count if fish is currently above upper threshold and was recently activated
+                else if y < upperThreshold && track.isActivated && track.trackletLen > 5 && track.trackletLen < 15 {
                     countObject(trackId: trackId)
                 }
                 // Handle reverse crossing only for first threshold
@@ -292,19 +310,44 @@ class TrackingDetector: ObjectDetector {
         
         // Count any stable tracks that have been around for a while and are in the "counted zone"
         // This catches fish that somehow never triggered the crossing detection
-        if frameCount % 60 == 0 { // Check every ~2 seconds at 30fps
-            for track in trackedObjects where track.state == .tracked && track.trackletLen > 30 && !countedTracks[track.trackId, default: false] {
+        // More frequent checking (every second) with shorter required tracking time
+        if frameCount % 30 == 0 { // Every ~1 second at 30fps (changed from 60 to 30)
+            for track in trackedObjects where track.state == .tracked && track.trackletLen > 15 && !countedTracks[track.trackId, default: false] {
                 let y = track.position.y
                 
                 switch countingDirection {
                 case .topToBottom:
-                    // If track is well beyond the lowermost threshold and has been tracked for a while
-                    if y > lowerThreshold + 0.1 { // 10% beyond the threshold
+                    // If track is beyond the lowermost threshold - reduced required distance
+                    if y > lowerThreshold + 0.05 { // 5% beyond the threshold (reduced from 10%)
+                        countObject(trackId: track.trackId)
+                    }
+                    // Or if it's between thresholds
+                    else if y > upperThreshold + 0.05 && y < lowerThreshold {
                         countObject(trackId: track.trackId)
                     }
                 case .bottomToTop:
-                    // If track is well above the uppermost threshold and has been tracked for a while
-                    if y < upperThreshold - 0.1 { // 10% above the threshold
+                    // If track is above the uppermost threshold - reduced required distance
+                    if y < upperThreshold - 0.05 { // 5% above the threshold (reduced from 10%)
+                        countObject(trackId: track.trackId)
+                    }
+                    // Or if it's between thresholds
+                    else if y < lowerThreshold - 0.05 && y > upperThreshold {
+                        countObject(trackId: track.trackId)
+                    }
+                }
+            }
+        }
+        
+        // Perform a comprehensive check for any tracks that should be counted but weren't
+        if frameCount % 120 == 0 { // Every ~4 seconds at 30fps
+            // Get highest track ID to estimate how many tracks we've seen
+            let maxTrackId = trackedObjects.map { $0.trackId }.max() ?? 0
+            
+            // If we have significantly more track IDs than counted fish, be more aggressive with counting
+            if (maxTrackId > Int(Double(totalCount) * 1.2)) && maxTrackId > 10 {
+                for track in trackedObjects where track.state == .tracked && !countedTracks[track.trackId, default: false] {
+                    // Count any tracked fish that's been visible for a while
+                    if track.trackletLen > 10 {
                         countObject(trackId: track.trackId)
                     }
                 }
