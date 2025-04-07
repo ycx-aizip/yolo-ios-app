@@ -13,13 +13,23 @@ import Foundation
 import UIKit
 import Vision
 
-/// Specialized detector for YOLO models with object tracking and counting functionality.
-///
-/// This class extends the standard ObjectDetector with tracking capabilities,
-/// specifically designed for applications like fish counting where objects
-/// need to be tracked across frames and counted when crossing defined thresholds.
-///
-/// - Note: Uses ByteTrack-inspired tracking algorithm to associate detections between frames.
+/**
+ * TrackingDetector
+ *
+ * Maps to Python Implementation:
+ * - Primary Correspondence: The main fish counting logic in `counting_demo2.py`
+ * - Core functionality:
+ *   - Integrates with ByteTracker for object tracking
+ *   - Implements threshold crossing detection logic
+ *   - Maintains count of objects that cross thresholds
+ *   - Updates tracking state for visualization
+ *
+ * Implementation Details:
+ * - Extends ObjectDetector class to maintain compatibility with YOLO app
+ * - Implements threshold crossing logic similar to `check_threshold_crossing` in Python
+ * - Maintains tracking states similar to `track_states` dictionary in Python
+ * - Provides methods to integrate tracking information with visualization
+ */
 class TrackingDetector: ObjectDetector {
     
     /// The ByteTracker instance used for tracking objects
@@ -33,6 +43,18 @@ class TrackingDetector: ObjectDetector {
     
     /// Map of track IDs to counting status
     private var countedTracks: [Int: Bool] = [:]
+    
+    /// The current tracked objects
+    private var trackedObjects: [STrack] = []
+    
+    /// Direction of counting
+    public enum CountingDirection {
+        case topToBottom
+        case bottomToTop
+    }
+    
+    /// Current counting direction
+    private var countingDirection: CountingDirection = .topToBottom
     
     /// Sets the thresholds for counting
     ///
@@ -50,24 +72,37 @@ class TrackingDetector: ObjectDetector {
     }
     
     /// Resets the counting state and clears all tracked objects
+    @MainActor
     func resetCount() {
         totalCount = 0
         countedTracks.removeAll()
+        byteTracker.reset()
+        trackedObjects.removeAll()
         print("TrackingDetector: Reset count")
     }
     
-    /// Processes the results from the Vision framework's object detection request.
+    /// Sets the counting direction
     ///
-    /// This overridden method adds tracking functionality to the standard object detection
-    /// process, associating new detections with existing tracks and updating tracking state.
-    ///
-    /// - Parameters:
-    ///   - request: The completed Vision request containing object detection results.
-    ///   - error: Any error that occurred during the Vision request.
+    /// - Parameter direction: The direction to count (topToBottom or bottomToTop)
+    func setCountingDirection(_ direction: CountingDirection) {
+        countingDirection = direction
+        print("TrackingDetector: Set counting direction to \(direction)")
+    }
+    
+    /**
+     * processObservations
+     *
+     * Maps to Python Implementation:
+     * - Primary Correspondence: Similar to logic in `on_predict_postprocess_end` callback
+     * - Takes detection results and passes them to ByteTracker
+     * - Updates tracking state and performs counting logic
+     */
     override func processObservations(for request: VNRequest, error: Error?) {
         if let results = request.results as? [VNRecognizedObjectObservation] {
-            var boxes = [Box]()
-            var detections: [(position: (x: CGFloat, y: CGFloat), box: Box)] = []
+            var boxes: [Box] = []
+            var detectionBoxes: [Box] = []
+            var scores: [Float] = []
+            var labels: [String] = []
             
             // Process detections
             for i in 0..<100 {
@@ -89,22 +124,17 @@ class TrackingDetector: ObjectDetector {
                         index: index, cls: label, conf: confidence, xywh: imageRect, xywhn: invertedBox)
                     
                     boxes.append(box)
-                    
-                    // Calculate center point - weighted toward the bottom like in Python implementation
-                    let centerX = CGFloat(invertedBox.minX + invertedBox.maxX) / 2
-                    // Use weighted average to get center closer to the tail (5x weight to bottom)
-                    let centerY = CGFloat(invertedBox.minY + invertedBox.maxY * 4) / 5
-                    
-                    detections.append((position: (x: centerX, y: centerY), box: box))
+                    detectionBoxes.append(box)
+                    scores.append(confidence)
+                    labels.append(label)
                 }
             }
             
-            // Update tracks with new detections using ByteTracker
-            let tracks = byteTracker.update(detections: detections)
-            
-            // Check for threshold crossings
-            for track in tracks {
-                checkThresholdCrossing(track: track)
+            // Update tracks with new detections using enhanced ByteTracker
+            Task { @MainActor in
+                trackedObjects = byteTracker.update(detections: detectionBoxes, scores: scores, classes: labels)
+                // Check for threshold crossings
+                updateCounting()
             }
             
             // Measure FPS
@@ -122,44 +152,91 @@ class TrackingDetector: ObjectDetector {
                 boxes: boxes, 
                 speed: self.t2, 
                 fps: 1 / self.t4, 
-                names: labels)
+                names: self.labels)
             
             self.currentOnResultsListener?.on(result: result)
         }
     }
     
-    /// Checks if an object has crossed any of the defined thresholds
-    ///
-    /// - Parameter track: The track to check for threshold crossing
-    private func checkThresholdCrossing(track: STrack) {
-        let trackId = track.trackId
-        let currentY = track.position.y
+    /**
+     * updateCounting
+     *
+     * Maps to Python Implementation:
+     * - Primary Correspondence: `check_threshold_crossing` and `check_reverse_threshold_crossing` in counting_demo2.py
+     * - Checks if objects have crossed threshold lines
+     * - Updates count when objects cross in the designated direction
+     * - Prevents double-counting through track state management
+     */
+    @MainActor
+    private func updateCounting() {
+        let upperThreshold = thresholds.first ?? 0.3
+        let lowerThreshold = thresholds.last ?? 0.5
         
-        // Get previous counted status or default to false
-        let wasCounted = countedTracks[trackId] ?? false
-        
-        // Check for forward crossing (top to bottom) - count up
-        for threshold in thresholds {
-            if !wasCounted && track.ttl == 5 { // only check tracks that were just updated
-                if currentY >= threshold {
-                    totalCount += 1
-                    countedTracks[trackId] = true
-                    track.markCounted()
-                    print("TrackingDetector: Track \(trackId) crossed threshold \(threshold), count: \(totalCount)")
-                    break
+        for track in trackedObjects {
+            let trackId = track.trackId
+            let y = track.position.y
+            
+            // Skip tracks that have already been counted
+            if countedTracks[trackId] == true {
+                continue
+            }
+            
+            // Only consider tracks that are recently updated (high confidence in position)
+            guard track.isActivated && track.state == .tracked else {
+                continue
+            }
+            
+            switch countingDirection {
+            case .topToBottom:
+                // Count when crossing from upper to lower threshold
+                if y >= lowerThreshold {
+                    countObject(trackId: trackId)
+                }
+                
+            case .bottomToTop:
+                // Count when crossing from lower to upper threshold
+                if y <= upperThreshold {
+                    countObject(trackId: trackId)
                 }
             }
         }
         
-        // Check for reverse crossing (bottom to top) - count down
-        // Only using first threshold for reverse counting to avoid double-counting
-        if let firstThreshold = thresholds.first {
-            if wasCounted && track.ttl == 5 && currentY <= firstThreshold {
-                totalCount -= 1
-                countedTracks[trackId] = false
-                track.markUncounted()
-                print("TrackingDetector: Track \(trackId) crossed threshold back, count: \(totalCount)")
+        // Clean up tracking for objects that are no longer visible
+        let currentIds = Set(trackedObjects.map { $0.trackId })
+        var keysToRemove: [Int] = []
+        
+        for key in countedTracks.keys {
+            if !currentIds.contains(key) {
+                keysToRemove.append(key)
             }
+        }
+        
+        for key in keysToRemove {
+            countedTracks.removeValue(forKey: key)
+        }
+    }
+    
+    /**
+     * countObject
+     *
+     * Maps to Python Implementation:
+     * - In Python, this is part of the `check_threshold_crossing` function
+     * - Increments count and updates tracking state
+     * - Provides visualization feedback
+     */
+    @MainActor
+    private func countObject(trackId: Int) {
+        // Only count if not already counted
+        if countedTracks[trackId] != true {
+            totalCount += 1
+            countedTracks[trackId] = true
+            
+            // Mark the track as counted
+            if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
+                trackedObjects[trackIndex].markCounted()
+            }
+            
+            print("TrackingDetector: Counted object with track ID \(trackId), total count: \(totalCount)")
         }
     }
     
@@ -169,39 +246,52 @@ class TrackingDetector: ObjectDetector {
     ///   - box: The detection box to check
     /// - Returns: A tuple containing (isTracked, isCounted)
     func getTrackingStatus(for box: Box) -> (isTracked: Bool, isCounted: Bool) {
-        // Calculate the center of the box
-        let centerX = CGFloat(box.xywhn.minX + box.xywhn.maxX) / 2
-        // Use weighted average to get center closer to the tail (5x weight to bottom)
-        let centerY = CGFloat(box.xywhn.minY + box.xywhn.maxY * 4) / 5
-        
-        // Find tracks that match this box
-        let position = (x: centerX, y: centerY)
-        let tracks = byteTracker.getTracks()
-        
-        if let idx = MatchingUtils.findBestMatch(position: position, tracks: tracks) {
-            let track = tracks[idx]
-            return (true, countedTracks[track.trackId] ?? false)
+        // Since we're accessing actor-isolated state, we need to use a non-blocking approach
+        // For now, return default values unless we're already on the main actor
+        guard Thread.isMainThread else {
+            return (false, false)
         }
         
+        if let trackInfo = getTrackInfo(for: box) {
+            return (true, trackInfo.isCounted)
+        }
         return (false, false)
     }
     
-    /// Gets detailed tracking information for a box including the track ID
-    ///
-    /// - Parameter box: The detection box to get tracking info for
-    /// - Returns: A tuple with tracking information or nil if not tracked
+    /**
+     * getTrackInfo
+     *
+     * Maps to Python Implementation:
+     * - Used for visualization, similar to coloring logic in Python's drawing functions
+     * - Identifies track ID and counted status for UI rendering
+     */
     func getTrackInfo(for box: Box) -> (trackId: Int, isCounted: Bool)? {
+        // Since we're accessing actor-isolated state, we need to use a non-blocking approach
+        // For now, return nil unless we're already on the main actor
+        guard Thread.isMainThread else {
+            return nil
+        }
+        
         // Calculate the center of the box
-        let centerX = CGFloat(box.xywhn.minX + box.xywhn.maxX) / 2
-        // Use weighted average to get center closer to the tail (5x weight to bottom)
-        let centerY = CGFloat(box.xywhn.minY + box.xywhn.maxY * 4) / 5
+        let centerX = (box.xywhn.minX + box.xywhn.maxX) / 2
+        let centerY = (box.xywhn.minY + box.xywhn.maxY) / 2
         
         // Find tracks that match this box
-        let position = (x: centerX, y: centerY)
-        let tracks = byteTracker.getTracks()
+        var bestMatch: STrack? = nil
+        var minDistance: CGFloat = 0.1 // Maximum distance to consider
         
-        if let idx = MatchingUtils.findBestMatch(position: position, tracks: tracks) {
-            let track = tracks[idx]
+        for track in trackedObjects {
+            let dx = track.position.x - centerX
+            let dy = track.position.y - centerY
+            let distance = sqrt(dx*dx + dy*dy)
+            
+            if distance < minDistance {
+                minDistance = distance
+                bestMatch = track
+            }
+        }
+        
+        if let track = bestMatch {
             return (trackId: track.trackId, isCounted: countedTracks[track.trackId] ?? false)
         }
         

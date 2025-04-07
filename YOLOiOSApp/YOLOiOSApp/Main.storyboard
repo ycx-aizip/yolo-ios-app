@@ -66,7 +66,7 @@
                             <imageView hidden="YES" clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleToFill" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="Focus" translatesAutoresizingMaskIntoConstraints="NO" id="q1Z-jK-UQS">
                                 <rect key="frame" x="0.0" y="223.66666666666663" width="393" height="405"/>
                             </imageView>
-                            <imageView hidden="YES" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" insetsLayoutMarginsFromSafeArea="NO" image="ultralytics_yolo_logotype.png" id="EZE-r4-WFr">
+                            <imageView hidden="YES" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" insetsLayoutMarginsFromSafeArea="NO" image="aiziplogo.png" id="EZE-r4-WFr">
                                 <rect key="frame" x="215" y="555" width="159" height="67"/>
                                 <autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
                                 <accessibility key="accessibilityConfiguration">
@@ -124,7 +124,7 @@
     <color key="tintColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
     <resources>
         <image name="Focus" width="414" height="414"/>
-        <image name="ultralytics_yolo_logotype.png" width="1406" height="394"/>
+        <image name="aiziplogo.png" width="256" height="132"/>
         <systemColor name="groupTableViewBackgroundColor">
             <color red="0.94901960784313721" green="0.94901960784313721" blue="0.96862745098039216" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
         </systemColor>
