@@ -159,7 +159,7 @@ class ViewController: UIViewController {
       segmentedControl.selectedSegmentTintColor = UIColor.darkGray.withAlphaComponent(0.7)
       segmentedControl.setTitleTextAttributes([NSAttributedString.Key.foregroundColor: UIColor.white], for: .normal)
       segmentedControl.setTitleTextAttributes([NSAttributedString.Key.foregroundColor: UIColor.white], for: .selected)
-      segmentedControl.setTitleTextAttributes([NSAttributedString.Key.font: UIFont.systemFont(ofSize: 20, weight: .medium)], for: .normal)
+      segmentedControl.setTitleTextAttributes([NSAttributedString.Key.font: UIFont.systemFont(ofSize: 18, weight: .medium)], for: .normal)
     } else {
       // Fallback for older iOS versions
       segmentedControl.tintColor = UIColor.darkGray.withAlphaComponent(0.7)
@@ -498,7 +498,7 @@ class ViewController: UIViewController {
       x: modelTableView.frame.minX - 1,
       y: modelTableView.frame.minY - 1,
       width: modelTableView.frame.width + 2,
-      height: CGFloat(currentModels.count * 30 + 2)
+      height: modelTableView.frame.height + 2
     )
   }
 
@@ -525,13 +525,14 @@ class ViewController: UIViewController {
 
     // Adjust segmented control appearance to match the image
     let screenWidth = view.bounds.width
+    let statusBarHeight: CGFloat = 45 // Approximate height for status bar
     segmentedControl.frame = CGRect(
-      x: screenWidth * 0.1,
-      y: 20,
-      width: screenWidth * 0.8,
-      height: 50
+      x: screenWidth * 0.15,
+      y: statusBarHeight,
+      width: screenWidth * 0.7,
+      height: 40
     )
-    segmentedControl.layer.cornerRadius = 15
+    segmentedControl.layer.cornerRadius = 12
     segmentedControl.layer.masksToBounds = true
     
     if view.bounds.width > view.bounds.height {
@@ -543,12 +544,13 @@ class ViewController: UIViewController {
     } else {
       shareButton.tintColor = .systemGray
       recordButton.tintColor = .systemGray
-      let tableViewWidth = view.bounds.width * 0.4
+      let tableViewWidth = view.bounds.width * 0.6
       modelTableView.frame = CGRect(
-        x: view.bounds.width - tableViewWidth - 8,
-        y: segmentedControl.frame.maxY + 25,
+        x: (view.bounds.width - tableViewWidth) / 2,
+        y: segmentedControl.frame.maxY + 5,
         width: tableViewWidth,
-        height: 200)
+        height: CGFloat(currentModels.count * 30)
+      )
     }
 
     shareButton.frame = CGRect(
@@ -568,7 +570,7 @@ class ViewController: UIViewController {
       x: modelTableView.frame.minX - 1,
       y: modelTableView.frame.minY - 1,
       width: modelTableView.frame.width + 2,
-      height: CGFloat(currentModels.count * 30 + 2)
+      height: modelTableView.frame.height + 2
     )
   }
 
