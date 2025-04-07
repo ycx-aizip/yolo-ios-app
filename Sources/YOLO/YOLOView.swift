@@ -1445,7 +1445,7 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   // Threshold 1 slider changed
   @objc func threshold1Changed(_ sender: UISlider) {
     threshold1 = CGFloat(sender.value)
-    threshold1Layer?.position = CGPoint(x: bounds.width / 2, y: bounds.height * threshold1)
+    updateThresholdLayer(threshold1Layer, position: threshold1)
     labelThreshold1.text = "Threshold 1: " + String(format: "%.2f", sender.value)
     
     // Update tracking detector threshold if we're in fish count mode
@@ -1457,7 +1457,7 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   // Threshold 2 slider changed
   @objc func threshold2Changed(_ sender: UISlider) {
     threshold2 = CGFloat(sender.value)
-    threshold2Layer?.position = CGPoint(x: bounds.width / 2, y: bounds.height * threshold2)
+    updateThresholdLayer(threshold2Layer, position: threshold2)
     labelThreshold2.text = "Threshold 2: " + String(format: "%.2f", sender.value)
     
     // Update tracking detector threshold if we're in fish count mode
