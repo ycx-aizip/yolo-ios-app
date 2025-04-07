@@ -111,11 +111,9 @@ class ViewController: UIViewController {
     setupTaskSegmentedControl()
     loadModelsForAllTasks()
 
-    if tasks.indices.contains(5) {
-      segmentedControl.selectedSegmentIndex = 5
-      currentTask = tasks[5].name
-      reloadModelEntriesAndLoadFirst(for: currentTask)
-    }
+    // Always select Fish Count task (index 0 now)
+    currentTask = "FishCount"
+    reloadModelEntriesAndLoadFirst(for: currentTask)
 
     setupTableView()
     setupButtons()
@@ -151,9 +149,9 @@ class ViewController: UIViewController {
 
   private func setupTaskSegmentedControl() {
     segmentedControl.removeAllSegments()
-    for (index, taskInfo) in tasks.enumerated() {
-      segmentedControl.insertSegment(withTitle: taskInfo.name, at: index, animated: false)
-    }
+    // Only show Fish Count task
+    segmentedControl.insertSegment(withTitle: "Fish Count", at: 0, animated: false)
+    segmentedControl.selectedSegmentIndex = 0
   }
 
   private func loadModelsForAllTasks() {
@@ -447,32 +445,8 @@ class ViewController: UIViewController {
   @IBAction func indexChanged(_ sender: UISegmentedControl) {
     selection.selectionChanged()
 
-    let index = sender.selectedSegmentIndex
-    guard tasks.indices.contains(index) else { return }
-
-    let newTask = tasks[index].name
-
-    if (modelsForTask[newTask]?.isEmpty ?? true) && (remoteModelsInfo[newTask]?.isEmpty ?? true) {
-      let alert = UIAlertController(
-        title: "\(newTask) Models not found",
-        message: "Please add or define models for \(newTask).",
-        preferredStyle: .alert
-      )
-      alert.addAction(
-        UIAlertAction(
-          title: "OK", style: .cancel,
-          handler: { _ in
-            alert.dismiss(animated: true)
-          }))
-      self.present(alert, animated: true)
-
-      if let oldIndex = tasks.firstIndex(where: { $0.name == currentTask }) {
-        sender.selectedSegmentIndex = oldIndex
-      }
-      return
-    }
-
-    currentTask = newTask
+    // Since we only have Fish Count now
+    currentTask = "FishCount"
     selectedIndexPath = nil
 
     reloadModelEntriesAndLoadFirst(for: currentTask)
