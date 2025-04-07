@@ -114,9 +114,23 @@ class ViewController: UIViewController {
     // Always select Fish Count task (index 0 now)
     currentTask = "FishCount"
     reloadModelEntriesAndLoadFirst(for: currentTask)
+    
+    // Hide the model name label
+    labelName.isHidden = true
+    
+    // Hide the zoom label
+    yoloView.labelZoom.isHidden = true
+    
+    // Hide the model table view by default
+    modelTableView.isHidden = true
+    tableViewBGView.isHidden = true
 
     setupTableView()
     setupButtons()
+    
+    // Add tap gesture recognizer to the segmented control
+    let tapGesture = UITapGestureRecognizer(target: self, action: #selector(segmentedControlTapped))
+    segmentedControl.addGestureRecognizer(tapGesture)
 
     downloadProgressView.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(downloadProgressView)
@@ -193,8 +207,8 @@ class ViewController: UIViewController {
       if folderName == "DetectModels" {
         return reorderDetectionModels(modelFiles)
       } else if folderName == "FishCountModels" {
-        // Special handling for FishCount models if needed
-        return modelFiles.sorted()
+        // Sort FishCount models in reverse alphabetical order (latest on top)
+        return modelFiles.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedDescending }
       } else {
         return modelFiles.sorted()
       }
@@ -244,8 +258,14 @@ class ViewController: UIViewController {
     currentModels = makeModelEntries(for: taskName)
 
     if !currentModels.isEmpty {
-      modelTableView.isHidden = false
+      // Don't show the table view automatically, just reload it
       modelTableView.reloadData()
+      tableViewBGView.frame = CGRect(
+        x: modelTableView.frame.minX - 1,
+        y: modelTableView.frame.minY - 1,
+        width: modelTableView.frame.width + 2,
+        height: CGFloat(currentModels.count * 30 + 2)
+      )
 
       DispatchQueue.main.async {
         let firstIndex = IndexPath(row: 0, section: 0)
@@ -257,6 +277,7 @@ class ViewController: UIViewController {
     } else {
       print("No models found for task: \(taskName)")
       modelTableView.isHidden = true
+      tableViewBGView.isHidden = true
     }
   }
 
@@ -455,20 +476,11 @@ class ViewController: UIViewController {
   }
 
   @IBAction func indexChanged(_ sender: UISegmentedControl) {
+    // Since we only have one segment, this is redundant but kept for compatibility
     selection.selectionChanged()
-
-    // Since we only have Fish Count now
     currentTask = "FishCount"
     selectedIndexPath = nil
-
     reloadModelEntriesAndLoadFirst(for: currentTask)
-
-    tableViewBGView.frame = CGRect(
-      x: modelTableView.frame.minX - 1,
-      y: modelTableView.frame.minY - 1,
-      width: modelTableView.frame.width + 2,
-      height: CGFloat(currentModels.count * 30 + 2)
-    )
   }
 
   @objc func logoButton() {
@@ -624,6 +636,23 @@ class ViewController: UIViewController {
       }
     }
   }
+
+  // Handle taps on the segmented control
+  @objc func segmentedControlTapped() {
+    selection.selectionChanged()
+    
+    // Toggle the visibility of the model selection dropdown
+    let isDropdownVisible = !modelTableView.isHidden
+    modelTableView.isHidden = isDropdownVisible
+    tableViewBGView.isHidden = isDropdownVisible
+    
+    // Update the segmented control title to show appropriate arrow
+    if modelTableView.isHidden {
+      segmentedControl.setTitle("Fish Count Models ▼", forSegmentAt: 0)
+    } else {
+      segmentedControl.setTitle("Fish Count Models ▲", forSegmentAt: 0)
+    }
+  }
 }
 
 // MARK: - UITableViewDataSource, UITableViewDelegate
@@ -675,6 +704,11 @@ extension ViewController: UITableViewDataSource, UITableViewDelegate {
     let selectedEntry = currentModels[indexPath.row]
 
     loadModel(entry: selectedEntry, forTask: currentTask)
+    
+    // Hide the dropdown after selection
+    modelTableView.isHidden = true
+    tableViewBGView.isHidden = true
+    segmentedControl.setTitle("Fish Count Models ▼", forSegmentAt: 0)
   }
 
   func tableView(

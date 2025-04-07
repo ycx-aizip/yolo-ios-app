@@ -672,12 +672,13 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     labelName.font = UIFont.systemFont(ofSize: 24, weight: .medium)
     labelName.textColor = .black
     labelName.font = UIFont.preferredFont(forTextStyle: .title1)
+    labelName.isHidden = true
     self.addSubview(labelName)
 
     labelFPS.text = String(format: "%.1f FPS - %.1f ms", 0.0, 0.0)
     labelFPS.textAlignment = .center
     labelFPS.textColor = .black
-    labelFPS.font = UIFont.preferredFont(forTextStyle: .body)
+    labelFPS.font = UIFont.systemFont(ofSize: 12)
     self.addSubview(labelFPS)
 
     labelSliderNumItems.text = "0 items (max 30)"
@@ -731,6 +732,7 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     labelZoom.font = UIFont.systemFont(ofSize: 14)
     labelZoom.textAlignment = .center
     labelZoom.font = UIFont.preferredFont(forTextStyle: .body)
+    labelZoom.isHidden = true
     self.addSubview(labelZoom)
 
     let config = UIImage.SymbolConfiguration(pointSize: 20, weight: .regular, scale: .default)
@@ -780,13 +782,24 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         height: titleLabelHeight
       )
 
-      let subLabelHeight: CGFloat = height * 0.04
+      let toolBarHeight: CGFloat = 66
+      let buttonHeihgt: CGFloat = toolBarHeight * 0.75
+      toolbar.frame = CGRect(x: 0, y: height - toolBarHeight, width: width, height: toolBarHeight)
+      
+      // Position FPS label just above the toolbar
+      let subLabelHeight: CGFloat = height * 0.03
       labelFPS.frame = CGRect(
         x: 0,
-        y: center.y - height * 0.24 - subLabelHeight,
+        y: height - toolBarHeight - subLabelHeight - 5,
         width: width,
         height: subLabelHeight
       )
+      
+      playButton.frame = CGRect(x: 0, y: 0, width: buttonHeihgt, height: buttonHeihgt)
+      pauseButton.frame = CGRect(
+        x: playButton.frame.maxX, y: 0, width: buttonHeihgt, height: buttonHeihgt)
+      switchCameraButton.frame = CGRect(
+        x: pauseButton.frame.maxX, y: 0, width: buttonHeihgt, height: buttonHeihgt)
 
       let sliderWidth: CGFloat = width * 0.2
       let sliderHeight: CGFloat = height * 0.1
@@ -840,15 +853,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         width: zoomLabelWidth,
         height: height * 0.03
       )
-
-      let toolBarHeight: CGFloat = 66
-      let buttonHeihgt: CGFloat = toolBarHeight * 0.75
-      toolbar.frame = CGRect(x: 0, y: height - toolBarHeight, width: width, height: toolBarHeight)
-      playButton.frame = CGRect(x: 0, y: 0, width: buttonHeihgt, height: buttonHeihgt)
-      pauseButton.frame = CGRect(
-        x: playButton.frame.maxX, y: 0, width: buttonHeihgt, height: buttonHeihgt)
-      switchCameraButton.frame = CGRect(
-        x: pauseButton.frame.maxX, y: 0, width: buttonHeihgt, height: buttonHeihgt)
     } else {
       toolbar.backgroundColor = .darkGray.withAlphaComponent(0.7)
       playButton.tintColor = .systemGray
@@ -868,13 +872,24 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         height: titleLabelHeight
       )
 
-      let subLabelHeight: CGFloat = height * 0.04
+      let toolBarHeight: CGFloat = 66
+      let buttonHeihgt: CGFloat = toolBarHeight * 0.75
+      toolbar.frame = CGRect(x: 0, y: height - toolBarHeight, width: width, height: toolBarHeight)
+      
+      // Position FPS label just above the toolbar
+      let subLabelHeight: CGFloat = height * 0.03
       labelFPS.frame = CGRect(
         x: 0,
-        y: labelName.frame.maxY + 15,
+        y: height - toolBarHeight - subLabelHeight - 5,
         width: width,
         height: subLabelHeight
       )
+      
+      playButton.frame = CGRect(x: 0, y: 0, width: buttonHeihgt, height: buttonHeihgt)
+      pauseButton.frame = CGRect(
+        x: playButton.frame.maxX, y: 0, width: buttonHeihgt, height: buttonHeihgt)
+      switchCameraButton.frame = CGRect(
+        x: pauseButton.frame.maxX, y: 0, width: buttonHeihgt, height: buttonHeihgt)
 
       let sliderWidth: CGFloat = width * 0.46
       let sliderHeight: CGFloat = height * 0.02
@@ -928,15 +943,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         width: zoomLabelWidth,
         height: height * 0.03
       )
-
-      let toolBarHeight: CGFloat = 66
-      let buttonHeihgt: CGFloat = toolBarHeight * 0.75
-      toolbar.frame = CGRect(x: 0, y: height - toolBarHeight, width: width, height: toolBarHeight)
-      playButton.frame = CGRect(x: 0, y: 0, width: buttonHeihgt, height: buttonHeihgt)
-      pauseButton.frame = CGRect(
-        x: playButton.frame.maxX, y: 0, width: buttonHeihgt, height: buttonHeihgt)
-      switchCameraButton.frame = CGRect(
-        x: pauseButton.frame.maxX, y: 0, width: buttonHeihgt, height: buttonHeihgt)
     }
 
     self.videoCapture.previewLayer?.frame = self.bounds
