@@ -25,20 +25,17 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   }
 
   func onPredict(result: YOLOResult) {
-
+    // Use the standard showBoxes method for all tasks including fish counting
     showBoxes(predictions: result)
     onDetection?(result)
 
     if task == .segment {
       DispatchQueue.main.async {
         if let maskImage = result.masks?.combinedMask {
-
           guard let maskLayer = self.maskLayer else { return }
-
           maskLayer.isHidden = false
           maskLayer.frame = self.overlayLayer.bounds
           maskLayer.contents = maskImage
-
           self.videoCapture.predictor.isUpdating = false
         } else {
           self.videoCapture.predictor.isUpdating = false
@@ -60,14 +57,13 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         keypointsList: keypointList, confsList: confsList, boundingBoxes: result.boxes,
         on: poseLayer, imageViewSize: overlayLayer.frame.size, originalImageSize: result.orig_shape)
     } else if task == .obb {
-      //            self.setupObbLayerIfNeeded()
       guard let obbLayer = self.obbLayer else { return }
       let obbDetections = result.obb
       self.obbRenderer.drawObbDetectionsWithReuse(
         obbDetections: obbDetections,
         on: obbLayer,
         imageViewSize: self.overlayLayer.frame.size,
-        originalImageSize: result.orig_shape,  // 例
+        originalImageSize: result.orig_shape,
         lineWidth: 3
       )
     }
@@ -103,6 +99,8 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   public var threshold2Slider = UISlider()
   public var labelThreshold1 = UILabel()
   public var labelThreshold2 = UILabel()
+  public var threshold1: CGFloat = 0.3 // Add threshold1 property with default value
+  public var threshold2: CGFloat = 0.5 // Add threshold2 property with default value
   
   // Fish Count display and reset
   public var labelFishCount = UILabel()
@@ -295,8 +293,26 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         }
       }
 
+    case .fishCount:
+      TrackingDetector.create(unwrappedModelURL: unwrappedModelURL, isRealTime: true) {
+        [weak self] result in
+        switch result {
+        case .success(let predictor):
+          // Configure tracking detector with current thresholds
+          if let trackingDetector = predictor as? TrackingDetector,
+             let slf = self {
+            trackingDetector.setThresholds([CGFloat(slf.threshold1Slider.value), 
+                                            CGFloat(slf.threshold2Slider.value)])
+          }
+          
+          handleSuccess(predictor: predictor)
+        case .failure(let error):
+          handleFailure(error)
+        }
+      }
+
     default:
-      // Handle both .detect and .fishCount using ObjectDetector
+      // Handle the .detect case using ObjectDetector
       ObjectDetector.create(unwrappedModelURL: unwrappedModelURL, isRealTime: true) {
         [weak self] result in
         switch result {
@@ -452,7 +468,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   }
 
   func showBoxes(predictions: YOLOResult) {
-
     let width = self.bounds.width
     let height = self.bounds.height
     var resultCount = 0
@@ -460,7 +475,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     resultCount = predictions.boxes.count
 
     if UIDevice.current.orientation == .portrait {
-
       var ratio: CGFloat = 1.0
 
       if videoCapture.captureSession.sessionPreset == .photo {
@@ -492,9 +506,33 @@ public class YOLOView: UIView, VideoCaptureDelegate {
             boxColor = ultralyticsColors[colorIndex]
             label = String(format: "%@ %.1f", bestClass, confidence * 100)
             alpha = CGFloat((confidence - 0.2) / (1.0 - 0.2) * 0.9)
+          case .fishCount:
+            // For fish count task, use custom colors based on tracking status
+            let prediction = predictions.boxes[i]
+            rect = CGRect(
+              x: prediction.xywhn.minX, y: 1 - prediction.xywhn.maxY, width: prediction.xywhn.width,
+              height: prediction.xywhn.height)
+            bestClass = prediction.cls
+            confidence = CGFloat(prediction.conf)
+            
+            // Check tracking status to determine color
+            if let trackingDetector = videoCapture.predictor as? TrackingDetector {
+              let isTracked = trackingDetector.isObjectTracked(box: prediction)
+              let isCounted = trackingDetector.isObjectCounted(box: prediction)
+              
+              // Use green for counted objects, blue for uncounted tracked objects
+              boxColor = isCounted ? .green : .blue
+              alpha = isTracked ? 0.7 : 0.4 // More transparent if not being actively tracked
+            } else {
+              // Fallback to standard coloring if not using tracking detector
+              let colorIndex = prediction.index % ultralyticsColors.count
+              boxColor = ultralyticsColors[colorIndex]
+              alpha = CGFloat((confidence - 0.2) / (1.0 - 0.2) * 0.9)
+            }
+            
+            label = String(format: "%@ %.1f", bestClass, confidence * 100)
           default:
             let prediction = predictions.boxes[i]
-            let clsIndex = prediction.index
             rect = prediction.xywhn
             bestClass = prediction.cls
             confidence = CGFloat(prediction.conf)
@@ -502,7 +540,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
             let colorIndex = prediction.index % ultralyticsColors.count
             boxColor = ultralyticsColors[colorIndex]
             alpha = CGFloat((confidence - 0.2) / (1.0 - 0.2) * 0.9)
-
           }
           var displayRect = rect
           switch UIDevice.current.orientation {
@@ -531,7 +568,7 @@ public class YOLOView: UIView, VideoCaptureDelegate {
           }
           if ratio >= 1 {
             let offset = (1 - ratio) * (0.5 - displayRect.minX)
-            if task == .detect {
+            if task == .detect || task == .fishCount {
               let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: offset, y: -1)
               displayRect = displayRect.applying(transform)
             } else {
@@ -540,7 +577,7 @@ public class YOLOView: UIView, VideoCaptureDelegate {
             }
             displayRect.size.width *= ratio
           } else {
-            if task == .detect {
+            if task == .detect || task == .fishCount {
               let offset = (ratio - 1) * (0.5 - displayRect.maxY)
 
               let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: 0, y: offset - 1)
@@ -557,7 +594,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
 
           boundingBoxViews[i].show(
             frame: displayRect, label: label, color: boxColor, alpha: alpha)
-
         } else {
           boundingBoxViews[i].hide()
         }
@@ -605,6 +641,48 @@ public class YOLOView: UIView, VideoCaptureDelegate {
             )
             bestClass = prediction.cls
             confidence = CGFloat(prediction.conf)
+            
+          case .fishCount:
+            // For fish count task, use custom colors based on tracking status
+            let prediction = predictions.boxes[i]
+            rect = CGRect(
+              x: prediction.xywhn.minX,
+              y: 1 - prediction.xywhn.maxY,
+              width: prediction.xywhn.width,
+              height: prediction.xywhn.height
+            )
+            bestClass = prediction.cls
+            confidence = CGFloat(prediction.conf)
+            
+            // Check tracking status to determine color
+            if let trackingDetector = videoCapture.predictor as? TrackingDetector {
+              let isTracked = trackingDetector.isObjectTracked(box: prediction)
+              let isCounted = trackingDetector.isObjectCounted(box: prediction)
+              
+              // Use green for counted objects, blue for uncounted tracked objects
+              boxColor = isCounted ? .green : .blue
+              alpha = isTracked ? 0.7 : 0.4 // More transparent if not being actively tracked
+              
+              label = String(format: "%@ %.1f", bestClass, confidence * 100)
+              
+              // Skip the default coloring below
+              rect.origin.x = rect.origin.x * videoCapture.longSide * scaleX - offsetX
+              rect.origin.y =
+                height
+                - (rect.origin.y * videoCapture.shortSide * scaleY
+                  - offsetY
+                  + rect.size.height * videoCapture.shortSide * scaleY)
+              rect.size.width *= videoCapture.longSide * scaleX
+              rect.size.height *= videoCapture.shortSide * scaleY
+
+              boundingBoxViews[i].show(
+                frame: rect,
+                label: label,
+                color: boxColor,
+                alpha: alpha
+              )
+              continue
+            }
 
           default:
             let prediction = predictions.boxes[i]
@@ -643,6 +721,12 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         }
       }
     }
+
+    // Update fish count display if we're in fish count mode
+    if task == .fishCount, let trackingDetector = videoCapture.predictor as? TrackingDetector {
+      let currentCount = trackingDetector.getCount()
+      labelFishCount.text = "Fish Count: \(currentCount)"
+    }
   }
 
   func removeClassificationLayers() {
@@ -654,7 +738,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   }
 
   func overlayYOLOClassificationsCALayer(on view: UIView, result: YOLOResult) {
-
     removeClassificationLayers()
 
     let overlayLayer = CALayer()
@@ -1199,7 +1282,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   }
 
   @objc func sliderChanged(_ sender: Any) {
-
     if sender as? UISlider === sliderNumItems {
       if let detector = videoCapture.predictor as? ObjectDetector {
         let numItems = Int(sliderNumItems.value)
@@ -1213,7 +1295,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     if let detector = videoCapture.predictor as? ObjectDetector {
       detector.setIouThreshold(iou: iou)
       detector.setConfidenceThreshold(confidence: conf)
-
     }
   }
 
@@ -1266,7 +1347,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   }
 
   @objc func switchCameraTapped() {
-
     self.videoCapture.captureSession.beginConfiguration()
     let currentInput = self.videoCapture.captureSession.inputs.first as? AVCaptureDeviceInput
     self.videoCapture.captureSession.removeInput(currentInput!)
@@ -1364,29 +1444,34 @@ public class YOLOView: UIView, VideoCaptureDelegate {
   
   // Threshold 1 slider changed
   @objc func threshold1Changed(_ sender: UISlider) {
-    let value = sender.value
-    let formattedValue = String(format: "%.2f", value)
-    labelThreshold1.text = "Threshold 1: " + formattedValue
-    updateThresholdLayer(threshold1Layer, position: CGFloat(value))
+    threshold1 = CGFloat(sender.value)
+    threshold1Layer?.position = CGPoint(x: bounds.width / 2, y: bounds.height * threshold1)
+    labelThreshold1.text = "Threshold 1: " + String(format: "%.2f", sender.value)
     
-    // This value will be used by fish counting logic later
-    // No need to implement now, but this will be exposed for use
+    // Update tracking detector threshold if we're in fish count mode
+    if task == .fishCount, let trackingDetector = videoCapture.predictor as? TrackingDetector {
+      trackingDetector.setThresholds([threshold1, threshold2])
+    }
   }
   
   // Threshold 2 slider changed
   @objc func threshold2Changed(_ sender: UISlider) {
-    let value = sender.value
-    let formattedValue = String(format: "%.2f", value)
-    labelThreshold2.text = "Threshold 2: " + formattedValue
-    updateThresholdLayer(threshold2Layer, position: CGFloat(value))
+    threshold2 = CGFloat(sender.value)
+    threshold2Layer?.position = CGPoint(x: bounds.width / 2, y: bounds.height * threshold2)
+    labelThreshold2.text = "Threshold 2: " + String(format: "%.2f", sender.value)
     
-    // This value will be used by fish counting logic later
-    // No need to implement now, but this will be exposed for use
+    // Update tracking detector threshold if we're in fish count mode
+    if task == .fishCount, let trackingDetector = videoCapture.predictor as? TrackingDetector {
+      trackingDetector.setThresholds([threshold1, threshold2])
+    }
   }
 
   @objc func resetFishCount() {
-    fishCount = 0
-    labelFishCount.text = "Fish Count: \(fishCount)"
+    // Reset the fish count in tracking detector
+    if task == .fishCount, let trackingDetector = videoCapture.predictor as? TrackingDetector {
+      trackingDetector.resetCount()
+      labelFishCount.text = "Fish Count: 0"
+    }
   }
 }
 
