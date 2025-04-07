@@ -149,9 +149,21 @@ class ViewController: UIViewController {
 
   private func setupTaskSegmentedControl() {
     segmentedControl.removeAllSegments()
-    // Only show Fish Count task
-    segmentedControl.insertSegment(withTitle: "Fish Count", at: 0, animated: false)
+    // Only show Fish Count task with a dropdown arrow
+    segmentedControl.insertSegment(withTitle: "Fish Count Models ▼", at: 0, animated: false)
     segmentedControl.selectedSegmentIndex = 0
+    
+    // Style the segmented control to look like the image
+    if #available(iOS 13.0, *) {
+      segmentedControl.backgroundColor = UIColor.darkGray.withAlphaComponent(0.7)
+      segmentedControl.selectedSegmentTintColor = UIColor.darkGray.withAlphaComponent(0.7)
+      segmentedControl.setTitleTextAttributes([NSAttributedString.Key.foregroundColor: UIColor.white], for: .normal)
+      segmentedControl.setTitleTextAttributes([NSAttributedString.Key.foregroundColor: UIColor.white], for: .selected)
+      segmentedControl.setTitleTextAttributes([NSAttributedString.Key.font: UIFont.systemFont(ofSize: 20, weight: .medium)], for: .normal)
+    } else {
+      // Fallback for older iOS versions
+      segmentedControl.tintColor = UIColor.darkGray.withAlphaComponent(0.7)
+    }
   }
 
   private func loadModelsForAllTasks() {
@@ -511,6 +523,17 @@ class ViewController: UIViewController {
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
 
+    // Adjust segmented control appearance to match the image
+    let screenWidth = view.bounds.width
+    segmentedControl.frame = CGRect(
+      x: screenWidth * 0.1,
+      y: 20,
+      width: screenWidth * 0.8,
+      height: 50
+    )
+    segmentedControl.layer.cornerRadius = 15
+    segmentedControl.layer.masksToBounds = true
+    
     if view.bounds.width > view.bounds.height {
       shareButton.tintColor = .darkGray
       recordButton.tintColor = .darkGray
