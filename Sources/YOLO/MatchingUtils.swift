@@ -186,6 +186,23 @@ public class MatchingUtils {
             }
         }
         
+        // If matches are too few, try to be more lenient with threshold
+        if matches.count < min(rowIndices.count, colIndices.count) / 3 {
+            let lenientThreshold = min(threshold * 1.5, 0.9) // Increase threshold but cap at 0.9
+            
+            for cost in costs {
+                if cost.cost > lenientThreshold || cost.cost <= threshold {
+                    continue // Skip if still too high or already processed
+                }
+                
+                if !usedRows.contains(cost.row) && !usedCols.contains(cost.col) {
+                    matches.append((cost.row, cost.col))
+                    usedRows.insert(cost.row)
+                    usedCols.insert(cost.col)
+                }
+            }
+        }
+        
         // Find unmatched indices
         for i in rowIndices {
             if !usedRows.contains(i) {

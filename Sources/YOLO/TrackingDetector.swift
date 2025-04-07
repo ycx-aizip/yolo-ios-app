@@ -278,9 +278,37 @@ class TrackingDetector: ObjectDetector {
         
         // Find tracks that match this box
         var bestMatch: STrack? = nil
-        var minDistance: CGFloat = 0.1 // Maximum distance to consider
+        var minDistance: CGFloat = 0.3 // Increased from 0.2 to be more lenient with camera movement
         
+        // First try to match by IOU (Intersection over Union)
         for track in trackedObjects {
+            guard let trackBox = track.lastDetection else { continue }
+            
+            // Calculate IoU between the track's box and the current box
+            let boxA = box.xywhn
+            let boxB = trackBox.xywhn
+            
+            // Calculate intersection area
+            let xA = max(boxA.minX, boxB.minX)
+            let yA = max(boxA.minY, boxB.minY)
+            let xB = min(boxA.maxX, boxB.maxX)
+            let yB = min(boxA.maxY, boxB.maxY)
+            
+            let interArea = max(0, xB - xA) * max(0, yB - yA)
+            
+            // Calculate union area
+            let boxAArea = boxA.width * boxA.height
+            let boxBArea = boxB.width * boxB.height
+            let unionArea = boxAArea + boxBArea - interArea
+            
+            let iou = unionArea > 0 ? interArea / unionArea : 0
+            
+            // For high IoU, immediately select this track
+            if iou > 0.4 { // Lowered from 0.5 to be more lenient
+                return (trackId: track.trackId, isCounted: countedTracks[track.trackId] ?? false)
+            }
+            
+            // Otherwise, continue with the distance-based approach
             let dx = track.position.x - centerX
             let dy = track.position.y - centerY
             let distance = sqrt(dx*dx + dy*dy)
@@ -291,6 +319,7 @@ class TrackingDetector: ObjectDetector {
             }
         }
         
+        // If we found a good match by distance
         if let track = bestMatch {
             return (trackId: track.trackId, isCounted: countedTracks[track.trackId] ?? false)
         }

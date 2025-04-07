@@ -194,7 +194,15 @@ public class STrack {
      * - Updates Kalman filter with new measurement
      */
     public func update(newPosition: (x: CGFloat, y: CGFloat), detection: Box?, newScore: Float? = nil, frameId: Int) {
-        self.position = newPosition
+        // Add position smoothing for more stable tracking during camera motion
+        // Use exponential moving average to smooth position updates
+        // This makes tracking more robust to jitter
+        let alpha: CGFloat = 0.7 // Weight for new position (higher = less smoothing)
+        self.position = (
+            x: newPosition.x * alpha + self.position.x * (1 - alpha),
+            y: newPosition.y * alpha + self.position.y * (1 - alpha)
+        )
+        
         self.lastDetection = detection
         
         if let newScore = newScore {
@@ -214,7 +222,7 @@ public class STrack {
         self.state = .tracked
         self.isActivated = true
         
-        print("STrack: Updated track \(trackId) to position (\(newPosition.x), \(newPosition.y))")
+        print("STrack: Updated track \(trackId) to position (\(position.x), \(position.y))")
     }
     
     /// Backward compatibility update method
@@ -368,5 +376,11 @@ public class STrack {
             width: width,
             height: height
         )
+    }
+    
+    /// Update the position directly (used for camera motion compensation)
+    /// - Parameter newPosition: The new position (x, y) for this track
+    public func updatePosition(newPosition: (x: CGFloat, y: CGFloat)) {
+        self.position = newPosition
     }
 } 
