@@ -695,37 +695,37 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     sliderNumItems.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
     self.addSubview(sliderNumItems)
 
-    labelSliderConf.text = "0.25 Confidence Threshold"
+    labelSliderConf.text = "Conf: 0.25"
     labelSliderConf.textAlignment = .left
-    labelSliderConf.textColor = .black
-    labelSliderConf.font = UIFont.preferredFont(forTextStyle: .subheadline)
+    labelSliderConf.textColor = .white
+    labelSliderConf.font = UIFont.systemFont(ofSize: 16, weight: .medium)
     self.addSubview(labelSliderConf)
 
     sliderConf.minimumValue = 0
     sliderConf.maximumValue = 1
     sliderConf.value = 0.25
-    sliderConf.minimumTrackTintColor = .darkGray
-    sliderConf.maximumTrackTintColor = .systemGray.withAlphaComponent(0.7)
+    sliderConf.minimumTrackTintColor = .white
+    sliderConf.maximumTrackTintColor = .lightGray
     sliderConf.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
     self.addSubview(sliderConf)
 
-    labelSliderIoU.text = "0.45 IoU Threshold"
+    labelSliderIoU.text = "IoU: 0.45"
     labelSliderIoU.textAlignment = .left
-    labelSliderIoU.textColor = .black
-    labelSliderIoU.font = UIFont.preferredFont(forTextStyle: .subheadline)
+    labelSliderIoU.textColor = .white
+    labelSliderIoU.font = UIFont.systemFont(ofSize: 16, weight: .medium)
     self.addSubview(labelSliderIoU)
 
     sliderIoU.minimumValue = 0
     sliderIoU.maximumValue = 1
     sliderIoU.value = 0.45
-    sliderIoU.minimumTrackTintColor = .darkGray
-    sliderIoU.maximumTrackTintColor = .systemGray.withAlphaComponent(0.7)
+    sliderIoU.minimumTrackTintColor = .white
+    sliderIoU.maximumTrackTintColor = .lightGray
     sliderIoU.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
     self.addSubview(sliderIoU)
 
     self.labelSliderNumItems.text = "0 items (max " + String(Int(sliderNumItems.value)) + ")"
-    self.labelSliderConf.text = "0.25 Confidence Threshold"
-    self.labelSliderIoU.text = "0.45 IoU Threshold"
+    self.labelSliderConf.text = "Conf: " + String(Double(round(100 * sliderConf.value)) / 100)
+    self.labelSliderIoU.text = "IoU: " + String(Double(round(100 * sliderIoU.value)) / 100)
 
     labelZoom.text = "1.00x"
     labelZoom.textColor = .black
@@ -782,11 +782,8 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         height: titleLabelHeight
       )
 
-      let toolBarHeight: CGFloat = 66
-      let buttonHeihgt: CGFloat = toolBarHeight * 0.75
-      toolbar.frame = CGRect(x: 0, y: height - toolBarHeight, width: width, height: toolBarHeight)
-      
       // Position FPS label just above the toolbar
+      let toolBarHeight: CGFloat = 66
       let subLabelHeight: CGFloat = height * 0.03
       labelFPS.frame = CGRect(
         x: 0,
@@ -795,55 +792,58 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         height: subLabelHeight
       )
       
-      playButton.frame = CGRect(x: 0, y: 0, width: buttonHeihgt, height: buttonHeihgt)
-      pauseButton.frame = CGRect(
-        x: playButton.frame.maxX, y: 0, width: buttonHeihgt, height: buttonHeihgt)
-      switchCameraButton.frame = CGRect(
-        x: pauseButton.frame.maxX, y: 0, width: buttonHeihgt, height: buttonHeihgt)
+      // Layout for confidence and IoU sliders in the style shown in the image
+      let sliderWidth = width * 0.3
+      let sliderLabelHeight: CGFloat = 20
+      let sliderHeight: CGFloat = height * 0.02
+      let sliderY = height * 0.7
+      
+      // Confidence slider and label (left side)
+      labelSliderConf.frame = CGRect(
+        x: width * 0.1,
+        y: sliderY - sliderLabelHeight - 5,
+        width: sliderWidth * 0.5,
+        height: sliderLabelHeight
+      )
+      
+      sliderConf.frame = CGRect(
+        x: width * 0.1,
+        y: sliderY,
+        width: sliderWidth,
+        height: sliderHeight
+      )
+      
+      // IoU slider and label (right side)
+      labelSliderIoU.frame = CGRect(
+        x: width * 0.5,
+        y: sliderY - sliderLabelHeight - 5,
+        width: sliderWidth * 0.5,
+        height: sliderLabelHeight
+      )
+      
+      sliderIoU.frame = CGRect(
+        x: width * 0.5,
+        y: sliderY,
+        width: sliderWidth,
+        height: sliderHeight
+      )
 
-      let sliderWidth: CGFloat = width * 0.2
-      let sliderHeight: CGFloat = height * 0.1
+      // Number of items slider
+      let numItemsSliderWidth: CGFloat = width * 0.2
+      let numItemsSliderHeight: CGFloat = height * 0.1
 
       labelSliderNumItems.frame = CGRect(
         x: width * 0.1,
-        y: labelFPS.frame.minY - sliderHeight,
-        width: sliderWidth,
-        height: sliderHeight
+        y: height * 0.2,
+        width: numItemsSliderWidth,
+        height: numItemsSliderHeight
       )
 
       sliderNumItems.frame = CGRect(
         x: width * 0.1,
         y: labelSliderNumItems.frame.maxY + 10,
-        width: sliderWidth,
-        height: sliderHeight
-      )
-
-      labelSliderConf.frame = CGRect(
-        x: width * 0.1,
-        y: sliderNumItems.frame.maxY + 10,
-        width: sliderWidth * 1.5,
-        height: sliderHeight
-      )
-
-      sliderConf.frame = CGRect(
-        x: width * 0.1,
-        y: labelSliderConf.frame.maxY + 10,
-        width: sliderWidth,
-        height: sliderHeight
-      )
-
-      labelSliderIoU.frame = CGRect(
-        x: width * 0.1,
-        y: sliderConf.frame.maxY + 10,
-        width: sliderWidth * 1.5,
-        height: sliderHeight
-      )
-
-      sliderIoU.frame = CGRect(
-        x: width * 0.1,
-        y: labelSliderIoU.frame.maxY + 10,
-        width: sliderWidth,
-        height: sliderHeight
+        width: numItemsSliderWidth,
+        height: numItemsSliderHeight
       )
 
       let zoomLabelWidth: CGFloat = width * 0.2
@@ -853,6 +853,16 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         width: zoomLabelWidth,
         height: height * 0.03
       )
+
+      let buttonHeight: CGFloat = toolBarHeight * 0.75
+      toolbar.frame = CGRect(x: 0, y: height - toolBarHeight, width: width, height: toolBarHeight)
+      
+      playButton.frame = CGRect(x: 0, y: 0, width: buttonHeight, height: buttonHeight)
+      pauseButton.frame = CGRect(
+        x: playButton.frame.maxX, y: 0, width: buttonHeight, height: buttonHeight)
+      switchCameraButton.frame = CGRect(
+        x: pauseButton.frame.maxX, y: 0, width: buttonHeight, height: buttonHeight)
+      
     } else {
       toolbar.backgroundColor = .darkGray.withAlphaComponent(0.7)
       playButton.tintColor = .systemGray
@@ -872,11 +882,8 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         height: titleLabelHeight
       )
 
-      let toolBarHeight: CGFloat = 66
-      let buttonHeihgt: CGFloat = toolBarHeight * 0.75
-      toolbar.frame = CGRect(x: 0, y: height - toolBarHeight, width: width, height: toolBarHeight)
-      
       // Position FPS label just above the toolbar
+      let toolBarHeight: CGFloat = 66
       let subLabelHeight: CGFloat = height * 0.03
       labelFPS.frame = CGRect(
         x: 0,
@@ -885,55 +892,58 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         height: subLabelHeight
       )
       
-      playButton.frame = CGRect(x: 0, y: 0, width: buttonHeihgt, height: buttonHeihgt)
-      pauseButton.frame = CGRect(
-        x: playButton.frame.maxX, y: 0, width: buttonHeihgt, height: buttonHeihgt)
-      switchCameraButton.frame = CGRect(
-        x: pauseButton.frame.maxX, y: 0, width: buttonHeihgt, height: buttonHeihgt)
-
-      let sliderWidth: CGFloat = width * 0.46
+      // Layout for confidence and IoU sliders in the style shown in the image
+      let sliderWidth = width * 0.4
       let sliderHeight: CGFloat = height * 0.02
+      let sliderLabelHeight: CGFloat = 20
+      let sliderY = height * 0.85 // Position near bottom of screen
+      
+      // Confidence slider and label (left side)
+      labelSliderConf.frame = CGRect(
+        x: width * 0.05,
+        y: sliderY - sliderLabelHeight - 5,
+        width: sliderWidth * 0.5,
+        height: sliderLabelHeight
+      )
+      
+      sliderConf.frame = CGRect(
+        x: width * 0.05,
+        y: sliderY,
+        width: sliderWidth,
+        height: sliderHeight
+      )
+      
+      // IoU slider and label (right side)
+      labelSliderIoU.frame = CGRect(
+        x: width * 0.55,
+        y: sliderY - sliderLabelHeight - 5,
+        width: sliderWidth * 0.5,
+        height: sliderLabelHeight
+      )
+      
+      sliderIoU.frame = CGRect(
+        x: width * 0.55,
+        y: sliderY,
+        width: sliderWidth,
+        height: sliderHeight
+      )
+
+      // Number of items slider
+      let numItemsSliderWidth: CGFloat = width * 0.46
+      let numItemsSliderHeight: CGFloat = height * 0.02
 
       sliderNumItems.frame = CGRect(
         x: width * 0.01,
-        y: center.y - sliderHeight - height * 0.24,
-        width: sliderWidth,
-        height: sliderHeight
+        y: center.y - numItemsSliderHeight - height * 0.24,
+        width: numItemsSliderWidth,
+        height: numItemsSliderHeight
       )
 
       labelSliderNumItems.frame = CGRect(
         x: width * 0.01,
-        y: sliderNumItems.frame.minY - sliderHeight - 10,
-        width: sliderWidth,
-        height: sliderHeight
-      )
-
-      labelSliderConf.frame = CGRect(
-        x: width * 0.01,
-        y: center.y + height * 0.24,
-        width: sliderWidth * 1.5,
-        height: sliderHeight
-      )
-
-      sliderConf.frame = CGRect(
-        x: width * 0.01,
-        y: labelSliderConf.frame.maxY + 10,
-        width: sliderWidth,
-        height: sliderHeight
-      )
-
-      labelSliderIoU.frame = CGRect(
-        x: width * 0.01,
-        y: sliderConf.frame.maxY + 10,
-        width: sliderWidth * 1.5,
-        height: sliderHeight
-      )
-
-      sliderIoU.frame = CGRect(
-        x: width * 0.01,
-        y: labelSliderIoU.frame.maxY + 10,
-        width: sliderWidth,
-        height: sliderHeight
+        y: sliderNumItems.frame.minY - numItemsSliderHeight - 10,
+        width: numItemsSliderWidth,
+        height: numItemsSliderHeight
       )
 
       let zoomLabelWidth: CGFloat = width * 0.2
@@ -943,6 +953,15 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         width: zoomLabelWidth,
         height: height * 0.03
       )
+
+      let buttonHeight: CGFloat = toolBarHeight * 0.75
+      toolbar.frame = CGRect(x: 0, y: height - toolBarHeight, width: width, height: toolBarHeight)
+      
+      playButton.frame = CGRect(x: 0, y: 0, width: buttonHeight, height: buttonHeight)
+      pauseButton.frame = CGRect(
+        x: playButton.frame.maxX, y: 0, width: buttonHeight, height: buttonHeight)
+      switchCameraButton.frame = CGRect(
+        x: pauseButton.frame.maxX, y: 0, width: buttonHeight, height: buttonHeight)
     }
 
     self.videoCapture.previewLayer?.frame = self.bounds
@@ -983,8 +1002,8 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     }
     let conf = Double(round(100 * sliderConf.value)) / 100
     let iou = Double(round(100 * sliderIoU.value)) / 100
-    self.labelSliderConf.text = String(conf) + " Confidence Threshold"
-    self.labelSliderIoU.text = String(iou) + " IoU Threshold"
+    self.labelSliderConf.text = "Conf: " + String(conf)
+    self.labelSliderIoU.text = "IoU: " + String(iou)
     if let detector = videoCapture.predictor as? ObjectDetector {
       detector.setIouThreshold(iou: iou)
       detector.setConfidenceThreshold(confidence: conf)
