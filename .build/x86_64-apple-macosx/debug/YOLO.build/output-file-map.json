@@ -14,11 +14,29 @@
     "swiftmodule": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/BoundingBoxView~partial.swiftmodule",
     "swift-dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/BoundingBoxView.swiftdeps"
   },
+  "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/Sources/YOLO/ByteTracker.swift": {
+    "dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/ByteTracker.d",
+    "object": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/ByteTracker.swift.o",
+    "swiftmodule": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/ByteTracker~partial.swiftmodule",
+    "swift-dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/ByteTracker.swiftdeps"
+  },
   "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/Sources/YOLO/Classifier.swift": {
     "dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/Classifier.d",
     "object": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/Classifier.swift.o",
     "swiftmodule": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/Classifier~partial.swiftmodule",
     "swift-dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/Classifier.swiftdeps"
+  },
+  "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/Sources/YOLO/KalmanFilter.swift": {
+    "dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/KalmanFilter.d",
+    "object": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/KalmanFilter.swift.o",
+    "swiftmodule": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/KalmanFilter~partial.swiftmodule",
+    "swift-dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/KalmanFilter.swiftdeps"
+  },
+  "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/Sources/YOLO/MatchingUtils.swift": {
+    "dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/MatchingUtils.d",
+    "object": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/MatchingUtils.swift.o",
+    "swiftmodule": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/MatchingUtils~partial.swiftmodule",
+    "swift-dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/MatchingUtils.swiftdeps"
   },
   "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/Sources/YOLO/NonMaxSuppression.swift": {
     "dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/NonMaxSuppression.d",
@@ -55,6 +73,12 @@
     "object": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/Predictor.swift.o",
     "swiftmodule": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/Predictor~partial.swiftmodule",
     "swift-dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/Predictor.swiftdeps"
+  },
+  "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/Sources/YOLO/STrack.swift": {
+    "dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/STrack.d",
+    "object": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/STrack.swift.o",
+    "swiftmodule": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/STrack~partial.swiftmodule",
+    "swift-dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/STrack.swiftdeps"
   },
   "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/Sources/YOLO/Segmenter.swift": {
     "dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/Segmenter.d",

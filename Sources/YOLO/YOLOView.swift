@@ -520,17 +520,39 @@ public class YOLOView: UIView, VideoCaptureDelegate {
               let isTracked = trackingDetector.isObjectTracked(box: prediction)
               let isCounted = trackingDetector.isObjectCounted(box: prediction)
               
-              // Use green for counted objects, blue for uncounted tracked objects
-              boxColor = isCounted ? .green : .blue
-              alpha = isTracked ? 0.7 : 0.4 // More transparent if not being actively tracked
+              // Color scheme:
+              // Green: Counted fish
+              // Light blue: Tracked but not counted fish
+              // Dark blue: Newly tracked fish
+              if isCounted {
+                boxColor = .green 
+              } else if isTracked {
+                boxColor = UIColor(red: 0.4, green: 0.7, blue: 1.0, alpha: 1.0) // Light blue
+              } else {
+                boxColor = UIColor(red: 0.0, green: 0.0, blue: 0.8, alpha: 1.0) // Dark blue
+              }
+              
+              alpha = isTracked ? 0.7 : 0.5 // More transparent if newly tracked
+              
+              // Display tracking ID for tracked fish, empty label for untracked
+              if isTracked {
+                // Get the tracking ID and display it
+                if let trackInfo = trackingDetector.getTrackInfo(for: prediction) {
+                  label = "#\(trackInfo.trackId)"
+                } else {
+                  label = "#?"
+                }
+              } else {
+                // No label for untracked fish
+                label = ""
+              }
             } else {
               // Fallback to standard coloring if not using tracking detector
               let colorIndex = prediction.index % ultralyticsColors.count
               boxColor = ultralyticsColors[colorIndex]
               alpha = CGFloat((confidence - 0.2) / (1.0 - 0.2) * 0.9)
+              label = bestClass
             }
-            
-            label = String(format: "%@ %.1f", bestClass, confidence * 100)
           default:
             let prediction = predictions.boxes[i]
             rect = prediction.xywhn
@@ -659,29 +681,32 @@ public class YOLOView: UIView, VideoCaptureDelegate {
               let isTracked = trackingDetector.isObjectTracked(box: prediction)
               let isCounted = trackingDetector.isObjectCounted(box: prediction)
               
-              // Use green for counted objects, blue for uncounted tracked objects
-              boxColor = isCounted ? .green : .blue
-              alpha = isTracked ? 0.7 : 0.4 // More transparent if not being actively tracked
+              // Color scheme:
+              // Green: Counted fish
+              // Light blue: Tracked but not counted fish
+              // Dark blue: Newly tracked fish
+              if isCounted {
+                boxColor = .green 
+              } else if isTracked {
+                boxColor = UIColor(red: 0.4, green: 0.7, blue: 1.0, alpha: 1.0) // Light blue
+              } else {
+                boxColor = UIColor(red: 0.0, green: 0.0, blue: 0.8, alpha: 1.0) // Dark blue
+              }
               
-              label = String(format: "%@ %.1f", bestClass, confidence * 100)
+              alpha = isTracked ? 0.7 : 0.5 // More transparent if newly tracked
               
-              // Skip the default coloring below
-              rect.origin.x = rect.origin.x * videoCapture.longSide * scaleX - offsetX
-              rect.origin.y =
-                height
-                - (rect.origin.y * videoCapture.shortSide * scaleY
-                  - offsetY
-                  + rect.size.height * videoCapture.shortSide * scaleY)
-              rect.size.width *= videoCapture.longSide * scaleX
-              rect.size.height *= videoCapture.shortSide * scaleY
-
-              boundingBoxViews[i].show(
-                frame: rect,
-                label: label,
-                color: boxColor,
-                alpha: alpha
-              )
-              continue
+              // Display tracking ID for tracked fish, empty label for untracked
+              if isTracked {
+                // Get the tracking ID and display it
+                if let trackInfo = trackingDetector.getTrackInfo(for: prediction) {
+                  label = "#\(trackInfo.trackId)"
+                } else {
+                  label = "#?"
+                }
+              } else {
+                // No label for untracked fish
+                label = ""
+              }
             }
 
           default:
@@ -701,6 +726,40 @@ public class YOLOView: UIView, VideoCaptureDelegate {
           label = String(format: "%@ %.1f", bestClass, confidence * 100)
           alpha = CGFloat((confidence - 0.2) / (1.0 - 0.2) * 0.9)
 
+          // Check tracking status for fish counting task
+          if task == .fishCount, let trackingDetector = videoCapture.predictor as? TrackingDetector {
+            let prediction = predictions.boxes[i]
+            let isTracked = trackingDetector.isObjectTracked(box: prediction)
+            let isCounted = trackingDetector.isObjectCounted(box: prediction)
+            
+            // Color scheme:
+            // Green: Counted fish
+            // Light blue: Tracked but not counted fish
+            // Dark blue: Newly tracked fish
+            if isCounted {
+              boxColor = .green 
+            } else if isTracked {
+              boxColor = UIColor(red: 0.4, green: 0.7, blue: 1.0, alpha: 1.0) // Light blue
+            } else {
+              boxColor = UIColor(red: 0.0, green: 0.0, blue: 0.8, alpha: 1.0) // Dark blue
+            }
+            
+            alpha = isTracked ? 0.7 : 0.5 // More transparent if newly tracked
+            
+            // Display tracking ID for tracked fish, empty label for untracked
+            if isTracked {
+              // Get the tracking ID and display it
+              if let trackInfo = trackingDetector.getTrackInfo(for: prediction) {
+                label = "#\(trackInfo.trackId)"
+              } else {
+                label = "#?"
+              }
+            } else {
+              // No label for untracked fish
+              label = ""
+            }
+          }
+          
           rect.origin.x = rect.origin.x * videoCapture.longSide * scaleX - offsetX
           rect.origin.y =
             height
@@ -716,8 +775,7 @@ public class YOLOView: UIView, VideoCaptureDelegate {
             color: boxColor,
             alpha: alpha
           )
-        } else {
-          boundingBoxViews[i].hide()
+          continue
         }
       }
     }
@@ -869,14 +927,14 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     let threshold2Value = String(format: "%.2f", 0.5)
     labelThreshold2.text = "Threshold 2: " + threshold2Value
     labelThreshold2.textAlignment = .left
-    labelThreshold2.textColor = UIColor.green
+    labelThreshold2.textColor = UIColor.yellow
     labelThreshold2.font = UIFont.systemFont(ofSize: 16, weight: .medium)
     self.addSubview(labelThreshold2)
     
     threshold2Slider.minimumValue = 0
     threshold2Slider.maximumValue = 1
     threshold2Slider.value = 0.5 // Initial value
-    threshold2Slider.minimumTrackTintColor = UIColor.green
+    threshold2Slider.minimumTrackTintColor = UIColor.yellow
     threshold2Slider.maximumTrackTintColor = UIColor.lightGray
     threshold2Slider.addTarget(self, action: #selector(threshold2Changed), for: .valueChanged)
     self.addSubview(threshold2Slider)
@@ -1407,7 +1465,7 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     
     if threshold2Layer == nil {
       let layer = CAShapeLayer()
-      layer.strokeColor = UIColor.green.cgColor
+      layer.strokeColor = UIColor.yellow.cgColor
       layer.lineWidth = 3.0
       layer.lineDashPattern = [5, 5] // Creates a dashed line
       layer.zPosition = 999 // Ensure it's on top of other layers

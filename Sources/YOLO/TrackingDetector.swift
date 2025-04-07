@@ -22,8 +22,8 @@ import Vision
 /// - Note: Uses ByteTrack-inspired tracking algorithm to associate detections between frames.
 class TrackingDetector: ObjectDetector {
     
-    /// Represents the current state of tracked objects
-    private var trackStates: [Int: TrackState] = [:]
+    /// The ByteTracker instance used for tracking objects
+    private let byteTracker = ByteTracker()
     
     /// Total count of objects that have crossed the threshold(s)
     private var totalCount: Int = 0
@@ -31,29 +31,15 @@ class TrackingDetector: ObjectDetector {
     /// Thresholds used for counting (normalized y-coordinates, 0.0-1.0)
     private var thresholds: [CGFloat] = [0.3, 0.5]
     
-    /// The next available tracking ID
-    private var nextTrackId: Int = 0
-    
-    /// Structure to store the state of a tracked object
-    private struct TrackState {
-        /// The last known position of the tracked object (normalized coordinates)
-        var lastPosition: (x: CGFloat, y: CGFloat)
-        
-        /// Flag indicating whether this object has been counted
-        var counted: Bool = false
-        
-        /// Time-to-live counter for the track (decremented when object not detected)
-        var ttl: Int = 5
-        
-        /// The most recent detection box associated with this track
-        var lastDetection: Box?
-    }
+    /// Map of track IDs to counting status
+    private var countedTracks: [Int: Bool] = [:]
     
     /// Sets the thresholds for counting
     ///
     /// - Parameter values: Array of normalized y-coordinate values (0.0-1.0)
     func setThresholds(_ values: [CGFloat]) {
         thresholds = values
+        print("TrackingDetector: Set thresholds to \(values)")
     }
     
     /// Gets the current count of objects that have crossed the threshold
@@ -66,34 +52,8 @@ class TrackingDetector: ObjectDetector {
     /// Resets the counting state and clears all tracked objects
     func resetCount() {
         totalCount = 0
-        trackStates.removeAll()
-    }
-    
-    /// Checks if a detection box's center is close to any of the tracked centers
-    ///
-    /// - Parameters:
-    ///   - box: The detection box to check
-    ///   - position: The position to check against tracked objects
-    /// - Returns: (isTracked, isCounted, trackId) tuple
-    private func getTrackingInfo(for position: (x: CGFloat, y: CGFloat)) -> (isTracked: Bool, isCounted: Bool, trackId: Int?) {
-        var bestTrackId: Int? = nil
-        var bestDistance = CGFloat.greatestFiniteMagnitude
-        
-        for (trackId, trackState) in trackStates {
-            let distance = hypot(position.x - trackState.lastPosition.x, 
-                                position.y - trackState.lastPosition.y)
-            
-            if distance < bestDistance && distance < 0.1 { // threshold for matching
-                bestDistance = distance
-                bestTrackId = trackId
-            }
-        }
-        
-        if let trackId = bestTrackId {
-            return (true, trackStates[trackId]?.counted ?? false, trackId)
-        }
-        
-        return (false, false, nil)
+        countedTracks.removeAll()
+        print("TrackingDetector: Reset count")
     }
     
     /// Processes the results from the Vision framework's object detection request.
@@ -107,7 +67,7 @@ class TrackingDetector: ObjectDetector {
     override func processObservations(for request: VNRequest, error: Error?) {
         if let results = request.results as? [VNRecognizedObjectObservation] {
             var boxes = [Box]()
-            var detections: [(box: Box, center: (x: CGFloat, y: CGFloat))] = []
+            var detections: [(position: (x: CGFloat, y: CGFloat), box: Box)] = []
             
             // Process detections
             for i in 0..<100 {
@@ -135,81 +95,17 @@ class TrackingDetector: ObjectDetector {
                     // Use weighted average to get center closer to the tail (5x weight to bottom)
                     let centerY = CGFloat(invertedBox.minY + invertedBox.maxY * 4) / 5
                     
-                    detections.append((box: box, center: (x: centerX, y: centerY)))
+                    detections.append((position: (x: centerX, y: centerY), box: box))
                 }
             }
             
-            // Update track states and decrease TTL for missing tracks
-            for trackId in trackStates.keys {
-                trackStates[trackId]?.ttl -= 1
+            // Update tracks with new detections using ByteTracker
+            let tracks = byteTracker.update(detections: detections)
+            
+            // Check for threshold crossings
+            for track in tracks {
+                checkThresholdCrossing(track: track)
             }
-            
-            // Remove tracks that have expired TTL
-            trackStates = trackStates.filter { $0.value.ttl > 0 }
-            
-            // Associate detections with existing tracks using simple IoU-based matching
-            // In a full implementation, this would use more sophisticated ByteTrack algorithm
-            var assignedTracks = Set<Int>()
-            var assignedDetections = Set<Int>()
-            
-            // Simple tracking by IoU overlap
-            for (trackId, trackState) in trackStates {
-                let trackPoint = CGPoint(x: trackState.lastPosition.x, y: trackState.lastPosition.y)
-                
-                var bestDetectionIdx = -1
-                var bestDistance = CGFloat.greatestFiniteMagnitude
-                
-                // Find closest detection to this track
-                for (idx, detection) in detections.enumerated() {
-                    if assignedDetections.contains(idx) {
-                        continue
-                    }
-                    
-                    let detectionPoint = CGPoint(x: detection.center.x, y: detection.center.y)
-                    let distance = hypot(trackPoint.x - detectionPoint.x, trackPoint.y - detectionPoint.y)
-                    
-                    if distance < bestDistance {
-                        bestDistance = distance
-                        bestDetectionIdx = idx
-                    }
-                }
-                
-                // If we found a close enough detection, update the track
-                if bestDetectionIdx >= 0 && bestDistance < 0.1 { // threshold for matching
-                    let detection = detections[bestDetectionIdx]
-                    
-                    // Update position and reset TTL
-                    trackStates[trackId]?.lastPosition = detection.center
-                    trackStates[trackId]?.ttl = 5
-                    trackStates[trackId]?.lastDetection = detection.box
-                    
-                    // Check for threshold crossing
-                    checkThresholdCrossing(trackId: trackId, 
-                                          currentPosition: detection.center)
-                    
-                    assignedTracks.insert(trackId)
-                    assignedDetections.insert(bestDetectionIdx)
-                }
-            }
-            
-            // Create new tracks for unassigned detections
-            for (idx, detection) in detections.enumerated() {
-                if !assignedDetections.contains(idx) {
-                    let trackId = nextTrackId
-                    nextTrackId += 1
-                    
-                    trackStates[trackId] = TrackState(
-                        lastPosition: detection.center,
-                        counted: false,
-                        ttl: 5,
-                        lastDetection: detection.box
-                    )
-                }
-            }
-            
-            // Add tracking information to the boxes for visualization
-            // We use a side-channel approach to pass tracking information to the UI
-            // by creating a custom property in YOLOResult
             
             // Measure FPS
             if self.t1 < 10.0 {  // valid dt
@@ -234,30 +130,35 @@ class TrackingDetector: ObjectDetector {
     
     /// Checks if an object has crossed any of the defined thresholds
     ///
-    /// - Parameters:
-    ///   - trackId: The ID of the track to check
-    ///   - currentPosition: The current position of the tracked object
-    private func checkThresholdCrossing(trackId: Int, currentPosition: (x: CGFloat, y: CGFloat)) {
-        guard let trackState = trackStates[trackId] else { return }
+    /// - Parameter track: The track to check for threshold crossing
+    private func checkThresholdCrossing(track: STrack) {
+        let trackId = track.trackId
+        let currentY = track.position.y
         
-        let lastY = trackState.lastPosition.y
-        let currentY = currentPosition.y
+        // Get previous counted status or default to false
+        let wasCounted = countedTracks[trackId] ?? false
         
         // Check for forward crossing (top to bottom) - count up
         for threshold in thresholds {
-            if !trackState.counted && lastY < threshold && currentY >= threshold {
-                totalCount += 1
-                trackStates[trackId]?.counted = true
-                break
+            if !wasCounted && track.ttl == 5 { // only check tracks that were just updated
+                if currentY >= threshold {
+                    totalCount += 1
+                    countedTracks[trackId] = true
+                    track.markCounted()
+                    print("TrackingDetector: Track \(trackId) crossed threshold \(threshold), count: \(totalCount)")
+                    break
+                }
             }
         }
         
         // Check for reverse crossing (bottom to top) - count down
         // Only using first threshold for reverse counting to avoid double-counting
         if let firstThreshold = thresholds.first {
-            if trackState.counted && lastY > firstThreshold && currentY <= firstThreshold {
+            if wasCounted && track.ttl == 5 && currentY <= firstThreshold {
                 totalCount -= 1
-                trackStates[trackId]?.counted = false
+                countedTracks[trackId] = false
+                track.markUncounted()
+                print("TrackingDetector: Track \(trackId) crossed threshold back, count: \(totalCount)")
             }
         }
     }
@@ -273,9 +174,38 @@ class TrackingDetector: ObjectDetector {
         // Use weighted average to get center closer to the tail (5x weight to bottom)
         let centerY = CGFloat(box.xywhn.minY + box.xywhn.maxY * 4) / 5
         
-        // Get tracking info based on position
-        let (isTracked, isCounted, _) = getTrackingInfo(for: (x: centerX, y: centerY))
-        return (isTracked, isCounted)
+        // Find tracks that match this box
+        let position = (x: centerX, y: centerY)
+        let tracks = byteTracker.getTracks()
+        
+        if let idx = MatchingUtils.findBestMatch(position: position, tracks: tracks) {
+            let track = tracks[idx]
+            return (true, countedTracks[track.trackId] ?? false)
+        }
+        
+        return (false, false)
+    }
+    
+    /// Gets detailed tracking information for a box including the track ID
+    ///
+    /// - Parameter box: The detection box to get tracking info for
+    /// - Returns: A tuple with tracking information or nil if not tracked
+    func getTrackInfo(for box: Box) -> (trackId: Int, isCounted: Bool)? {
+        // Calculate the center of the box
+        let centerX = CGFloat(box.xywhn.minX + box.xywhn.maxX) / 2
+        // Use weighted average to get center closer to the tail (5x weight to bottom)
+        let centerY = CGFloat(box.xywhn.minY + box.xywhn.maxY * 4) / 5
+        
+        // Find tracks that match this box
+        let position = (x: centerX, y: centerY)
+        let tracks = byteTracker.getTracks()
+        
+        if let idx = MatchingUtils.findBestMatch(position: position, tracks: tracks) {
+            let track = tracks[idx]
+            return (trackId: track.trackId, isCounted: countedTracks[track.trackId] ?? false)
+        }
+        
+        return nil
     }
     
     /// Checks if a detection box is currently being tracked
