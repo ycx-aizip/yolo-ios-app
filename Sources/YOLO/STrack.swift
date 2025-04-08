@@ -58,7 +58,7 @@ public class STrack {
     
     /// Maximum size for the recently used IDs buffer
     @MainActor
-    private static let maxRecentIdCount: Int = 1000
+    private static let maxRecentIdCount: Int = 500 // Reduced from 1000 to save memory
     
     // MARK: - Instance properties
     
@@ -75,7 +75,7 @@ public class STrack {
     public var counted: Bool = false
     
     /// Time-to-live counter for the track (decremented when object not detected)
-    public var ttl: Int = 5
+    public var ttl: Int = 3 // Reduced from 5 to clean up tracks faster
     
     /// The most recent detection box associated with this track
     public var lastDetection: Box?
@@ -190,6 +190,9 @@ public class STrack {
         self.cls = newTrack.cls
         self.lastDetection = newTrack.lastDetection
         self.position = newTrack.position
+        
+        // Reset TTL when reactivated
+        self.ttl = 3
     }
     
     /**
@@ -198,81 +201,136 @@ public class STrack {
      * Maps to Python Implementation:
      * - Primary Correspondence: `update()` method in `STrack` class
      * - Updates track state with new detection
-     * - Updates Kalman filter with new measurement
+     * - Updates position and Kalman filter state
      */
-    public func update(newPosition: (x: CGFloat, y: CGFloat), detection: Box?, newScore: Float? = nil, frameId: Int) {
-        // Add position smoothing for more stable tracking during camera motion
-        // Use exponential moving average to smooth position updates
-        // This makes tracking more robust to jitter
-        let alpha: CGFloat = 0.7 // Weight for new position (higher = less smoothing)
-        self.position = (
-            x: newPosition.x * alpha + self.position.x * (1 - alpha),
-            y: newPosition.y * alpha + self.position.y * (1 - alpha)
-        )
+    public func update(newPosition: (x: CGFloat, y: CGFloat), detection: Box?, newScore: Float, frameId: Int) {
+        guard let kalmanFilter = self.kalmanFilter, let mean = self.mean, let covariance = self.covariance else {
+            return
+        }
         
+        // Update position
+        self.position = newPosition
         self.lastDetection = detection
+        self.score = newScore
+        self.cls = detection?.cls ?? self.cls
         
-        if let newScore = newScore {
-            self.score = newScore
-        }
+        // Update Kalman filter with new detection
+        let measurement = convertToXYAH()
+        (self.mean, self.covariance) = kalmanFilter.update(mean: mean, covariance: covariance, measurement: measurement)
         
-        self.endFrame = frameId
-        self.trackletLen += 1
-        self.ttl = 5  // Reset TTL
-        
-        // Update Kalman filter if available
-        if let kalmanFilter = self.kalmanFilter, let mean = self.mean, let covariance = self.covariance {
-            let measurement = convertToXYAH()
-            (self.mean, self.covariance) = kalmanFilter.update(mean: mean, covariance: covariance, measurement: measurement)
-        }
-        
+        // Update track state
         self.state = .tracked
         self.isActivated = true
+        self.trackletLen += 1
+        self.endFrame = frameId
+        
+        // Reset TTL when updated
+        self.ttl = 3
     }
     
-    /// Backward compatibility update method
-    /// - Parameters:
-    ///   - newPosition: The new position of the tracked object
-    ///   - detection: The new detection box
-    public func update(newPosition: (x: CGFloat, y: CGFloat), detection: Box?) {
-        update(newPosition: newPosition, detection: detection, frameId: endFrame + 1)
+    /// Decreases the time-to-live counter for this track.
+    /// - Returns: true if the track is still alive, false if it should be considered lost.
+    public func decreaseTTL() -> Bool {
+        ttl -= 1
+        return ttl > 0
     }
+    
+    /// Marks this track as lost.
+    public func markLost() {
+        state = .lost
+    }
+    
+    /// Marks this track as counted for fish counting purposes.
+    public func markCounted() {
+        counted = true
+    }
+    
+    /// Marks this track as removed.
+    public func markRemoved() {
+        state = .removed
+    }
+    
+    // MARK: - Prediction
     
     /**
      * predict
      *
      * Maps to Python Implementation:
      * - Primary Correspondence: `predict()` method in `STrack` class
-     * - Uses Kalman filter to predict new position based on motion model
-     * - Called during tracking to predict position before matching
+     * - Predicts new state using Kalman filter
+     * - Updates position based on prediction
      */
     public func predict() {
-        if let kalmanFilter = self.kalmanFilter, let mean = self.mean, let covariance = self.covariance {
-            var stateMean = mean
-            
-            // If track is not actively tracked, set velocity to 0
-            if self.state != .tracked {
-                stateMean[7] = 0
-            }
-            
-            (self.mean, self.covariance) = kalmanFilter.predict(mean: stateMean, covariance: covariance)
-            
-            // Update position from Kalman prediction
-            if let mean = self.mean {
-                // Extract position from mean (center_x, center_y)
-                self.position = (x: CGFloat(mean[0]), y: CGFloat(mean[1]))
-            }
+        guard let kalmanFilter = self.kalmanFilter, let mean = self.mean, let covariance = self.covariance else {
+            return
+        }
+        
+        // Predict new state using Kalman filter
+        (self.mean, self.covariance) = kalmanFilter.predict(mean: mean, covariance: covariance)
+        
+        // Convert predicted Kalman state to position
+        if let mean = self.mean {
+            self.position = (x: CGFloat(mean[0]), y: CGFloat(mean[1]))
         }
     }
     
-    /**
-     * multiPredict
-     *
-     * Maps to Python Implementation:
-     * - Primary Correspondence: `multi_predict()` static method in `STrack` class
-     * - Batch prediction for multiple tracks
-     * - Applies Kalman prediction to all tracks in the list
-     */
+    // MARK: - Helper Methods
+    
+    /// Converts track position to XYAH format used by Kalman filter.
+    /// - Returns: [x, y, aspect_ratio, height] in normalized coordinates
+    private func convertToXYAH() -> [Float] {
+        let x = Float(position.x)
+        let y = Float(position.y)
+        
+        // Default values if no detection is available
+        let aspectRatio: Float = 1.0
+        let height: Float = 0.1
+        
+        return [x, y, aspectRatio, height]
+    }
+    
+    /// Releases any resources held by the track when it's no longer needed
+    public func cleanup() {
+        // Release references to reduce memory pressure
+        lastDetection = nil
+        mean = nil
+        covariance = nil
+        kalmanFilter = nil
+    }
+    
+    // MARK: - Class Methods
+    
+    /// Gets the next available track ID
+    @MainActor
+    public static func nextId() -> Int {
+        // Increment the counter
+        count += 1
+        
+        // Add to the set of recently used IDs
+        recentlyUsedIds.insert(count)
+        
+        // If the set gets too large, remove the oldest entries
+        if recentlyUsedIds.count > maxRecentIdCount {
+            // This is a simple approach - remove the smallest values
+            // A more sophisticated approach could use a circular buffer
+            let sortedIds = recentlyUsedIds.sorted()
+            let idsToRemove = sortedIds.prefix(recentlyUsedIds.count - maxRecentIdCount)
+            for id in idsToRemove {
+                recentlyUsedIds.remove(id)
+            }
+        }
+        
+        return count
+    }
+    
+    /// Resets the ID counter
+    @MainActor
+    public static func resetId() {
+        count = 0
+        recentlyUsedIds.removeAll(keepingCapacity: true)
+    }
+    
+    /// Predicts new states for multiple tracks
     @MainActor
     public static func multiPredict(tracks: [STrack]) {
         for track in tracks {
@@ -280,127 +338,20 @@ public class STrack {
         }
     }
     
-    /// Mark track as lost
-    public func markLost() {
-        self.state = .lost
-    }
-    
-    /// Mark track as removed
-    public func markRemoved() {
-        self.state = .removed
-    }
-    
-    /// Mark this track as counted
-    public func markCounted() {
-        self.counted = true
-    }
-    
-    /// Mark this track as not counted
-    public func markUncounted() {
-        self.counted = false
-    }
-    
-    /// Decrease the TTL of the track
-    /// - Returns: Whether the track is still alive
-    public func decreaseTTL() -> Bool {
-        ttl -= 1
-        return ttl > 0
-    }
-    
-    // MARK: - Helper methods
-    
-    /**
-     * nextId
-     *
-     * Maps to Python Implementation:
-     * - Primary Correspondence: Similar to `_count` class variable in Python `STrack`
-     * - Generates unique IDs for new tracks
-     */
+    /// Updates multiple tracks with detections
+    /// - Parameters:
+    ///   - tracks: Array of tracks to update
+    ///   - dets: Array of detections to update with
+    ///   - frameId: Current frame ID
     @MainActor
-    public static func nextId() -> Int {
-        // Generate new ID
-        STrack.count += 1
-        
-        // Skip IDs that were recently used to avoid quick reuse
-        while recentlyUsedIds.contains(STrack.count) {
-            STrack.count += 1
+    public static func updateMulti(tracks: [STrack], dets: [STrack], frameId: Int) {
+        for i in 0..<min(tracks.count, dets.count) {
+            tracks[i].update(
+                newPosition: dets[i].position,
+                detection: dets[i].lastDetection,
+                newScore: dets[i].score,
+                frameId: frameId
+            )
         }
-        
-        // Add to recently used IDs
-        recentlyUsedIds.insert(STrack.count)
-        
-        // Maintain reasonable size for the set
-        if recentlyUsedIds.count > maxRecentIdCount {
-            // Remove oldest IDs (approximation by removing smallest)
-            if let smallest = recentlyUsedIds.min() {
-                recentlyUsedIds.remove(smallest)
-            }
-        }
-        
-        return STrack.count
-    }
-    
-    /// Reset the track ID counter
-    @MainActor
-    public static func resetId() {
-        STrack.count = 0
-        recentlyUsedIds.removeAll()
-    }
-    
-    /**
-     * convertToXYAH
-     *
-     * Maps to Python Implementation:
-     * - Primary Correspondence: `tlwh_to_xyah()` method in `STrack` class
-     * - Converts bounding box to format used by Kalman filter
-     * - [x_center, y_center, aspect_ratio, height]
-     */
-    private func convertToXYAH() -> [Float] {
-        guard let detection = lastDetection else {
-            // If no detection, use position
-            return [
-                Float(position.x),
-                Float(position.y),
-                1.0,  // Default aspect ratio
-                0.1   // Default height
-            ]
-        }
-        
-        let bbox = detection.xywhn
-        let x = (bbox.minX + bbox.maxX) / 2
-        let y = (bbox.minY + bbox.maxY) / 2
-        let aspect = bbox.width / bbox.height
-        let height = bbox.height
-        
-        return [
-            Float(x),
-            Float(y),
-            Float(aspect),
-            Float(height)
-        ]
-    }
-    
-    /// Convert XYAH format to normalized bounding box
-    /// - Parameter xyah: Array containing [x, y, aspect, height]
-    /// - Returns: Normalized bounding box
-    private func xyahToXYWHN(xyah: [Float]) -> CGRect {
-        let x = CGFloat(xyah[0])
-        let y = CGFloat(xyah[1])
-        let aspect = CGFloat(xyah[2])
-        let height = CGFloat(xyah[3])
-        let width = height * aspect
-        
-        return CGRect(
-            x: x - width/2,
-            y: y - height/2,
-            width: width,
-            height: height
-        )
-    }
-    
-    /// Update the position directly (used for camera motion compensation)
-    /// - Parameter newPosition: The new position (x, y) for this track
-    public func updatePosition(newPosition: (x: CGFloat, y: CGFloat)) {
-        self.position = newPosition
     }
 } 

@@ -52,17 +52,17 @@ public class ByteTracker {
     private let lowThreshold: Float = 0.15  // Reduced from 0.2 to be more lenient
     
     /// Max time to keep a track in lost state
-    private let maxTimeLost: Int = 45  // Increased from 30 to give more time for reactivation
+    private let maxTimeLost: Int = 15  // Reduced from 45 to reduce memory usage
     
     /// Maximum time to remember removed tracks to avoid ID reuse
-    private let maxTimeRemembered: Int = 300 // Remember removed tracks for ~10 seconds at 30fps
+    private let maxTimeRemembered: Int = 60 // Reduced from 90 to reduce memory usage
     
     /// Buffer for potential new tracks - stores potential tracks before assigning real IDs
     /// Key: temporary ID, Value: (position, detection, confidence, class, framesObserved, lastUpdatedFrame)
     private var potentialTracks: [Int: (position: (x: CGFloat, y: CGFloat), detection: Box, score: Float, cls: String, frames: Int, lastFrame: Int)] = [:]
     
     /// Required frames to consider a potential track as real (to avoid spurious tracks)
-    private let requiredFramesForTrack: Int = 4 // Balanced value for responsiveness while filtering noise
+    private let requiredFramesForTrack: Int = 3 // Reduced from 4 to be more responsive
     
     /// Counter for temporary IDs
     private var tempIdCounter: Int = 0
@@ -71,16 +71,22 @@ public class ByteTracker {
     private let maxMatchingDistance: CGFloat = 0.3  // Increased from 0.2 to better handle camera movement
     
     /// Maximum frames a potential track can be unmatched before removal
-    private let maxUnmatchedFrames: Int = 15  // Increased from 10 to be more lenient during camera movement
+    private let maxUnmatchedFrames: Int = 10  // Reduced from 15 to clean up faster
     
     /// Estimated camera motion between frames (simple implementation)
     private var lastFrameDetectionCenters: [(x: CGFloat, y: CGFloat)] = []
     private var estimatedCameraMotion: (dx: CGFloat, dy: CGFloat) = (0, 0)
     
+    // Maximum number of tracks to maintain in each collection to prevent unbounded growth
+    private let maxActiveTracks: Int = 100
+    private let maxLostTracks: Int = 50
+    private let maxRemovedTracks: Int = 50
+    private let maxPotentialTracks: Int = 30
+    
     // MARK: - Initialization
     
     public init() {
-        // Removed print statement for performance
+        // Empty initializer
     }
     
     // MARK: - Public Methods
@@ -98,14 +104,18 @@ public class ByteTracker {
         frameId += 1
         clearResetCounter()
         
+        // Clean up collections before processing new detections
+        limitCollectionSizes()
+        
         // Estimate camera motion if we have previous frame data
         estimateCameraMotion(from: detections)
         
         // Clean up very old removed tracks to prevent memory growth
         removeOldRemovedTracks()
         
-        // Convert detections to STrack objects
+        // Convert detections to STrack objects - preallocate capacity for better performance
         var detTrackArr: [STrack] = []
+        detTrackArr.reserveCapacity(detections.count)
         
         for i in 0..<detections.count {
             let detection = detections[i]
@@ -133,7 +143,9 @@ public class ByteTracker {
         }
         
         // Save current detection centers for next frame's motion estimation
-        lastFrameDetectionCenters = detTrackArr.map { $0.position }
+        if !detTrackArr.isEmpty {
+            lastFrameDetectionCenters = detTrackArr.map { $0.position }
+        }
         
         // Filter high score detections
         let remainedDetections = detTrackArr
@@ -215,78 +227,83 @@ public class ByteTracker {
             let timeLost = frameId - track.endFrame
             if timeLost >= maxTimeLost {
                 track.markRemoved()
+                track.cleanup() // Release references
                 removedTracks.append(track)
             }
         }
         
         // Process unmatched detections through potential tracks buffer
         var newTracks: [STrack] = []
-        for detIdx in secondUnmatchedDetections {
-            let originalDetIdx = firstUnmatchedDetections[detIdx]
-            let detection = remainedDetections[originalDetIdx]
-            
-            if let actualDetection = detection.lastDetection, detection.score >= 0.4 { // Kept threshold at 0.4
-                // Check if this detection matches any existing potential track
-                var matchedPotentialId: Int? = nil
-                var closestDistance: CGFloat = maxMatchingDistance // Using increased distance
+        
+        // To reduce overhead, only process detections if we're not over capacity
+        if activeTracks.count < maxActiveTracks {
+            for detIdx in secondUnmatchedDetections {
+                let originalDetIdx = firstUnmatchedDetections[detIdx]
+                let detection = remainedDetections[originalDetIdx]
                 
-                for (tempId, potentialTrack) in potentialTracks {
-                    // Compensate for camera motion when calculating distance
-                    let adjustedDx = potentialTrack.position.x - detection.position.x + estimatedCameraMotion.dx
-                    let adjustedDy = potentialTrack.position.y - detection.position.y + estimatedCameraMotion.dy
-                    let distance = sqrt(adjustedDx*adjustedDx + adjustedDy*adjustedDy)
+                if let actualDetection = detection.lastDetection, detection.score >= 0.4 { // Kept threshold at 0.4
+                    // Check if this detection matches any existing potential track
+                    var matchedPotentialId: Int? = nil
+                    var closestDistance: CGFloat = maxMatchingDistance // Using increased distance
                     
-                    if distance < closestDistance {
-                        closestDistance = distance
-                        matchedPotentialId = tempId
+                    for (tempId, potentialTrack) in potentialTracks {
+                        // Compensate for camera motion when calculating distance
+                        let adjustedDx = potentialTrack.position.x - detection.position.x + estimatedCameraMotion.dx
+                        let adjustedDy = potentialTrack.position.y - detection.position.y + estimatedCameraMotion.dy
+                        let distance = sqrt(adjustedDx*adjustedDx + adjustedDy*adjustedDy)
+                        
+                        if distance < closestDistance {
+                            closestDistance = distance
+                            matchedPotentialId = tempId
+                        }
                     }
-                }
-                
-                if let matchedId = matchedPotentialId {
-                    // Update existing potential track
-                    let currentEntry = potentialTracks[matchedId]!
-                    let newFrameCount = currentEntry.frames + 1
                     
-                    potentialTracks[matchedId] = (
-                        position: detection.position,
-                        detection: actualDetection,
-                        score: detection.score,
-                        cls: detection.cls,
-                        frames: newFrameCount,
-                        lastFrame: frameId
-                    )
-                    
-                    // If track has been observed for enough frames, create a real track
-                    if newFrameCount >= requiredFramesForTrack {
-                        // Create new track with real ID
-                        let newTrack = STrack(
-                            trackId: STrack.nextId(),
+                    if let matchedId = matchedPotentialId {
+                        // Update existing potential track
+                        let currentEntry = potentialTracks[matchedId]!
+                        let newFrameCount = currentEntry.frames + 1
+                        
+                        potentialTracks[matchedId] = (
                             position: detection.position,
                             detection: actualDetection,
                             score: detection.score,
-                            cls: detection.cls
+                            cls: detection.cls,
+                            frames: newFrameCount,
+                            lastFrame: frameId
                         )
                         
-                        // Activate the track
-                        newTrack.activate(kalmanFilter: kalmanFilter, frameId: frameId)
-                        newTracks.append(newTrack)
+                        // If track has been observed for enough frames, create a real track
+                        if newFrameCount >= requiredFramesForTrack {
+                            // Create new track with real ID
+                            let newTrack = STrack(
+                                trackId: STrack.nextId(),
+                                position: detection.position,
+                                detection: actualDetection,
+                                score: detection.score,
+                                cls: detection.cls
+                            )
+                            
+                            // Activate the track
+                            newTrack.activate(kalmanFilter: kalmanFilter, frameId: frameId)
+                            newTracks.append(newTrack)
+                            
+                            // Remove from potential tracks
+                            potentialTracks.removeValue(forKey: matchedId)
+                        }
+                    } else if potentialTracks.count < maxPotentialTracks {
+                        // Only create new potential track if we're under the limit
+                        let tempId = tempIdCounter
+                        tempIdCounter += 1
                         
-                        // Remove from potential tracks
-                        potentialTracks.removeValue(forKey: matchedId)
+                        potentialTracks[tempId] = (
+                            position: detection.position,
+                            detection: actualDetection,
+                            score: detection.score,
+                            cls: detection.cls,
+                            frames: 1,
+                            lastFrame: frameId
+                        )
                     }
-                } else {
-                    // Create new potential track
-                    let tempId = tempIdCounter
-                    tempIdCounter += 1
-                    
-                    potentialTracks[tempId] = (
-                        position: detection.position,
-                        detection: actualDetection,
-                        score: detection.score,
-                        cls: detection.cls,
-                        frames: 1,
-                        lastFrame: frameId
-                    )
                 }
             }
         }
@@ -294,7 +311,6 @@ public class ByteTracker {
         // Clean up potential tracks that haven't been updated recently
         let keysToRemove = potentialTracks.keys.filter { key in
             // Remove potential tracks that haven't been updated in several frames
-            // This is more lenient than before, giving potential tracks more time to reappear
             return frameId - potentialTracks[key]!.lastFrame > maxUnmatchedFrames
         }
         
@@ -305,6 +321,7 @@ public class ByteTracker {
         // Update tracked tracks and lost tracks
         activeTracks = []
         
+        // Only keep tracked tracks, move the rest to lost tracks
         for track in predActiveTracks {
             if track.state == .tracked {
                 activeTracks.append(track)
@@ -331,7 +348,9 @@ public class ByteTracker {
             activeTracks.remove(at: idx)
         }
         
-        // Print statement removed for performance
+        // Limit collection sizes to ensure we don't exceed maximums
+        limitCollectionSizes()
+        
         return activeTracks
     }
     
@@ -376,6 +395,54 @@ public class ByteTracker {
         }
     }
     
+    /// Limit sizes of all track collections to prevent memory growth
+    private func limitCollectionSizes() {
+        // Cap active tracks - priority is recent tracks with higher scores
+        if activeTracks.count > maxActiveTracks {
+            // Sort by recency and score
+            activeTracks.sort { (a, b) -> Bool in
+                if a.endFrame == b.endFrame {
+                    return a.score > b.score
+                }
+                return a.endFrame > b.endFrame
+            }
+            activeTracks = Array(activeTracks.prefix(maxActiveTracks))
+        }
+        
+        // Cap lost tracks - priority is recent tracks
+        if lostTracks.count > maxLostTracks {
+            lostTracks.sort { $0.endFrame > $1.endFrame }
+            lostTracks = Array(lostTracks.prefix(maxLostTracks))
+        }
+        
+        // Cap removed tracks - priority is recent tracks
+        if removedTracks.count > maxRemovedTracks {
+            removedTracks.sort { $0.endFrame > $1.endFrame }
+            removedTracks = Array(removedTracks.prefix(maxRemovedTracks))
+        }
+        
+        // Cap potential tracks - priority is tracks seen more times
+        if potentialTracks.count > maxPotentialTracks {
+            let sortedKeys = potentialTracks.keys.sorted {
+                let trackA = potentialTracks[$0]!
+                let trackB = potentialTracks[$1]!
+                
+                // Sort by frames observed, then by recency
+                if trackA.frames == trackB.frames {
+                    return trackA.lastFrame > trackB.lastFrame
+                }
+                return trackA.frames > trackB.frames
+            }
+            
+            let keysToKeep = sortedKeys.prefix(maxPotentialTracks)
+            let keysToRemove = Set(potentialTracks.keys).subtracting(keysToKeep)
+            
+            for key in keysToRemove {
+                potentialTracks.removeValue(forKey: key)
+            }
+        }
+    }
+    
     /// Get current tracks for backward compatibility
     /// - Returns: Array of current active tracks
     public func getTracks() -> [STrack] {
@@ -404,7 +471,6 @@ public class ByteTracker {
         var count: Int = 0
         
         // Simple approach: match closest centers between frames
-        // More sophisticated approaches could use feature matching or optical flow
         for prevCenter in lastFrameDetectionCenters {
             var closestDist: CGFloat = 1.0
             var closestCenter: (x: CGFloat, y: CGFloat)? = nil
@@ -436,12 +502,6 @@ public class ByteTracker {
             // Apply smoothing with the previous estimate (exponential moving average)
             estimatedCameraMotion.dx = avgDx * 0.7 + estimatedCameraMotion.dx * 0.3
             estimatedCameraMotion.dy = avgDy * 0.7 + estimatedCameraMotion.dy * 0.3
-            
-            // Apply exponential smoothing to avoid jitter
-            estimatedCameraMotion = (
-                estimatedCameraMotion.dx,
-                estimatedCameraMotion.dy
-            )
         } else {
             // Gradually decay the motion estimate if no matches
             estimatedCameraMotion.dx *= 0.8
@@ -489,8 +549,11 @@ public class ByteTracker {
     
     /// Remove old tracks from the removed tracks list to avoid memory growth
     private func removeOldRemovedTracks() {
-        removedTracks = removedTracks.filter { track in
-            return frameId - track.endFrame < maxTimeRemembered
+        // Instead of filtering which creates a new array, use removeAll with a condition
+        let oldTracks = removedTracks.filter { frameId - $0.endFrame >= maxTimeRemembered }
+        for track in oldTracks {
+            track.cleanup() // Release resources
         }
+        removedTracks.removeAll(where: { frameId - $0.endFrame >= maxTimeRemembered })
     }
 } 
