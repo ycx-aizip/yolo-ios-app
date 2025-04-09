@@ -52,13 +52,17 @@ public class STrack {
     @MainActor
     private static var count: Int = 0
     
-    /// Track recently used IDs to prevent reuse
+    /// Circular buffer for recently used IDs
     @MainActor
-    private static var recentlyUsedIds: Set<Int> = []
+    private static var idCircularBuffer: [Int] = []
     
-    /// Maximum size for the recently used IDs buffer
+    /// Current index in the circular buffer
     @MainActor
-    private static let maxRecentIdCount: Int = 500 // Reduced from 1000 to save memory
+    private static var bufferIndex: Int = 0
+    
+    /// Maximum size for the circular buffer of recently used IDs
+    @MainActor
+    private static let maxRecentIdCount: Int = 400 // sum of active, lost, removed tracks * 2 = 200 * 2 = 400
     
     // MARK: - Instance properties
     
@@ -291,11 +295,19 @@ public class STrack {
     
     /// Releases any resources held by the track when it's no longer needed
     public func cleanup() {
-        // Release references to reduce memory pressure
+        // Release all references that might contribute to memory retention
         lastDetection = nil
         mean = nil
         covariance = nil
         kalmanFilter = nil
+        
+        // Reset primitive values to defaults where appropriate
+        score = 0
+        trackletLen = 0
+        isActivated = false
+        ttl = 0
+        
+        // Note: We don't reset position, trackId, or state as they may be needed for reference
     }
     
     // MARK: - Class Methods
@@ -306,18 +318,14 @@ public class STrack {
         // Increment the counter
         count += 1
         
-        // Add to the set of recently used IDs
-        recentlyUsedIds.insert(count)
-        
-        // If the set gets too large, remove the oldest entries
-        if recentlyUsedIds.count > maxRecentIdCount {
-            // This is a simple approach - remove the smallest values
-            // A more sophisticated approach could use a circular buffer
-            let sortedIds = recentlyUsedIds.sorted()
-            let idsToRemove = sortedIds.prefix(recentlyUsedIds.count - maxRecentIdCount)
-            for id in idsToRemove {
-                recentlyUsedIds.remove(id)
-            }
+        // Store in circular buffer
+        if idCircularBuffer.count < maxRecentIdCount {
+            // Buffer not yet filled to capacity
+            idCircularBuffer.append(count)
+        } else {
+            // Replace oldest entry
+            idCircularBuffer[bufferIndex] = count
+            bufferIndex = (bufferIndex + 1) % maxRecentIdCount
         }
         
         return count
@@ -327,7 +335,8 @@ public class STrack {
     @MainActor
     public static func resetId() {
         count = 0
-        recentlyUsedIds.removeAll(keepingCapacity: true)
+        idCircularBuffer.removeAll(keepingCapacity: true)
+        bufferIndex = 0
     }
     
     /// Predicts new states for multiple tracks
