@@ -1,9 +1,5 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO Package, implementing object tracking functionality.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
+// from Aizip
+
 //  The TrackingDetector class extends ObjectDetector with tracking capabilities using ByteTrack.
 //  It tracks objects across frames, associates detections with existing tracks, and supports
 //  threshold crossing detection for counting applications like fish counting. The implementation
