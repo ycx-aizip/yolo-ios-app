@@ -45,35 +45,36 @@ public class ByteTracker {
     /// Shared Kalman filter for track state estimation
     private let kalmanFilter = KalmanFilter()
     
-    /// Matching threshold for high confidence detections
-    private let highThreshold: Float = 0.4  // Reduced from 0.5 to be more lenient
+    /// Matching threshold for high confidence detections - INCREASED to make matching easier
+    private let highThreshold: Float = 0.6  // Increased from 0.4 to make matching easier
     
-    /// Matching threshold for low confidence detections
-    private let lowThreshold: Float = 0.15  // Reduced from 0.2 to be more lenient
+    /// Matching threshold for low confidence detections - INCREASED to make matching easier
+    private let lowThreshold: Float = 0.35  // Increased from 0.15 to make matching easier
     
     /// Max time to keep a track in lost state
-    private let maxTimeLost: Int = 15  // Reduced from 45 to reduce memory usage
+    private let maxTimeLost: Int = 90  // Keeping at 90 to allow for longer-term tracking
     
     /// Maximum time to remember removed tracks to avoid ID reuse
-    private let maxTimeRemembered: Int = 60 // Reduced from 90 to reduce memory usage
+    private let maxTimeRemembered: Int = 90
     
     /// Buffer for potential new tracks - stores potential tracks before assigning real IDs
     /// Key: temporary ID, Value: (position, detection, confidence, class, framesObserved, lastUpdatedFrame)
     private var potentialTracks: [Int: (position: (x: CGFloat, y: CGFloat), detection: Box, score: Float, cls: String, frames: Int, lastFrame: Int)] = [:]
     
     /// Required frames to consider a potential track as real (to avoid spurious tracks)
-    private let requiredFramesForTrack: Int = 2 // Reduced from 4 to be more responsive
+    /// REDUCED to make it easier to establish tracks
+    private let requiredFramesForTrack: Int = 2 // Reduced for faster track establishment
     
     /// Counter for temporary IDs
     private var tempIdCounter: Int = 0
     
-    /// Maximum matching distance for potential tracks - increased for fast-moving fish
-    private let maxMatchingDistance: CGFloat = 0.3  // Increased from 0.2 to better handle camera movement
+    /// Maximum matching distance for potential tracks - INCREASED for fast-moving fish
+    private let maxMatchingDistance: CGFloat = 0.85  // Higher value to better match fast-moving fish
     
     /// Maximum frames a potential track can be unmatched before removal
-    private let maxUnmatchedFrames: Int = 10  // Reduced from 15 to clean up faster
+    private let maxUnmatchedFrames: Int = 90  // Higher value to maintain potential tracks longer
     
-    /// Estimated camera motion between frames (simple implementation)
+    /// Estimated camera motion between frames
     private var lastFrameDetectionCenters: [(x: CGFloat, y: CGFloat)] = []
     private var estimatedCameraMotion: (dx: CGFloat, dy: CGFloat) = (0, 0)
     
@@ -82,6 +83,9 @@ public class ByteTracker {
     private let maxLostTracks: Int = 50
     private let maxRemovedTracks: Int = 50
     private let maxPotentialTracks: Int = 50
+    
+    /// Track history for biasing matching towards prior associations
+    private var trackMatchHistory: [Int: Set<Int>] = [:] // Track ID -> Set of previously matched detection IDs
     
     // MARK: - Initialization
     
@@ -157,12 +161,11 @@ public class ByteTracker {
         // Apply motion compensation to track predictions if significant camera motion detected
         applyMotionCompensation(to: predActiveTracks)
         
-        // Match with high score detections first
+        // Match with high score detections first - using the improved matching process
         let (firstMatches, firstUnmatchedTracks, firstUnmatchedDetections) = 
-            MatchingUtils.associateFirstStage(
+            improvedAssociateFirstStage(
                 tracks: predActiveTracks,
-                detections: remainedDetections,
-                thresholdFirstStage: highThreshold
+                detections: remainedDetections
             )
         
         // Update matched tracks with detections
@@ -176,6 +179,9 @@ public class ByteTracker {
                 newScore: detection.score,
                 frameId: frameId
             )
+            
+            // Update track match history for future matching bias
+            updateMatchHistory(trackId: track.trackId, detectionId: detIdx)
         }
         
         // Create array of unmatched tracks
@@ -190,12 +196,11 @@ public class ByteTracker {
         // Apply motion compensation to lost tracks too
         applyMotionCompensation(to: lostTracksCopy)
         
-        // Match remaining detections with lost tracks
+        // Match remaining detections with lost tracks - using improved second stage matching
         let (secondMatches, secondUnmatchedDetections) = 
-            MatchingUtils.associateSecondStage(
+            improvedAssociateSecondStage(
                 tracks: lostTracksCopy,
-                detections: firstUnmatchedDetections.map { remainedDetections[$0] },
-                thresholdSecondStage: lowThreshold
+                detections: firstUnmatchedDetections.map { remainedDetections[$0] }
             )
         
         // Reactivate matched lost tracks
@@ -207,6 +212,9 @@ public class ByteTracker {
                 newTrack: detection,
                 frameId: frameId
             )
+            
+            // Update track match history for future matching bias
+            updateMatchHistory(trackId: lostTrack.trackId, detectionId: firstUnmatchedDetections[detIdx])
         }
         
         // Mark unmatched tracks as lost
@@ -241,10 +249,10 @@ public class ByteTracker {
                 let originalDetIdx = firstUnmatchedDetections[detIdx]
                 let detection = remainedDetections[originalDetIdx]
                 
-                if let actualDetection = detection.lastDetection, detection.score >= 0.4 { // Kept threshold at 0.4
+                if let actualDetection = detection.lastDetection, detection.score >= 0.35 { // Reduced threshold from 0.4
                     // Check if this detection matches any existing potential track
                     var matchedPotentialId: Int? = nil
-                    var closestDistance: CGFloat = maxMatchingDistance // Using increased distance
+                    var closestDistance: CGFloat = maxMatchingDistance
                     
                     for (tempId, potentialTrack) in potentialTracks {
                         // Compensate for camera motion when calculating distance
@@ -555,5 +563,191 @@ public class ByteTracker {
             track.cleanup() // Release resources
         }
         removedTracks.removeAll(where: { frameId - $0.endFrame >= maxTimeRemembered })
+    }
+    
+    /**
+     * Set adaptive Time-To-Live (TTL) values for tracks based on position and density.
+     * Fish in the middle of the frame (primary tracking area) get higher TTL values,
+     * while fish near the edges get lower TTL values to clean up faster.
+     * When there are many tracks, TTL values are reduced to improve performance.
+     */
+    // private func setAdaptiveTTL(for track: STrack) {
+    //     let y = track.position.y
+    //     let x = track.position.x
+        
+    //     // Calculate base TTL values based on position
+    //     var baseTTL: Int
+        
+    //     // Higher TTL for fish in the primary tracking zone (middle of frame)
+    //     if y > 0.2 && y < 0.8 && x > 0.1 && x < 0.9 {
+    //         baseTTL = 15  // Higher TTL in primary tracking zone
+    //     }
+    //     // Middle TTL for fish in transition zones
+    //     else if y > 0.1 && y < 0.9 && x > 0.05 && x < 0.95 {
+    //         baseTTL = 10  // Default TTL in intermediate zones
+    //     }
+    //     // Lower TTL for fish near edges that may be entering/exiting
+    //     else {
+    //         baseTTL = 6  // Lower TTL near edges
+    //     }
+        
+    //     // Adjust TTL based on track density
+    //     let totalTracks = activeTracks.count + lostTracks.count
+    //     // if totalTracks > 100 {
+    //     //     baseTTL = max(2, baseTTL - 3)  // Significantly reduce TTL in high density scenarios
+    //     // } else if totalTracks > 50 {
+    //     //     baseTTL = max(3, baseTTL - 2)  // Moderately reduce TTL in medium density scenarios
+    //     // } else if totalTracks > 30 {
+    //     //     baseTTL = max(3, baseTTL - 1)  // Slightly reduce TTL in lower medium density scenarios
+    //     // }
+        
+    //     track.ttl = baseTTL
+        
+    //     // Bonus TTL for fish moving in the expected direction (top to bottom)
+    //     if let mean = track.mean, mean.count >= 6, let lastDetection = track.lastDetection {
+    //         let vy = mean[5]  // Vertical velocity component
+    //         if vy > 0 {  // Moving downward (as expected in fish tunnel)
+    //             // In high density scenarios, limit the bonus
+    //             if totalTracks > 80 {
+    //                 // No bonus in extremely high density scenarios
+    //             } else if totalTracks > 50 {
+    //                 track.ttl += 1  // Small bonus in high density scenarios
+    //             } else {
+    //                 track.ttl += 2  // Normal bonus for expected movement direction
+    //             }
+    //         }
+    //     }
+    // }
+    
+    // MARK: - Improved Association Methods
+    
+    /// Enhanced first stage association that considers track history and adds bias for existing associations
+    private func improvedAssociateFirstStage(
+        tracks: [STrack],
+        detections: [STrack]
+    ) -> ([(Int, Int)], [Int], [Int]) {
+        if tracks.isEmpty || detections.isEmpty {
+            return ([], Array(0..<tracks.count), Array(0..<detections.count))
+        }
+        
+        // Calculate IoU distance matrix
+        var dists = MatchingUtils.iouDistance(tracks: tracks, detections: detections)
+        
+        // Apply bias for track history - reduce distance for historical associations
+        for (i, track) in tracks.enumerated() {
+            if let history = trackMatchHistory[track.trackId] {
+                for j in 0..<detections.count {
+                    // If there was a previous match association, bias the cost lower
+                    if history.contains(j) && dists[i][j] > 0.1 {
+                        dists[i][j] = max(0.1, dists[i][j] - 0.2) // Reduce distance by 0.2 but keep minimum of 0.1
+                    }
+                }
+            }
+        }
+        
+        // Run linear assignment with the distance matrix
+        let (matchedTrackIndices, matchedDetIndices, unmatchedTrackIndices, unmatchedDetIndices) =
+            MatchingUtils.linearAssignment(costMatrix: dists, threshold: highThreshold)
+        
+        // Convert to tuples of (track_idx, det_idx)
+        var matches: [(Int, Int)] = []
+        for i in 0..<matchedTrackIndices.count {
+            matches.append((matchedTrackIndices[i], matchedDetIndices[i]))
+        }
+        
+        return (matches, unmatchedTrackIndices, unmatchedDetIndices)
+    }
+    
+    /// Enhanced second stage association that considers directional movement and is more lenient
+    private func improvedAssociateSecondStage(
+        tracks: [STrack],
+        detections: [STrack]
+    ) -> ([(Int, Int)], [Int]) {
+        if tracks.isEmpty || detections.isEmpty {
+            return ([], Array(0..<detections.count))
+        }
+        
+        // Calculate position distance matrix
+        var dists = MatchingUtils.positionDistance(tracks: tracks, detections: detections)
+        
+        // Add directional bias for fish swimming from top to bottom
+        for i in 0..<tracks.count {
+            let track = tracks[i]
+            // If we have mean data from Kalman filter
+            if let mean = track.mean, mean.count >= 6 {
+                // Extract velocity components
+                let vx = CGFloat(mean[4])
+                let vy = CGFloat(mean[5])
+                
+                // For each detection
+                for j in 0..<detections.count {
+                    let detection = detections[j]
+                    
+                    // Calculate expected direction of movement
+                    let dx = detection.position.x - track.position.x
+                    let dy = detection.position.y - track.position.y
+                    
+                    // If movement aligns with velocity (especially downward for fish),
+                    // reduce the distance to make matching more likely
+                    let velocityAlignment = (dx * vx + dy * vy) / 
+                        (sqrt(dx*dx + dy*dy) * sqrt(vx*vx + vy*vy) + 0.0001)
+                    
+                    // Favor downward movement (y is positive downward)
+                    let isMovingDown = dy > 0 && vy > 0
+                    
+                    if velocityAlignment > 0 || isMovingDown {
+                        // Reduce distance based on alignment and downward movement
+                        let reductionFactor: Float = isMovingDown ? 0.4 : 0.2
+                        dists[i][j] = max(0.1, dists[i][j] - reductionFactor)
+                    }
+                }
+            }
+        }
+        
+        // Run linear assignment with the distance matrix
+        let (matchedTrackIndices, matchedDetIndices, _, unmatchedDetIndices) =
+            MatchingUtils.linearAssignment(costMatrix: dists, threshold: lowThreshold)
+        
+        // Convert to tuples of (track_idx, det_idx)
+        var matches: [(Int, Int)] = []
+        for i in 0..<matchedTrackIndices.count {
+            matches.append((matchedTrackIndices[i], matchedDetIndices[i]))
+        }
+        
+        return (matches, unmatchedDetIndices)
+    }
+    
+    /// Update track match history for biasing future associations
+    private func updateMatchHistory(trackId: Int, detectionId: Int) {
+        // Initialize if needed
+        if trackMatchHistory[trackId] == nil {
+            trackMatchHistory[trackId] = []
+        }
+        
+        // Add detection ID to history
+        trackMatchHistory[trackId]?.insert(detectionId)
+        
+        // Limit size to prevent unlimited growth
+        if trackMatchHistory[trackId]?.count ?? 0 > 10 {
+            // This is a simplified approach - in practice you might want to keep the most recent matches
+            // For now, we just limit the set size by removing a random element
+            if let randomElement = trackMatchHistory[trackId]?.randomElement() {
+                trackMatchHistory[trackId]?.remove(randomElement)
+            }
+        }
+        
+        // Clean up match history for tracks that no longer exist
+        if frameId % 60 == 0 {
+            // Create a set of active track IDs for efficient lookup
+            let activeTrackIds = Set(activeTracks.map { $0.trackId })
+            let lostTrackIds = Set(lostTracks.map { $0.trackId })
+            let allTrackIds = activeTrackIds.union(lostTrackIds)
+            
+            // Remove history for tracks that no longer exist
+            let historyKeysToRemove = trackMatchHistory.keys.filter { !allTrackIds.contains($0) }
+            for key in historyKeysToRemove {
+                trackMatchHistory.removeValue(forKey: key)
+            }
+        }
     }
 } 

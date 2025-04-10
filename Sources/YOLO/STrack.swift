@@ -79,7 +79,7 @@ public class STrack {
     public var counted: Bool = false
     
     /// Time-to-live counter for the track (decremented when object not detected)
-    public var ttl: Int = 3 // Reduced from 5 to clean up tracks faster
+    public var ttl: Int = 60 // Increased from 3 to better handle brief detection failures
     
     /// The most recent detection box associated with this track
     public var lastDetection: Box?
