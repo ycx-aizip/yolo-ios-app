@@ -62,7 +62,7 @@ public class ByteTracker {
     private var potentialTracks: [Int: (position: (x: CGFloat, y: CGFloat), detection: Box, score: Float, cls: String, frames: Int, lastFrame: Int)] = [:]
     
     /// Required frames to consider a potential track as real (to avoid spurious tracks)
-    private let requiredFramesForTrack: Int = 3 // Reduced from 4 to be more responsive
+    private let requiredFramesForTrack: Int = 2 // Reduced from 4 to be more responsive
     
     /// Counter for temporary IDs
     private var tempIdCounter: Int = 0
@@ -81,7 +81,7 @@ public class ByteTracker {
     private let maxActiveTracks: Int = 100
     private let maxLostTracks: Int = 50
     private let maxRemovedTracks: Int = 50
-    private let maxPotentialTracks: Int = 30
+    private let maxPotentialTracks: Int = 50
     
     // MARK: - Initialization
     

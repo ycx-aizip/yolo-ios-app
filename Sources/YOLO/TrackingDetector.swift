@@ -197,41 +197,16 @@ class TrackingDetector: ObjectDetector {
         let upperThreshold = thresholds.first ?? 0.3
         let lowerThreshold = thresholds.last ?? 0.5
         
-        // Define a larger buffer zone to make detection more sensitive
-        let thresholdBufferZone: CGFloat = 0.03 // Increased from 0.02 to 0.04 (4% of screen height)
+        // Define a buffer zone to make detection more sensitive
+        let thresholdBufferZone: CGFloat = 0.03
         
         // Increment frame count for each update
         frameCount += 1
         
-        // Process only a subset of tracks when dealing with many fish to reduce CPU load
-        // This is based on the observation that not all tracks need to be evaluated every frame
-        let maxTracksToProcess = 30 // Cap the number of tracks we evaluate in a single frame
+        // Process all tracks each frame - removed optimization that limited track processing
+        let tracksToProcess = trackedObjects
         
-        // If we have too many tracks, prioritize processing active ones that haven't been counted yet
-        var tracksToProcess = trackedObjects
-        if trackedObjects.count > maxTracksToProcess {
-            // First prioritize tracks that are near thresholds
-            tracksToProcess = trackedObjects.filter { track in
-                let y = track.position.y
-                return !countedTracks[track.trackId, default: false] && 
-                       (abs(y - upperThreshold) < 0.15 || abs(y - lowerThreshold) < 0.15)
-            }
-            
-            // If we still have too many, take the most recently updated tracks
-            if tracksToProcess.count > maxTracksToProcess {
-                tracksToProcess.sort { $0.endFrame > $1.endFrame }
-                tracksToProcess = Array(tracksToProcess.prefix(maxTracksToProcess))
-            }
-            
-            // If we have very few tracks to process, add some already counted tracks for reverse counting
-            if tracksToProcess.count < 10 {
-                let countedTracksList = trackedObjects.filter { countedTracks[$0.trackId, default: false] }
-                    .prefix(maxTracksToProcess - tracksToProcess.count)
-                tracksToProcess.append(contentsOf: countedTracksList)
-            }
-        }
-        
-        // Process the selected tracks
+        // Process all tracks
         for track in tracksToProcess {
             let trackId = track.trackId
             let y = track.position.y
@@ -245,13 +220,8 @@ class TrackingDetector: ObjectDetector {
             
             let lastY = lastPosition.y
             
-            // Only store history positions every N frames to reduce memory updates
-            if trackId % 3 == frameCount % 3 {  // Distribute updates across frames
-                historyPositions[trackId] = lastPosition
-            }
-            
-            // Get history position for detecting fast movements
-            let historyY = historyPositions[trackId]?.y ?? lastY
+            // Store history positions every frame - removed distributed updates
+            historyPositions[trackId] = lastPosition
             
             // Store current position for next frame
             previousPositions[trackId] = track.position
@@ -269,8 +239,8 @@ class TrackingDetector: ObjectDetector {
                     let crossedLower = lastY < lowerThreshold && y >= lowerThreshold - thresholdBufferZone
                     let nearUpperMovingDown = abs(y - upperThreshold) < thresholdBufferZone * 1.5 && lastY < y && track.trackletLen > 3
                     let nearLowerMovingDown = abs(y - lowerThreshold) < thresholdBufferZone * 1.5 && lastY < y && track.trackletLen > 3
-                    let rapidlyPassedUpper = historyY < upperThreshold && y > upperThreshold && track.trackletLen > 7
-                    let rapidlyPassedLower = historyY < lowerThreshold && y > lowerThreshold && track.trackletLen > 7
+                    let rapidlyPassedUpper = historyPositions[trackId]?.y ?? lastY < upperThreshold && y > upperThreshold && track.trackletLen > 7
+                    let rapidlyPassedLower = historyPositions[trackId]?.y ?? lastY < lowerThreshold && y > lowerThreshold && track.trackletLen > 7
                     let betweenThresholdsMovingDown = y > upperThreshold && y < lowerThreshold && lastY < y && track.trackletLen > 5
                     let belowLowerThreshold = y > lowerThreshold && track.isActivated && track.trackletLen > 5 && track.trackletLen < 15
                     
@@ -299,8 +269,8 @@ class TrackingDetector: ObjectDetector {
                     let crossedLower = lastY > lowerThreshold && y <= lowerThreshold + thresholdBufferZone
                     let nearUpperMovingUp = abs(y - upperThreshold) < thresholdBufferZone * 1.5 && lastY > y && track.trackletLen > 3
                     let nearLowerMovingUp = abs(y - lowerThreshold) < thresholdBufferZone * 1.5 && lastY > y && track.trackletLen > 3
-                    let rapidlyPassedUpper = historyY > upperThreshold && y < upperThreshold && track.trackletLen > 5
-                    let rapidlyPassedLower = historyY > lowerThreshold && y < lowerThreshold && track.trackletLen > 5
+                    let rapidlyPassedUpper = historyPositions[trackId]?.y ?? lastY > upperThreshold && y < upperThreshold && track.trackletLen > 5
+                    let rapidlyPassedLower = historyPositions[trackId]?.y ?? lastY > lowerThreshold && y < lowerThreshold && track.trackletLen > 5
                     let betweenThresholdsMovingUp = y < lowerThreshold && y > upperThreshold && lastY > y && track.trackletLen > 5
                     let aboveUpperThreshold = y < upperThreshold && track.isActivated && track.trackletLen > 5 && track.trackletLen < 15
                     
@@ -323,15 +293,14 @@ class TrackingDetector: ObjectDetector {
             }
         }
         
-        // Count stable tracks less frequently to reduce CPU load
-        // This catches fish that somehow never triggered the crossing detection
-        if frameCount % 60 == 0 { // Reduced frequency from 30 to 60 frames
-            // Limit the number of tracks to check
+        // Check for stable tracks every 30 frames to match Python frequency
+        if frameCount % 30 == 0 {
+            // Process all stable tracks without limiting
             let stableTracks = trackedObjects.filter { 
                 $0.state == .tracked && 
                 $0.trackletLen > 15 && 
                 !countedTracks[$0.trackId, default: false] 
-            }.prefix(20) // Only check up to 20 tracks
+            }
             
             for track in stableTracks {
                 let y = track.position.y
@@ -351,36 +320,22 @@ class TrackingDetector: ObjectDetector {
             }
         }
         
-        // Perform comprehensive check much less frequently
-        // Only run this when we might have missed some fish
-        if frameCount % 180 == 0 { // Reduced from 120 to 180 frames
-            // Use quick approximation instead of expensive max operation
-            let maxTrackId = trackedObjects.isEmpty ? 0 : trackedObjects.last?.trackId ?? 0
+        // Perform comprehensive check more frequently
+        if frameCount % 90 == 0 { // More frequent than before, but still giving some spacing
+            // Process all candidate tracks without limiting
+            let tracksToCheck = trackedObjects.filter { 
+                $0.state == .tracked && 
+                !countedTracks[$0.trackId, default: false] &&
+                $0.trackletLen > 10
+            }
             
-            // If we have significantly more track IDs than counted fish, be more aggressive with counting
-            if (maxTrackId > Int(Double(totalCount) * 1.2)) && maxTrackId > 10 {
-                // Limit the number of tracks to check
-                let tracksToCheck = trackedObjects.filter { 
-                    $0.state == .tracked && 
-                    !countedTracks[$0.trackId, default: false] &&
-                    $0.trackletLen > 10
-                }.prefix(15) // Only process up to 15 tracks
-                
-                for track in tracksToCheck {
-                    countObject(trackId: track.trackId)
-                }
+            for track in tracksToCheck {
+                countObject(trackId: track.trackId)
             }
         }
         
-        // Clean up tracking data less frequently when we have many tracks
-        let cleanupInterval: Int
-        if trackedObjects.count > 100 {
-            cleanupInterval = 20  // More frequent cleanup with many tracks
-        } else if trackedObjects.count > 50 {
-            cleanupInterval = 40
-        } else {
-            cleanupInterval = 60
-        }
+        // Use fixed cleanup interval matching Python - typically clean up every 30 frames
+        let cleanupInterval = 30
         
         if frameCount % cleanupInterval == 0 {
             // Create a set once for efficient lookups
@@ -395,12 +350,7 @@ class TrackingDetector: ObjectDetector {
                 crossingDirections.removeValue(forKey: key)
             }
             
-            // Maintain maps at a reasonable size
-            if previousPositions.count > 150 {
-                let keysToKeep = currentIds.sorted().suffix(100)
-                previousPositions = previousPositions.filter { keysToKeep.contains($0.key) }
-                historyPositions = historyPositions.filter { keysToKeep.contains($0.key) }
-            }
+            // Don't limit map sizes - keep all history
         }
     }
     
