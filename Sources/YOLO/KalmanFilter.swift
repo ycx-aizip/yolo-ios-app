@@ -29,22 +29,17 @@ import Accelerate
 public class KalmanFilter: @unchecked Sendable {
     // MARK: - Constants
     
-    /// Initial state uncertainty
-    private let initialP: Float = 10.0
-    
     /// State transition matrix dimension
     private let ndim: Int = 8
     
     /// Measurement dimension (x, y, aspect ratio, height)
     private let measDim: Int = 4
     
-    /// Motion noise in different dimensions
-    private let stdWeight: [Float] = [
-        0.01, 0.01,    // x, y position
-        0.1, 0.1,      // width, height
-        0.01, 0.01,    // x, y velocity
-        0.1, 0.1       // width, height change rate
-    ]
+    /// Standard weight position (corresponds to _std_weight_position in Python)
+    private let stdWeightPosition: Float = 1.0 / 20.0
+    
+    /// Standard weight velocity (corresponds to _std_weight_velocity in Python)
+    private let stdWeightVelocity: Float = 1.0 / 160.0
     
     // MARK: - Matrices for Kalman Filter
     
@@ -115,12 +110,24 @@ public class KalmanFilter: @unchecked Sendable {
         // Velocities are set to 0
         // mean[4...7] are already initialized to 0
         
-        // Initial covariance matrix: diagonal matrix with position variance
+        // Following Python implementation for initial covariance
+        let std = [
+            2 * stdWeightPosition * measurement[3],      // x position uncertainty
+            2 * stdWeightPosition * measurement[3],      // y position uncertainty
+            1e-2 as Float,                               // aspect ratio uncertainty
+            2 * stdWeightPosition * measurement[3],      // height uncertainty
+            10 * stdWeightVelocity * measurement[3],     // x velocity uncertainty
+            10 * stdWeightVelocity * measurement[3],     // y velocity uncertainty
+            1e-5 as Float,                               // aspect ratio change uncertainty
+            10 * stdWeightVelocity * measurement[3]      // height change uncertainty
+        ]
+        
+        // Initial covariance matrix: diagonal with calculated variances
         var covariance = Array(repeating: 0.0 as Float, count: ndim * ndim)
         
-        // Set diagonal elements of covariance matrix
+        // Set diagonal elements based on calculated standard deviations
         for i in 0..<ndim {
-            covariance[i * ndim + i] = initialP * initialP
+            covariance[i * ndim + i] = std[i] * std[i]
         }
         
         return (mean, covariance)
@@ -140,10 +147,10 @@ public class KalmanFilter: @unchecked Sendable {
     ///   - covariance: Current covariance matrix
     /// - Returns: Predicted mean and covariance
     public func predict(mean: [Float], covariance: [Float]) -> ([Float], [Float]) {
-        // Calculate std for noise based on current state
+        // Calculate process noise exactly as in Python implementation
         let std = calculateProcessNoise(mean: mean)
         
-        // Calculate motion noise
+        // Calculate motion noise covariance matrix Q
         var motionCov = Array(repeating: 0.0 as Float, count: ndim * ndim)
         for i in 0..<ndim {
             motionCov[i * ndim + i] = std[i] * std[i]
@@ -193,39 +200,18 @@ public class KalmanFilter: @unchecked Sendable {
     ///   - measurement: New measurement [x, y, aspect_ratio, height]
     /// - Returns: Updated mean and covariance
     public func update(mean: [Float], covariance: [Float], measurement: [Float]) -> ([Float], [Float]) {
-        // Calculate innovation covariance: S = H * P * H^T + R
-        // Project the state covariance to measurement space
-        var projected = Array(repeating: 0.0 as Float, count: measDim * ndim)
-        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-                   Int32(measDim), Int32(ndim), Int32(ndim),
-                   1.0, measurementMat, Int32(ndim), covariance, Int32(ndim),
-                   0.0, &projected, Int32(ndim))
+        // First project the state to measurement space
+        let (projectedMean, projectedCov) = project(mean: mean, covariance: covariance)
         
-        // Complete the innovation covariance
-        var innovationCov = Array(repeating: 0.0 as Float, count: measDim * measDim)
-        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
-                   Int32(measDim), Int32(measDim), Int32(ndim),
-                   1.0, projected, Int32(ndim), measurementMat, Int32(ndim),
-                   0.0, &innovationCov, Int32(measDim))
-        
-        // Add measurement noise: R
-        let measurementNoise = calculateMeasurementNoise(mean: mean)
-        for i in 0..<measDim {
-            innovationCov[i * measDim + i] += measurementNoise[i] * measurementNoise[i]
-        }
-        
-        // Calculate Kalman gain: K = P * H^T * S^-1
+        // Calculate innovation covariance inverse (S^-1)
         var innovationCovInv = Array(repeating: 0.0 as Float, count: measDim * measDim)
         
-        // Copy innovationCov to innovationCovInv to prepare for inversion
+        // Copy projectedCov to innovationCovInv to prepare for inversion
         for i in 0..<measDim*measDim {
-            innovationCovInv[i] = innovationCov[i]
+            innovationCovInv[i] = projectedCov[i]
         }
         
         // Invert innovation covariance
-        // For simplicity, we'll use a basic approach
-        // In practice, you might use a specialized library or method
-        // This is a simplified inversion that works for small matrices
         inverseMatrix(matrix: &innovationCovInv, n: measDim)
         
         // Calculate Kalman gain: K = P * H^T * S^-1
@@ -244,11 +230,7 @@ public class KalmanFilter: @unchecked Sendable {
                    1.0, temp, Int32(measDim), innovationCovInv, Int32(measDim),
                    0.0, &kalmanGain, Int32(measDim))
         
-        // Calculate innovation: y = z - H * x
-        var projectedMean = Array(repeating: 0.0 as Float, count: measDim)
-        cblas_sgemv(CblasRowMajor, CblasNoTrans, Int32(measDim), Int32(ndim),
-                   1.0, measurementMat, Int32(ndim), mean, 1, 0.0, &projectedMean, 1)
-        
+        // Calculate innovation: y = z - H*x
         var innovation = Array(repeating: 0.0 as Float, count: measDim)
         for i in 0..<min(measurement.count, measDim) {
             innovation[i] = measurement[i] - projectedMean[i]
@@ -293,6 +275,58 @@ public class KalmanFilter: @unchecked Sendable {
         return (newMean, newCovariance)
     }
     
+    /**
+     * project
+     *
+     * Maps to Python Implementation:
+     * - Primary Correspondence: `project()` method in `KalmanFilterXYAH` class
+     * - Projects state distribution to measurement space
+     * - Applies measurement noise
+     */
+    /// Project state distribution to measurement space
+    /// - Parameters:
+    ///   - mean: Current mean state
+    ///   - covariance: Current covariance matrix
+    /// - Returns: Projected mean and covariance in measurement space
+    public func project(mean: [Float], covariance: [Float]) -> ([Float], [Float]) {
+        // Calculate measurement noise exactly as in Python implementation
+        let std = calculateMeasurementNoise(mean: mean)
+        
+        // Calculate innovation covariance
+        var innovationCov = Array(repeating: 0.0 as Float, count: measDim * measDim)
+        for i in 0..<measDim {
+            innovationCov[i * measDim + i] = std[i] * std[i]
+        }
+        
+        // Project state to measurement space: z = H * x
+        var projectedMean = Array(repeating: 0.0 as Float, count: measDim)
+        cblas_sgemv(CblasRowMajor, CblasNoTrans, Int32(measDim), Int32(ndim),
+                   1.0, measurementMat, Int32(ndim), mean, 1, 0.0, &projectedMean, 1)
+        
+        // Project covariance to measurement space: S = H * P * H^T
+        var projectedCov = Array(repeating: 0.0 as Float, count: measDim * measDim)
+        
+        // temp = H * P
+        var temp = Array(repeating: 0.0 as Float, count: measDim * ndim)
+        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                   Int32(measDim), Int32(ndim), Int32(ndim),
+                   1.0, measurementMat, Int32(ndim), covariance, Int32(ndim),
+                   0.0, &temp, Int32(ndim))
+        
+        // S = temp * H^T
+        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                   Int32(measDim), Int32(measDim), Int32(ndim),
+                   1.0, temp, Int32(ndim), measurementMat, Int32(ndim),
+                   0.0, &projectedCov, Int32(measDim))
+        
+        // Add innovation covariance: S = S + R
+        for i in 0..<measDim*measDim {
+            projectedCov[i] += innovationCov[i]
+        }
+        
+        return (projectedMean, projectedCov)
+    }
+    
     // MARK: - Helper methods
     
     /**
@@ -307,28 +341,27 @@ public class KalmanFilter: @unchecked Sendable {
     /// - Parameter mean: Current mean state
     /// - Returns: Standard deviations for process noise
     private func calculateProcessNoise(mean: [Float]) -> [Float] {
-        let cw = stdWeight[0] * stdWeight[0]
-        let ch = stdWeight[3] * stdWeight[3]
+        // Extract height for scaling
+        let height = mean[3]
         
-        let std = [
-            cw * mean[2],                // pos x uncertainty based on width
-            ch * mean[3],                // pos y uncertainty based on height
-            cw,                          // width uncertainty
-            ch,                          // height uncertainty
-            cw * mean[2] * 10,           // vel x uncertainty
-            ch * mean[3] * 10,           // vel y uncertainty
-            cw * 10,                     // width change uncertainty
-            ch * 10                      // height change uncertainty
+        // Process noise parameters as in Python implementation
+        return [
+            stdWeightPosition * height,        // position x noise
+            stdWeightPosition * height,        // position y noise
+            1e-2 as Float,                     // aspect ratio noise
+            stdWeightPosition * height,        // height noise
+            stdWeightVelocity * height,        // velocity x noise
+            stdWeightVelocity * height,        // velocity y noise
+            1e-5 as Float,                     // velocity aspect ratio noise
+            stdWeightVelocity * height         // velocity height noise
         ]
-        
-        return std
     }
     
     /**
      * calculateMeasurementNoise
      *
      * Maps to Python Implementation:
-     * - Primary Correspondence: Logic in `update()` method in `KalmanFilterXYAH` class
+     * - Primary Correspondence: Logic in `project()` method in `KalmanFilterXYAH` class
      * - Calculates measurement noise based on current state
      * - Uses same scaling factors as Python implementation
      */
@@ -336,12 +369,12 @@ public class KalmanFilter: @unchecked Sendable {
     /// - Parameter mean: Current mean state
     /// - Returns: Standard deviations for measurement noise
     private func calculateMeasurementNoise(mean: [Float]) -> [Float] {
-        // Measurement noise is proportional to the state values
+        // Use the object's height to scale measurement uncertainty as in Python
         return [
-            stdWeight[0] * mean[2],     // x position noise
-            stdWeight[1] * mean[3],     // y position noise
-            stdWeight[2],               // aspect ratio noise
-            stdWeight[3]                // height noise
+            stdWeightPosition * mean[3],    // x position noise
+            stdWeightPosition * mean[3],    // y position noise
+            1e-1 as Float,                  // aspect ratio noise
+            stdWeightPosition * mean[3]     // height noise
         ]
     }
     
