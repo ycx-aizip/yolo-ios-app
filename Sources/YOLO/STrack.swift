@@ -48,21 +48,9 @@ public class STrack {
     @MainActor
     private static let sharedKalmanFilter = KalmanFilter()
     
-    /// Counter for generating unique track IDs
+    /// Counter for generating unique track IDs (always increasing, never reused)
     @MainActor
     private static var count: Int = 0
-    
-    /// Circular buffer for recently used IDs
-    @MainActor
-    private static var idCircularBuffer: [Int] = []
-    
-    /// Current index in the circular buffer
-    @MainActor
-    private static var bufferIndex: Int = 0
-    
-    /// Maximum size for the circular buffer of recently used IDs
-    @MainActor
-    private static let maxRecentIdCount: Int = 400 // sum of active, lost, removed tracks * 2 = 200 * 2 = 400
     
     // MARK: - Instance properties
     
@@ -120,6 +108,7 @@ public class STrack {
     ///   - detection: The detection box associated with this track
     ///   - score: Detection confidence score
     ///   - cls: Class label
+    @MainActor
     public init(trackId: Int, position: (x: CGFloat, y: CGFloat), detection: Box?, score: Float, cls: String) {
         self.trackId = trackId
         self.position = position
@@ -133,6 +122,7 @@ public class STrack {
     ///   - trackId: Unique identifier for this track
     ///   - position: Initial position of the tracked object
     ///   - detection: The detection box associated with this track
+    @MainActor
     public convenience init(trackId: Int, position: (x: CGFloat, y: CGFloat), detection: Box?) {
         self.init(trackId: trackId, position: position, detection: detection, score: Float(detection?.conf ?? 1.0), cls: detection?.cls ?? "")
     }
@@ -147,6 +137,7 @@ public class STrack {
      * - Initializes Kalman filter state with first detection
      * - Transitions track from 'new' to 'tracked' state
      */
+    @MainActor
     public func activate(kalmanFilter: KalmanFilter, frameId: Int) {
         self.kalmanFilter = kalmanFilter
         
@@ -174,6 +165,7 @@ public class STrack {
      * - Updates Kalman filter with new detection for a previously lost track
      * - Transitions track from 'lost' to 'tracked' state
      */
+    @MainActor
     public func reactivate(newTrack: STrack, frameId: Int, newId: Bool = false) {
         guard let kalmanFilter = self.kalmanFilter, let mean = self.mean, let covariance = self.covariance else {
             return
@@ -196,7 +188,7 @@ public class STrack {
         self.position = newTrack.position
         
         // Reset TTL when reactivated
-        self.ttl = 3
+        self.ttl = 8  // Increased from 3 to better handle re-identification
     }
     
     /**
@@ -207,6 +199,7 @@ public class STrack {
      * - Updates track state with new detection
      * - Updates position and Kalman filter state
      */
+    @MainActor
     public func update(newPosition: (x: CGFloat, y: CGFloat), detection: Box?, newScore: Float, frameId: Int) {
         guard let kalmanFilter = self.kalmanFilter, let mean = self.mean, let covariance = self.covariance else {
             return
@@ -229,7 +222,7 @@ public class STrack {
         self.endFrame = frameId
         
         // Reset TTL when updated
-        self.ttl = 3
+        self.ttl = 8  // Increased from 3 to provide more resilience to detection failures
     }
     
     /// Decreases the time-to-live counter for this track.
@@ -250,6 +243,7 @@ public class STrack {
     }
     
     /// Marks this track as removed.
+    @MainActor
     public func markRemoved() {
         state = .removed
     }
@@ -312,31 +306,19 @@ public class STrack {
     
     // MARK: - Class Methods
     
-    /// Gets the next available track ID
+    /// Gets the next available track ID (always a new, higher ID - never reuses IDs)
     @MainActor
     public static func nextId() -> Int {
-        // Increment the counter
+        // Simply increment the counter and return the new value
+        // We never reuse IDs to ensure each fish has a truly unique identifier
         count += 1
-        
-        // Store in circular buffer
-        if idCircularBuffer.count < maxRecentIdCount {
-            // Buffer not yet filled to capacity
-            idCircularBuffer.append(count)
-        } else {
-            // Replace oldest entry
-            idCircularBuffer[bufferIndex] = count
-            bufferIndex = (bufferIndex + 1) % maxRecentIdCount
-        }
-        
         return count
     }
     
-    /// Resets the ID counter
+    /// Resets the ID counter - only use when resetting the entire tracking system
     @MainActor
     public static func resetId() {
         count = 0
-        idCircularBuffer.removeAll(keepingCapacity: true)
-        bufferIndex = 0
     }
     
     /// Predicts new states for multiple tracks

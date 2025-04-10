@@ -384,15 +384,25 @@ public class ByteTracker {
     /// Reset the tracker, clearing all tracks
     @MainActor
     public func reset() {
-        activeTracks = []
-        lostTracks = []
-        removedTracks = []
-        potentialTracks = [:]
-        tempIdCounter = 0
+        // Clear all track collections
+        activeTracks.removeAll(keepingCapacity: true)
+        lostTracks.removeAll(keepingCapacity: true)
+        removedTracks.removeAll(keepingCapacity: true)
+        potentialTracks.removeAll(keepingCapacity: true)
+        trackMatchHistory.removeAll(keepingCapacity: true)
+        
+        // Reset frame counter
         frameId = 0
-        lastFrameDetectionCenters = []
+        
+        // Reset camera motion estimation
         estimatedCameraMotion = (0, 0)
+        lastFrameDetectionCenters.removeAll(keepingCapacity: true)
+        
+        // Reset ID counter in STrack class
         STrack.resetId()
+        
+        // Reset temporary ID counter
+        tempIdCounter = 0
     }
     
     /// Clear the reset counter
