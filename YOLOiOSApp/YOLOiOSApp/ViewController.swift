@@ -164,19 +164,19 @@ class ViewController: UIViewController {
   private func setupTaskSegmentedControl() {
     segmentedControl.removeAllSegments()
     // Only show Fish Count task with a dropdown arrow
-    segmentedControl.insertSegment(withTitle: "Fish Count Models ▼", at: 0, animated: false)
+    segmentedControl.insertSegment(withTitle: "Fish Count Models ▼", at: 0, animated: true)
     segmentedControl.selectedSegmentIndex = 0
     
     // Style the segmented control to look like the image
     if #available(iOS 13.0, *) {
-      segmentedControl.backgroundColor = UIColor.darkGray.withAlphaComponent(0.7)
-      segmentedControl.selectedSegmentTintColor = UIColor.darkGray.withAlphaComponent(0.7)
+      segmentedControl.backgroundColor = UIColor.darkGray.withAlphaComponent(0.1)
+      segmentedControl.selectedSegmentTintColor = UIColor.darkGray.withAlphaComponent(0.1)
       segmentedControl.setTitleTextAttributes([NSAttributedString.Key.foregroundColor: UIColor.white], for: .normal)
       segmentedControl.setTitleTextAttributes([NSAttributedString.Key.foregroundColor: UIColor.white], for: .selected)
       segmentedControl.setTitleTextAttributes([NSAttributedString.Key.font: UIFont.systemFont(ofSize: 18, weight: .medium)], for: .normal)
     } else {
       // Fallback for older iOS versions
-      segmentedControl.tintColor = UIColor.darkGray.withAlphaComponent(0.7)
+      segmentedControl.tintColor = UIColor.darkGray.withAlphaComponent(0.1)
     }
   }
 

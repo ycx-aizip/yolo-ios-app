@@ -577,12 +577,28 @@ public class YOLOView: UIView, VideoCaptureDelegate {
               y: rect.origin.y,
               width: rect.width,
               height: rect.height)
+            
+            // Check if the box is at the edge of the frame and should be hidden
+            if rect.origin.x <= 0.01 || rect.origin.x + rect.width >= 0.99 ||
+               rect.origin.y <= 0.01 || rect.origin.y + rect.height >= 0.99 {
+              // Object is leaving the frame, hide the bounding box
+              boundingBoxViews[i].hide()
+              continue
+            }
           case .landscapeRight:
             displayRect = CGRect(
               x: rect.origin.x,
               y: rect.origin.y,
               width: rect.width,
               height: rect.height)
+              
+            // Check if the box is at the edge of the frame and should be hidden
+            if rect.origin.x <= 0.01 || rect.origin.x + rect.width >= 0.99 ||
+               rect.origin.y <= 0.01 || rect.origin.y + rect.height >= 0.99 {
+              // Object is leaving the frame, hide the bounding box
+              boundingBoxViews[i].hide()
+              continue
+            }
           case .unknown:
             print("The device orientation is unknown, the predictions may be affected")
             fallthrough
@@ -768,6 +784,20 @@ public class YOLOView: UIView, VideoCaptureDelegate {
               + rect.size.height * videoCapture.shortSide * scaleY)
           rect.size.width *= videoCapture.longSide * scaleX
           rect.size.height *= videoCapture.shortSide * scaleY
+
+          // Check if object is at the edge of the frame and should be hidden (landscape mode)
+          // Convert normalized coordinates back to 0-1 range for edge detection
+          let normalizedX = (rect.origin.x + offsetX) / (videoCapture.longSide * scaleX)
+          let normalizedY = 1.0 - ((height - rect.origin.y - rect.size.height) + offsetY) / (videoCapture.shortSide * scaleY)
+          let normalizedWidth = rect.size.width / (videoCapture.longSide * scaleX)
+          let normalizedHeight = rect.size.height / (videoCapture.shortSide * scaleY)
+          
+          if normalizedX <= 0.01 || normalizedX + normalizedWidth >= 0.99 ||
+             normalizedY <= 0.01 || normalizedY + normalizedHeight >= 0.99 {
+            // Object is leaving the frame, hide the bounding box
+            boundingBoxViews[i].hide()
+            continue
+          }
 
           boundingBoxViews[i].show(
             frame: rect,
@@ -1007,110 +1037,115 @@ public class YOLOView: UIView, VideoCaptureDelegate {
       let width = bounds.width
       let height = bounds.height
 
-      let topMargin: CGFloat = 0
-
-      let titleLabelHeight: CGFloat = height * 0.1
+      // Move the model name label even higher, closer to top edge
+      let titleLabelHeight: CGFloat = height * 0.02
       labelName.frame = CGRect(
         x: 0,
-        y: topMargin,
+        y: height * 0.01, // Position at 1% from top (moved much closer to top)
         width: width,
         height: titleLabelHeight
       )
       
-      // Position FPS label just above the toolbar
-      let toolBarHeight: CGFloat = 66
+      // Position FPS label at center bottom
+      let toolBarHeight: CGFloat = 50
       let subLabelHeight: CGFloat = height * 0.03
       labelFPS.frame = CGRect(
-        x: 0,
+        x: width * 0.35,
         y: height - toolBarHeight - subLabelHeight - 5,
-        width: width,
+        width: width * 0.3,
         height: subLabelHeight
       )
       
-      // Layout for confidence and IoU sliders in the style shown in the image
-      let sliderWidth = width * 0.3
+      // Move all controls much higher up to be well above the toolbar
+      // Start positioning from upper part of the screen
+      let topControlY = height * 0.5 // Start controls at 50% from top
+      
+      // Calculate slider dimensions and spacing
+      let sliderWidth = width * 0.22
       let sliderLabelHeight: CGFloat = 20
-      let sliderHeight: CGFloat = height * 0.02
-      let sliderY = height * 0.7
+      let sliderHeight: CGFloat = height * 0.05
       
-      // Confidence slider and label (left side)
-      labelSliderConf.frame = CGRect(
-        x: width * 0.1,
-        y: sliderY - sliderLabelHeight - 5,
-        width: sliderWidth * 0.5,
-        height: sliderLabelHeight
-      )
+      // First row - Fish Count and Reset (moved much higher)
+      let fishCountWidth = width * 0.18
+      let resetButtonWidth = fishCountWidth * 0.7
+      let controlHeight: CGFloat = 36
       
-      sliderConf.frame = CGRect(
-        x: width * 0.1,
-        y: sliderY,
-        width: sliderWidth,
-        height: sliderHeight
-      )
-      
-      // IoU slider and label (right side)
-      labelSliderIoU.frame = CGRect(
-        x: width * 0.5,
-        y: sliderY - sliderLabelHeight - 5,
-        width: sliderWidth * 0.5,
-        height: sliderLabelHeight
-      )
-      
-      sliderIoU.frame = CGRect(
-        x: width * 0.5,
-        y: sliderY,
-        width: sliderWidth,
-        height: sliderHeight
-      )
-      
-      // Position fish threshold sliders - closer to confidence/IoU sliders
-      let thresholdY = sliderY + sliderHeight + 20 // Only 20px gap between slider groups
-      
-      // Position Fish Count display and Reset button above threshold togglers
-      let fishCountWidth = width * 0.3
-      let fishCountHeight: CGFloat = 40
-      let fishCountY = thresholdY - sliderHeight - fishCountHeight - 15  // Position above threshold sliders
-      let resetButtonWidth = fishCountWidth * 0.5
-      
+      // Fish count on left side 
       labelFishCount.frame = CGRect(
-        x: width * 0.1,
-        y: fishCountY,
+        x: width * 0.05,
+        y: topControlY,
         width: fishCountWidth,
-        height: fishCountHeight
+        height: controlHeight
       )
       
-      // Position the Reset button to align with the right edge of threshold2Slider
+      // Reset button on right side
       resetButton.frame = CGRect(
-        x: width * 0.5 + sliderWidth - resetButtonWidth,
-        y: fishCountY,
+        x: width - width * 0.05 - resetButtonWidth,
+        y: topControlY,
         width: resetButtonWidth,
-        height: fishCountHeight
+        height: controlHeight
       )
+      
+      // Left side - Threshold 1 (second row left)
+      let secondRowY = topControlY + controlHeight + height * 0.02
       
       labelThreshold1.frame = CGRect(
-        x: width * 0.1,
-        y: thresholdY - sliderLabelHeight - 5,
+        x: width * 0.05,
+        y: secondRowY,
         width: sliderWidth,
         height: sliderLabelHeight
       )
       
       threshold1Slider.frame = CGRect(
-        x: width * 0.1,
-        y: thresholdY,
+        x: width * 0.05,
+        y: secondRowY + sliderLabelHeight + 2,
         width: sliderWidth,
         height: sliderHeight
       )
       
+      // Right side - Threshold 2 (second row right)
       labelThreshold2.frame = CGRect(
-        x: width * 0.5,
-        y: thresholdY - sliderLabelHeight - 5,
+        x: width - width * 0.05 - sliderWidth,
+        y: secondRowY,
         width: sliderWidth,
         height: sliderLabelHeight
       )
       
       threshold2Slider.frame = CGRect(
-        x: width * 0.5,
-        y: thresholdY,
+        x: width - width * 0.05 - sliderWidth,
+        y: secondRowY + sliderLabelHeight + 2,
+        width: sliderWidth,
+        height: sliderHeight
+      )
+      
+      // Left side - Confidence (third row left)
+      let thirdRowY = secondRowY + sliderLabelHeight + sliderHeight + height * 0.02
+      
+      labelSliderConf.frame = CGRect(
+        x: width * 0.05,
+        y: thirdRowY,
+        width: sliderWidth,
+        height: sliderLabelHeight
+      )
+      
+      sliderConf.frame = CGRect(
+        x: width * 0.05,
+        y: thirdRowY + sliderLabelHeight + 2,
+        width: sliderWidth,
+        height: sliderHeight
+      )
+      
+      // Right side - IoU (third row right)
+      labelSliderIoU.frame = CGRect(
+        x: width - width * 0.05 - sliderWidth,
+        y: thirdRowY,
+        width: sliderWidth,
+        height: sliderLabelHeight
+      )
+      
+      sliderIoU.frame = CGRect(
+        x: width - width * 0.05 - sliderWidth,
+        y: thirdRowY + sliderLabelHeight + 2,
         width: sliderWidth,
         height: sliderHeight
       )
@@ -1119,41 +1154,63 @@ public class YOLOView: UIView, VideoCaptureDelegate {
       updateThresholdLayer(threshold1Layer, position: CGFloat(threshold1Slider.value))
       updateThresholdLayer(threshold2Layer, position: CGFloat(threshold2Slider.value))
       
-      // Number of items slider
-      let numItemsSliderWidth: CGFloat = width * 0.2
-      let numItemsSliderHeight: CGFloat = height * 0.1
-
-      labelSliderNumItems.frame = CGRect(
-        x: width * 0.1,
-        y: height * 0.2,
-        width: numItemsSliderWidth,
-        height: numItemsSliderHeight
-      )
-
+      // Items slider - center in the screen
+      let numItemsSliderWidth: CGFloat = width * 0.25
+      let numItemsSliderHeight: CGFloat = height * 0.02
+      
+      // Center the model dropdown list
       sliderNumItems.frame = CGRect(
-        x: width * 0.1,
-        y: labelSliderNumItems.frame.maxY + 10,
+        x: (width - numItemsSliderWidth) / 2,
+        y: height * 0.3, // Position in center area vertically
         width: numItemsSliderWidth,
         height: numItemsSliderHeight
       )
+      
+      // Position label for model dropdown
+      labelSliderNumItems.frame = CGRect(
+        x: (width - numItemsSliderWidth) / 2,
+        y: height * 0.27, // Just above the slider
+        width: numItemsSliderWidth,
+        height: height * 0.03
+      )
+      labelSliderNumItems.textAlignment = .center // Center text
 
-      let zoomLabelWidth: CGFloat = width * 0.2
+      // Zoom indicator position
+      let zoomLabelWidth: CGFloat = width * 0.1
       labelZoom.frame = CGRect(
-        x: center.x - zoomLabelWidth / 2,
-        y: self.bounds.maxY - 120,
+        x: width - zoomLabelWidth - 10,
+        y: height * 0.08,
         width: zoomLabelWidth,
         height: height * 0.03
       )
-
-      let buttonHeight: CGFloat = toolBarHeight * 0.75
-      toolbar.frame = CGRect(x: 0, y: height - toolBarHeight, width: width, height: toolBarHeight)
       
-      playButton.frame = CGRect(x: 0, y: 0, width: buttonHeight, height: buttonHeight)
+      // Position toolbar at bottom
+      toolbar.frame = CGRect(
+        x: 0, 
+        y: height - toolBarHeight, 
+        width: width, 
+        height: toolBarHeight
+      )
+      
+      let buttonSize: CGFloat = 40
+      playButton.frame = CGRect(
+        x: 10, 
+        y: (toolBarHeight - buttonSize) / 2, 
+        width: buttonSize, 
+        height: buttonSize
+      )
       pauseButton.frame = CGRect(
-        x: playButton.frame.maxX, y: 0, width: buttonHeight, height: buttonHeight)
+        x: playButton.frame.maxX + 10, 
+        y: (toolBarHeight - buttonSize) / 2, 
+        width: buttonSize, 
+        height: buttonSize
+      )
       switchCameraButton.frame = CGRect(
-        x: pauseButton.frame.maxX, y: 0, width: buttonHeight, height: buttonHeight)
-      
+        x: pauseButton.frame.maxX + 10, 
+        y: (toolBarHeight - buttonSize) / 2, 
+        width: buttonSize, 
+        height: buttonSize
+      )
     } else {
       toolbar.backgroundColor = .darkGray.withAlphaComponent(0.7)
       playButton.tintColor = .systemGray
