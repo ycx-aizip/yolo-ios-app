@@ -577,28 +577,12 @@ public class YOLOView: UIView, VideoCaptureDelegate {
               y: rect.origin.y,
               width: rect.width,
               height: rect.height)
-            
-            // Check if the box is at the edge of the frame and should be hidden
-            if rect.origin.x <= 0.01 || rect.origin.x + rect.width >= 0.99 ||
-               rect.origin.y <= 0.01 || rect.origin.y + rect.height >= 0.99 {
-              // Object is leaving the frame, hide the bounding box
-              boundingBoxViews[i].hide()
-              continue
-            }
           case .landscapeRight:
             displayRect = CGRect(
               x: rect.origin.x,
               y: rect.origin.y,
               width: rect.width,
               height: rect.height)
-              
-            // Check if the box is at the edge of the frame and should be hidden
-            if rect.origin.x <= 0.01 || rect.origin.x + rect.width >= 0.99 ||
-               rect.origin.y <= 0.01 || rect.origin.y + rect.height >= 0.99 {
-              // Object is leaving the frame, hide the bounding box
-              boundingBoxViews[i].hide()
-              continue
-            }
           case .unknown:
             print("The device orientation is unknown, the predictions may be affected")
             fallthrough
@@ -784,20 +768,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
               + rect.size.height * videoCapture.shortSide * scaleY)
           rect.size.width *= videoCapture.longSide * scaleX
           rect.size.height *= videoCapture.shortSide * scaleY
-
-          // Check if object is at the edge of the frame and should be hidden (landscape mode)
-          // Convert normalized coordinates back to 0-1 range for edge detection
-          let normalizedX = (rect.origin.x + offsetX) / (videoCapture.longSide * scaleX)
-          let normalizedY = 1.0 - ((height - rect.origin.y - rect.size.height) + offsetY) / (videoCapture.shortSide * scaleY)
-          let normalizedWidth = rect.size.width / (videoCapture.longSide * scaleX)
-          let normalizedHeight = rect.size.height / (videoCapture.shortSide * scaleY)
-          
-          if normalizedX <= 0.01 || normalizedX + normalizedWidth >= 0.99 ||
-             normalizedY <= 0.01 || normalizedY + normalizedHeight >= 0.99 {
-            // Object is leaving the frame, hide the bounding box
-            boundingBoxViews[i].hide()
-            continue
-          }
 
           boundingBoxViews[i].show(
             frame: rect,

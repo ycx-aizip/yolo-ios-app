@@ -260,11 +260,41 @@ class ViewController: UIViewController {
     if !currentModels.isEmpty {
       // Don't show the table view automatically, just reload it
       modelTableView.reloadData()
+      
+      // Set the table height based on number of models
+      let modelCount = currentModels.count
+      let rowHeight: CGFloat = 30
+      let tableHeight = CGFloat(modelCount * Int(rowHeight))
+      
+      // If in landscape mode, make sure height doesn't exceed maximum
+      if view.bounds.width > view.bounds.height {
+        let maxHeight: CGFloat = 300
+        let adjustedHeight = min(tableHeight, maxHeight)
+        
+        let tableWidth = view.bounds.width * 0.3
+        modelTableView.frame = CGRect(
+          x: (view.bounds.width - tableWidth) / 2,
+          y: segmentedControl.frame.maxY + 20,
+          width: tableWidth,
+          height: adjustedHeight
+        )
+      } else {
+        // Portrait mode
+        let tableWidth = view.bounds.width * 0.6
+        modelTableView.frame = CGRect(
+          x: (view.bounds.width - tableWidth) / 2,
+          y: segmentedControl.frame.maxY + 5,
+          width: tableWidth,
+          height: tableHeight
+        )
+      }
+      
+      // Update the background view size to match
       tableViewBGView.frame = CGRect(
         x: modelTableView.frame.minX - 1,
         y: modelTableView.frame.minY - 1,
         width: modelTableView.frame.width + 2,
-        height: CGFloat(currentModels.count * 30 + 2)
+        height: modelTableView.frame.height + 2
       )
 
       DispatchQueue.main.async {
@@ -491,13 +521,21 @@ class ViewController: UIViewController {
   }
 
   private func setupTableView() {
+    modelTableView.register(UITableViewCell.self, forCellReuseIdentifier: "ModelCell")
     modelTableView.delegate = self
     modelTableView.dataSource = self
-    modelTableView.register(UITableViewCell.self, forCellReuseIdentifier: "ModelCell")
-    modelTableView.backgroundColor = .clear
-    modelTableView.separatorStyle = .none
-    modelTableView.isScrollEnabled = false
-
+    modelTableView.bounces = false
+    modelTableView.backgroundColor = UIColor.darkGray.withAlphaComponent(0.5)
+    modelTableView.separatorColor = UIColor.white.withAlphaComponent(0.3)
+    modelTableView.showsVerticalScrollIndicator = true
+    modelTableView.indicatorStyle = .white
+    modelTableView.layer.cornerRadius = 8
+    modelTableView.clipsToBounds = true
+    
+    // Apply a border to make the dropdown more visible
+    modelTableView.layer.borderWidth = 1.0
+    modelTableView.layer.borderColor = UIColor.white.withAlphaComponent(0.5).cgColor
+    
     tableViewBGView.backgroundColor = .darkGray.withAlphaComponent(0.3)
     tableViewBGView.layer.cornerRadius = 8
     tableViewBGView.clipsToBounds = true
@@ -548,12 +586,23 @@ class ViewController: UIViewController {
     segmentedControl.layer.masksToBounds = true
     
     if view.bounds.width > view.bounds.height {
+      // Landscape mode
       shareButton.tintColor = .darkGray
       recordButton.tintColor = .darkGray
-      let tableViewWidth = view.bounds.width * 0.2
+      
+      // Calculate appropriate table dimensions
+      let tableViewWidth = view.bounds.width * 0.3 // Wider table for visibility
+      let tableViewHeight = min(CGFloat(currentModels.count * 30), 300) // Height based on models count with max limit
+      
+      // Position below the segmented control
       modelTableView.frame = CGRect(
-        x: segmentedControl.frame.maxX + 20, y: 20, width: tableViewWidth, height: 200)
+        x: (view.bounds.width - tableViewWidth) / 2,
+        y: segmentedControl.frame.maxY + 20, // Position below segmented control with spacing
+        width: tableViewWidth,
+        height: tableViewHeight
+      )
     } else {
+      // Portrait mode (unchanged)
       shareButton.tintColor = .systemGray
       recordButton.tintColor = .systemGray
       let tableViewWidth = view.bounds.width * 0.6
@@ -578,6 +627,7 @@ class ViewController: UIViewController {
       height: 49.5
     )
 
+    // Update background view to match table size
     tableViewBGView.frame = CGRect(
       x: modelTableView.frame.minX - 1,
       y: modelTableView.frame.minY - 1,
@@ -641,17 +691,55 @@ class ViewController: UIViewController {
   @objc func segmentedControlTapped() {
     selection.selectionChanged()
     
-    // Toggle the visibility of the model selection dropdown
-    let isDropdownVisible = !modelTableView.isHidden
-    modelTableView.isHidden = isDropdownVisible
-    tableViewBGView.isHidden = isDropdownVisible
-    
-    // Update the segmented control title to show appropriate arrow
-    if modelTableView.isHidden {
+    // First, update the segmented control title to show appropriate arrow
+    let isCurrentlyVisible = !modelTableView.isHidden
+    if isCurrentlyVisible {
       segmentedControl.setTitle("Fish Count Models ▼", forSegmentAt: 0)
     } else {
       segmentedControl.setTitle("Fish Count Models ▲", forSegmentAt: 0)
+      
+      // Before showing the dropdown, update its position based on current orientation
+      let screenWidth = view.bounds.width
+      let screenHeight = view.bounds.height
+      
+      if screenWidth > screenHeight {
+        // Landscape mode
+        let tableViewWidth = screenWidth * 0.3
+        let tableViewHeight = min(CGFloat(currentModels.count * 30), 300)
+        
+        // Center the table under the segmented control
+        modelTableView.frame = CGRect(
+          x: (screenWidth - tableViewWidth) / 2,
+          y: segmentedControl.frame.maxY + 20, // Position below segmented control with some spacing
+          width: tableViewWidth,
+          height: tableViewHeight
+        )
+      } else {
+        // Portrait mode
+        let tableViewWidth = screenWidth * 0.6
+        let tableViewHeight = CGFloat(currentModels.count * 30)
+        
+        // Position below segmented control
+        modelTableView.frame = CGRect(
+          x: (screenWidth - tableViewWidth) / 2,
+          y: segmentedControl.frame.maxY + 5,
+          width: tableViewWidth,
+          height: tableViewHeight
+        )
+      }
+      
+      // Update background view to match table size
+      tableViewBGView.frame = CGRect(
+        x: modelTableView.frame.minX - 1,
+        y: modelTableView.frame.minY - 1,
+        width: modelTableView.frame.width + 2,
+        height: modelTableView.frame.height + 2
+      )
     }
+    
+    // Toggle the visibility of the model selection dropdown
+    modelTableView.isHidden = isCurrentlyVisible
+    tableViewBGView.isHidden = isCurrentlyVisible
   }
 }
 
