@@ -194,66 +194,43 @@ class TrackingDetector: ObjectDetector {
      */
     @MainActor
     private func updateCounting() {
-        let upperThreshold = thresholds.first ?? 0.3
-        let lowerThreshold = thresholds.last ?? 0.5
-        
-        // Define a buffer zone to make detection more sensitive
-        let thresholdBufferZone: CGFloat = 0.03
-        
-        // Increment frame count for each update
-        frameCount += 1
-        
-        // Process all tracks each frame - removed optimization that limited track processing
-        let tracksToProcess = trackedObjects
-        
-        // Process all tracks
-        for track in tracksToProcess {
+        // Process all tracks each frame
+        for track in trackedObjects {
             let trackId = track.trackId
-            let y = track.position.y
+            let currentPos = track.position
             
-            // Get previous position
+            // Skip if no previous position
             guard let lastPosition = previousPositions[trackId] else {
                 // If no previous position, just store current and continue
-                previousPositions[trackId] = track.position
+                previousPositions[trackId] = currentPos
                 continue
             }
             
-            let lastY = lastPosition.y
-            
-            // Store history positions every frame - removed distributed updates
-            historyPositions[trackId] = lastPosition
-            
             // Store current position for next frame
-            previousPositions[trackId] = track.position
+            previousPositions[trackId] = currentPos
             
-            // Skip counting logic if already counted (except for reverse counting)
+            // Get previous and current coordinates
+            let center_y = currentPos.y
+            let last_y = lastPosition.y
+            
+            // Get counted state for this track
             let alreadyCounted = countedTracks[trackId, default: false]
             
-            // Handle detection based on counting direction
+            // SIMPLIFIED LOGIC TO MATCH PYTHON IMPLEMENTATION
             switch countingDirection {
             case .topToBottom:
-                // Simplified conditional checks - consolidate similar conditions
+                // Check for threshold crossing from top to bottom (exactly like Python)
                 if !alreadyCounted {
-                    // Primary conditions for counting (from top to bottom)
-                    let crossedUpper = lastY < upperThreshold && y >= upperThreshold - thresholdBufferZone
-                    let crossedLower = lastY < lowerThreshold && y >= lowerThreshold - thresholdBufferZone
-                    let nearUpperMovingDown = abs(y - upperThreshold) < thresholdBufferZone * 1.5 && lastY < y && track.trackletLen > 3
-                    let nearLowerMovingDown = abs(y - lowerThreshold) < thresholdBufferZone * 1.5 && lastY < y && track.trackletLen > 3
-                    let rapidlyPassedUpper = historyPositions[trackId]?.y ?? lastY < upperThreshold && y > upperThreshold && track.trackletLen > 7
-                    let rapidlyPassedLower = historyPositions[trackId]?.y ?? lastY < lowerThreshold && y > lowerThreshold && track.trackletLen > 7
-                    let betweenThresholdsMovingDown = y > upperThreshold && y < lowerThreshold && lastY < y && track.trackletLen > 5
-                    let belowLowerThreshold = y > lowerThreshold && track.isActivated && track.trackletLen > 5 && track.trackletLen < 15
-                    
-                    // Combine all counting conditions with a single if statement
-                    if crossedUpper || crossedLower || 
-                       nearUpperMovingDown || nearLowerMovingDown ||
-                       rapidlyPassedUpper || rapidlyPassedLower ||
-                       betweenThresholdsMovingDown || belowLowerThreshold {
-                        countObject(trackId: trackId)
+                    for threshold in thresholds {
+                        if last_y < threshold && center_y >= threshold {
+                            countObject(trackId: trackId)
+                            break // Count only once per threshold crossing event
+                        }
                     }
-                }
-                // Handle reverse crossing (uncounting) - only check this for counted fish
-                else if lastY > upperThreshold + thresholdBufferZone && y <= upperThreshold - thresholdBufferZone {
+                } 
+                // Check for reverse crossing (only for the first threshold)
+                else if let firstThreshold = thresholds.first, 
+                        last_y > firstThreshold && center_y <= firstThreshold {
                     totalCount = max(0, totalCount - 1)
                     countedTracks[trackId] = false
                     if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
@@ -262,28 +239,18 @@ class TrackingDetector: ObjectDetector {
                 }
                 
             case .bottomToTop:
-                // Simplified conditional checks - consolidate similar conditions
+                // Check for threshold crossing from bottom to top
                 if !alreadyCounted {
-                    // Primary conditions for counting (from bottom to top)
-                    let crossedUpper = lastY > upperThreshold && y <= upperThreshold + thresholdBufferZone
-                    let crossedLower = lastY > lowerThreshold && y <= lowerThreshold + thresholdBufferZone
-                    let nearUpperMovingUp = abs(y - upperThreshold) < thresholdBufferZone * 1.5 && lastY > y && track.trackletLen > 3
-                    let nearLowerMovingUp = abs(y - lowerThreshold) < thresholdBufferZone * 1.5 && lastY > y && track.trackletLen > 3
-                    let rapidlyPassedUpper = historyPositions[trackId]?.y ?? lastY > upperThreshold && y < upperThreshold && track.trackletLen > 5
-                    let rapidlyPassedLower = historyPositions[trackId]?.y ?? lastY > lowerThreshold && y < lowerThreshold && track.trackletLen > 5
-                    let betweenThresholdsMovingUp = y < lowerThreshold && y > upperThreshold && lastY > y && track.trackletLen > 5
-                    let aboveUpperThreshold = y < upperThreshold && track.isActivated && track.trackletLen > 5 && track.trackletLen < 15
-                    
-                    // Combine all counting conditions with a single if statement
-                    if crossedUpper || crossedLower || 
-                       nearUpperMovingUp || nearLowerMovingUp ||
-                       rapidlyPassedUpper || rapidlyPassedLower ||
-                       betweenThresholdsMovingUp || aboveUpperThreshold {
-                        countObject(trackId: trackId)
+                    for threshold in thresholds {
+                        if last_y > threshold && center_y <= threshold {
+                            countObject(trackId: trackId)
+                            break // Count only once per threshold crossing event
+                        }
                     }
                 }
-                // Handle reverse crossing (uncounting) - only check this for counted fish
-                else if lastY < lowerThreshold - thresholdBufferZone && y >= lowerThreshold + thresholdBufferZone {
+                // Check for reverse crossing (only for the first threshold)
+                else if let firstThreshold = thresholds.first,
+                        last_y < firstThreshold && center_y >= firstThreshold {
                     totalCount = max(0, totalCount - 1)
                     countedTracks[trackId] = false
                     if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
@@ -293,51 +260,11 @@ class TrackingDetector: ObjectDetector {
             }
         }
         
-        // Check for stable tracks every 30 frames to match Python frequency
+        // Increment frame count for each update
+        frameCount += 1
+        
+        // Clean up old data periodically (every 30 frames)
         if frameCount % 30 == 0 {
-            // Process all stable tracks without limiting
-            let stableTracks = trackedObjects.filter { 
-                $0.state == .tracked && 
-                $0.trackletLen > 15 && 
-                !countedTracks[$0.trackId, default: false] 
-            }
-            
-            for track in stableTracks {
-                let y = track.position.y
-                
-                switch countingDirection {
-                case .topToBottom:
-                    // Simplified conditions for stable tracks
-                    if y > lowerThreshold + 0.05 || (y > upperThreshold + 0.05 && y < lowerThreshold) {
-                        countObject(trackId: track.trackId)
-                    }
-                case .bottomToTop:
-                    // Simplified conditions for stable tracks
-                    if y < upperThreshold - 0.05 || (y < lowerThreshold - 0.05 && y > upperThreshold) {
-                        countObject(trackId: track.trackId)
-                    }
-                }
-            }
-        }
-        
-        // Perform comprehensive check more frequently
-        if frameCount % 90 == 0 { // More frequent than before, but still giving some spacing
-            // Process all candidate tracks without limiting
-            let tracksToCheck = trackedObjects.filter { 
-                $0.state == .tracked && 
-                !countedTracks[$0.trackId, default: false] &&
-                $0.trackletLen > 10
-            }
-            
-            for track in tracksToCheck {
-                countObject(trackId: track.trackId)
-            }
-        }
-        
-        // Use fixed cleanup interval matching Python - typically clean up every 30 frames
-        let cleanupInterval = 30
-        
-        if frameCount % cleanupInterval == 0 {
             // Create a set once for efficient lookups
             let currentIds = Set(trackedObjects.map { $0.trackId })
             
@@ -349,8 +276,6 @@ class TrackingDetector: ObjectDetector {
                 historyPositions.removeValue(forKey: key)
                 crossingDirections.removeValue(forKey: key)
             }
-            
-            // Don't limit map sizes - keep all history
         }
     }
     
