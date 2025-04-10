@@ -67,7 +67,7 @@ public class STrack {
     public var counted: Bool = false
     
     /// Time-to-live counter for the track (decremented when object not detected)
-    public var ttl: Int = 60 // Increased from 3 to better handle brief detection failures
+    public var ttl: Int = 15 // Increased from 3 to better handle brief detection failures
     
     /// The most recent detection box associated with this track
     public var lastDetection: Box?
@@ -188,7 +188,7 @@ public class STrack {
         self.position = newTrack.position
         
         // Reset TTL when reactivated
-        self.ttl = 8  // Increased from 3 to better handle re-identification
+        self.ttl = 15  // Increased from 3 to better handle re-identification
     }
     
     /**
@@ -222,7 +222,7 @@ public class STrack {
         self.endFrame = frameId
         
         // Reset TTL when updated
-        self.ttl = 8  // Increased from 3 to provide more resilience to detection failures
+        self.ttl = 15  // Increased from 3 to provide more resilience to detection failures
     }
     
     /// Decreases the time-to-live counter for this track.

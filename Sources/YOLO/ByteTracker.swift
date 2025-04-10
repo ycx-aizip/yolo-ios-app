@@ -45,34 +45,39 @@ public class ByteTracker {
     /// Shared Kalman filter for track state estimation
     private let kalmanFilter = KalmanFilter()
     
+
+    /// Active tracks and lost tracks matching
     /// Matching threshold for high confidence detections - INCREASED to make matching easier
-    private let highThreshold: Float = 0.6  // Increased from 0.4 to make matching easier
+    private let highThreshold: Float = 0.4  // Increased from 0.4 to make matching easier
     
     /// Matching threshold for low confidence detections - INCREASED to make matching easier
-    private let lowThreshold: Float = 0.35  // Increased from 0.15 to make matching easier
+    private let lowThreshold: Float = 0.3  // Increased from 0.15 to make matching easier
     
     /// Max time to keep a track in lost state
-    private let maxTimeLost: Int = 90  // Keeping at 90 to allow for longer-term tracking
+    private let maxTimeLost: Int = 30  // Keeping at 90 to allow for longer-term tracking
     
     /// Maximum time to remember removed tracks to avoid ID reuse
-    private let maxTimeRemembered: Int = 90
+    /// This is not strictly necessary as we never reuse track IDs in our implementation
+    // private let maxTimeRemembered: Int = 0  // Set to 0 since we never reactivate removed tracks
     
+
+    // Potential tracks
     /// Buffer for potential new tracks - stores potential tracks before assigning real IDs
     /// Key: temporary ID, Value: (position, detection, confidence, class, framesObserved, lastUpdatedFrame)
     private var potentialTracks: [Int: (position: (x: CGFloat, y: CGFloat), detection: Box, score: Float, cls: String, frames: Int, lastFrame: Int)] = [:]
     
     /// Required frames to consider a potential track as real (to avoid spurious tracks)
     /// REDUCED to make it easier to establish tracks
-    private let requiredFramesForTrack: Int = 2 // Reduced for faster track establishment
+    private let requiredFramesForTrack: Int = 1 // Reduced for faster track establishment
     
     /// Counter for temporary IDs
     private var tempIdCounter: Int = 0
     
     /// Maximum matching distance for potential tracks - INCREASED for fast-moving fish
-    private let maxMatchingDistance: CGFloat = 0.85  // Higher value to better match fast-moving fish
+    private let maxMatchingDistance: CGFloat = 0.6  // Higher value to better match fast-moving fish
     
     /// Maximum frames a potential track can be unmatched before removal
-    private let maxUnmatchedFrames: Int = 90  // Higher value to maintain potential tracks longer
+    private let maxUnmatchedFrames: Int = 30  // Higher value to maintain potential tracks longer
     
     /// Estimated camera motion between frames
     private var lastFrameDetectionCenters: [(x: CGFloat, y: CGFloat)] = []
@@ -114,8 +119,9 @@ public class ByteTracker {
         // Estimate camera motion if we have previous frame data
         estimateCameraMotion(from: detections)
         
-        // Clean up very old removed tracks to prevent memory growth
-        removeOldRemovedTracks()
+        // Removed tracks are no longer needed as they're never reactivated
+        // We can just clear them instead of keeping them around
+        removedTracks.removeAll(keepingCapacity: true)
         
         // Convert detections to STrack objects - preallocate capacity for better performance
         var detTrackArr: [STrack] = []
@@ -236,7 +242,8 @@ public class ByteTracker {
             if timeLost >= maxTimeLost {
                 track.markRemoved()
                 track.cleanup() // Release references
-                removedTracks.append(track)
+                // We don't need to store removed tracks since they'll never be reactivated
+                // Just let them be garbage collected
             }
         }
         
@@ -387,6 +394,7 @@ public class ByteTracker {
         // Clear all track collections
         activeTracks.removeAll(keepingCapacity: true)
         lostTracks.removeAll(keepingCapacity: true)
+        // removedTracks is no longer needed for tracking since we never reactivate removed tracks
         removedTracks.removeAll(keepingCapacity: true)
         potentialTracks.removeAll(keepingCapacity: true)
         trackMatchHistory.removeAll(keepingCapacity: true)
@@ -433,11 +441,7 @@ public class ByteTracker {
             lostTracks = Array(lostTracks.prefix(maxLostTracks))
         }
         
-        // Cap removed tracks - priority is recent tracks
-        if removedTracks.count > maxRemovedTracks {
-            removedTracks.sort { $0.endFrame > $1.endFrame }
-            removedTracks = Array(removedTracks.prefix(maxRemovedTracks))
-        }
+        // We no longer maintain removedTracks since we never reactivate removed tracks
         
         // Cap potential tracks - priority is tracks seen more times
         if potentialTracks.count > maxPotentialTracks {
@@ -555,7 +559,8 @@ public class ByteTracker {
         return [
             "active_tracks": activeTracks.count,
             "lost_tracks": lostTracks.count,
-            "removed_tracks": removedTracks.count,
+            // Removed tracks are no longer maintained
+            "removed_tracks": 0,
             "potential_tracks": potentialTracks.count,
             "frame_id": frameId,
             "camera_motion": [
@@ -567,12 +572,12 @@ public class ByteTracker {
     
     /// Remove old tracks from the removed tracks list to avoid memory growth
     private func removeOldRemovedTracks() {
-        // Instead of filtering which creates a new array, use removeAll with a condition
-        let oldTracks = removedTracks.filter { frameId - $0.endFrame >= maxTimeRemembered }
-        for track in oldTracks {
+        // Since we never reuse IDs and removed tracks are never reactivated,
+        // we can just clear the entire removedTracks array
+        for track in removedTracks {
             track.cleanup() // Release resources
         }
-        removedTracks.removeAll(where: { frameId - $0.endFrame >= maxTimeRemembered })
+        removedTracks.removeAll(keepingCapacity: true)
     }
     
     /**
@@ -677,12 +682,24 @@ public class ByteTracker {
             return ([], Array(0..<detections.count))
         }
         
+        // Filter out tracks that are in 'removed' state - they should never be reactivated
+        let validTracks = tracks.enumerated().filter { $0.element.state != .removed }
+        
+        // If no valid tracks remain after filtering, return early
+        if validTracks.isEmpty {
+            return ([], Array(0..<detections.count))
+        }
+        
+        // Create mapping from new indices to original indices
+        let trackIndices = validTracks.map { $0.offset }
+        let filteredTracks = validTracks.map { $0.element }
+        
         // Calculate position distance matrix
-        var dists = MatchingUtils.positionDistance(tracks: tracks, detections: detections)
+        var dists = MatchingUtils.positionDistance(tracks: filteredTracks, detections: detections)
         
         // Add directional bias for fish swimming from top to bottom
-        for i in 0..<tracks.count {
-            let track = tracks[i]
+        for i in 0..<filteredTracks.count {
+            let track = filteredTracks[i]
             // If we have mean data from Kalman filter
             if let mean = track.mean, mean.count >= 6 {
                 // Extract velocity components
@@ -718,10 +735,11 @@ public class ByteTracker {
         let (matchedTrackIndices, matchedDetIndices, _, unmatchedDetIndices) =
             MatchingUtils.linearAssignment(costMatrix: dists, threshold: lowThreshold)
         
-        // Convert to tuples of (track_idx, det_idx)
+        // Convert to tuples of (track_idx, det_idx), mapping back to original indices
         var matches: [(Int, Int)] = []
         for i in 0..<matchedTrackIndices.count {
-            matches.append((matchedTrackIndices[i], matchedDetIndices[i]))
+            let originalTrackIdx = trackIndices[matchedTrackIndices[i]]
+            matches.append((originalTrackIdx, matchedDetIndices[i]))
         }
         
         return (matches, unmatchedDetIndices)
