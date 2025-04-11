@@ -621,6 +621,7 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         }
       }
     } else {
+      // Landscape mode
       resultCount = predictions.boxes.count
       self.labelSliderNumItems.text =
         String(resultCount) + " items (max " + String(Int(sliderNumItems.value)) + ")"
@@ -642,8 +643,14 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         offsetY = (videoCapture.shortSide * scaleY - height) / 2
       }
 
+      // Important: First hide all boxes, then show only the active ones
       for i in 0..<boundingBoxViews.count {
-        if i < resultCount && i < 50 {
+        boundingBoxViews[i].hide()
+      }
+
+      // Then show only the active boxes
+      for i in 0..<resultCount {
+        if i < 50 { // Limit to maximum 50 boxes
           var rect = CGRect.zero
           var label = ""
           var boxColor: UIColor = .white
@@ -663,6 +670,8 @@ public class YOLOView: UIView, VideoCaptureDelegate {
             )
             bestClass = prediction.cls
             confidence = CGFloat(prediction.conf)
+            let colorIndex = prediction.index % ultralyticsColors.count
+            boxColor = ultralyticsColors[colorIndex]
             
           case .fishCount:
             // For fish count task, use custom colors based on tracking status
@@ -707,6 +716,10 @@ public class YOLOView: UIView, VideoCaptureDelegate {
                 // No label for untracked fish
                 label = ""
               }
+            } else {
+              let colorIndex = prediction.index % ultralyticsColors.count
+              boxColor = ultralyticsColors[colorIndex]
+              label = bestClass
             }
 
           default:
@@ -719,47 +732,17 @@ public class YOLOView: UIView, VideoCaptureDelegate {
             )
             bestClass = prediction.cls
             confidence = CGFloat(prediction.conf)
+            let colorIndex = prediction.index % ultralyticsColors.count
+            boxColor = ultralyticsColors[colorIndex]
           }
 
-          let colorIndex = predictions.boxes[i].index % ultralyticsColors.count
-          boxColor = ultralyticsColors[colorIndex]
-          label = String(format: "%@ %.1f", bestClass, confidence * 100)
-          alpha = CGFloat((confidence - 0.2) / (1.0 - 0.2) * 0.9)
-
-          // Check tracking status for fish counting task
-          if task == .fishCount, let trackingDetector = videoCapture.predictor as? TrackingDetector {
-            let prediction = predictions.boxes[i]
-            let isTracked = trackingDetector.isObjectTracked(box: prediction)
-            let isCounted = trackingDetector.isObjectCounted(box: prediction)
-            
-            // Color scheme:
-            // Green: Counted fish
-            // Light blue: Tracked but not counted fish
-            // Dark blue: Newly tracked fish
-            if isCounted {
-              boxColor = .green 
-            } else if isTracked {
-              boxColor = UIColor(red: 0.4, green: 0.7, blue: 1.0, alpha: 1.0) // Light blue
-            } else {
-              boxColor = UIColor(red: 0.0, green: 0.0, blue: 0.8, alpha: 1.0) // Dark blue
-            }
-            
-            alpha = isTracked ? 0.7 : 0.5 // More transparent if newly tracked
-            
-            // Display tracking ID for tracked fish, empty label for untracked
-            if isTracked {
-              // Get the tracking ID and display it
-              if let trackInfo = trackingDetector.getTrackInfo(for: prediction) {
-                label = "#\(trackInfo.trackId)"
-              } else {
-                label = "#?"
-              }
-            } else {
-              // No label for untracked fish
-              label = ""
-            }
+          // For non-fishCount tasks, use standard label format
+          if task != .fishCount {
+            label = String(format: "%@ %.1f", bestClass, confidence * 100)
+            alpha = CGFloat((confidence - 0.2) / (1.0 - 0.2) * 0.9)
           }
           
+          // Transform rectangle to screen coordinates
           rect.origin.x = rect.origin.x * videoCapture.longSide * scaleX - offsetX
           rect.origin.y =
             height
@@ -775,7 +758,6 @@ public class YOLOView: UIView, VideoCaptureDelegate {
             color: boxColor,
             alpha: alpha
           )
-          continue
         }
       }
     }
