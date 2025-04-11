@@ -48,10 +48,10 @@ public class ByteTracker {
 
     /// Active tracks and lost tracks matching
     /// Matching threshold for high confidence detections - INCREASED to make matching easier
-    private let highThreshold: Float = 0.4  // Increased from 0.4 to make matching easier
+    private let highThreshold: Float = 0.5  // Increased from 0.4 to make matching easier
     
     /// Matching threshold for low confidence detections - INCREASED to make matching easier
-    private let lowThreshold: Float = 0.3  // Increased from 0.15 to make matching easier
+    private let lowThreshold: Float = 0.15  // Increased from 0.15 to make matching easier
     
     /// Max time to keep a track in lost state
     private let maxTimeLost: Int = 30  // Keeping at 90 to allow for longer-term tracking

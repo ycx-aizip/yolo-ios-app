@@ -216,46 +216,26 @@ class TrackingDetector: ObjectDetector {
             // Get counted state for this track
             let alreadyCounted = countedTracks[trackId, default: false]
             
-            // SIMPLIFIED LOGIC TO MATCH PYTHON IMPLEMENTATION
-            switch countingDirection {
-            case .topToBottom:
-                // Check for threshold crossing from top to bottom (exactly like Python)
-                if !alreadyCounted {
-                    for threshold in thresholds {
-                        if last_y < threshold && center_y >= threshold {
-                            countObject(trackId: trackId)
-                            break // Count only once per threshold crossing event
-                        }
-                    }
-                } 
-                // Check for reverse crossing (only for the first threshold)
-                else if let firstThreshold = thresholds.first, 
-                        last_y > firstThreshold && center_y <= firstThreshold {
-                    totalCount = max(0, totalCount - 1)
-                    countedTracks[trackId] = false
-                    if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
-                        trackedObjects[trackIndex].counted = false
+            // MATCH PYTHON IMPLEMENTATION EXACTLY
+            // Note: Python implementation only has top-to-bottom counting
+            
+            // Increment count: Check for threshold crossing from top to bottom
+            if !alreadyCounted {
+                for threshold in thresholds {
+                    if last_y < threshold && center_y >= threshold {
+                        countObject(trackId: trackId)
+                        break // Count only once per threshold crossing event
                     }
                 }
-                
-            case .bottomToTop:
-                // Check for threshold crossing from bottom to top
-                if !alreadyCounted {
-                    for threshold in thresholds {
-                        if last_y > threshold && center_y <= threshold {
-                            countObject(trackId: trackId)
-                            break // Count only once per threshold crossing event
-                        }
-                    }
-                }
-                // Check for reverse crossing (only for the first threshold)
-                else if let firstThreshold = thresholds.first,
-                        last_y < firstThreshold && center_y >= firstThreshold {
-                    totalCount = max(0, totalCount - 1)
-                    countedTracks[trackId] = false
-                    if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
-                        trackedObjects[trackIndex].counted = false
-                    }
+            }
+            
+            // Decrement count: Check for reverse crossing from bottom to top (only first threshold)
+            if let firstThreshold = thresholds.first,
+               last_y > firstThreshold && center_y <= firstThreshold && alreadyCounted {
+                totalCount = max(0, totalCount - 1)
+                countedTracks[trackId] = false
+                if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
+                    trackedObjects[trackIndex].counted = false
                 }
             }
         }
