@@ -47,20 +47,31 @@ public class ByteTracker {
     
 
     /// Active tracks and lost tracks matching
-    /// Matching threshold for high confidence detections - INCREASED to make matching easier
-    private let highThreshold: Float = 0.5  // Increased from 0.4 to make matching easier
+    /// Matching threshold for high confidence detections - DECREASED to make matching easier for fast-moving fish
+    private let highThreshold: Float = 0.3  // Decreased from 0.5 to make first-stage matching more reliable
     
-    /// Matching threshold for low confidence detections - INCREASED to make matching easier
-    private let lowThreshold: Float = 0.15  // Increased from 0.15 to make matching easier
+    /// Matching threshold for low confidence detections - INCREASED to avoid false matches
+    private let lowThreshold: Float = 0.25  // Increased from 0.15 to maintain separation between distinct tracks
     
-    /// Max time to keep a track in lost state
-    private let maxTimeLost: Int = 30  // Keeping at 90 to allow for longer-term tracking
+    /// Max time to keep a track in lost state - REDUCED to quickly discard tracks that have left the frame
+    private let maxTimeLost: Int = 15  // Reduced from 30 to prevent ID reuse from fish that have left the frame
     
-    /// Maximum time to remember removed tracks to avoid ID reuse
-    /// This is not strictly necessary as we never reuse track IDs in our implementation
-    // private let maxTimeRemembered: Int = 0  // Set to 0 since we never reactivate removed tracks
+    /// Maximum frames a potential track can be unmatched before removal
+    private let maxUnmatchedFrames: Int = 15  // Reduced from 30 to prevent long-standing unused potentials
     
-
+    /// Estimated camera motion between frames
+    private var lastFrameDetectionCenters: [(x: CGFloat, y: CGFloat)] = []
+    private var estimatedCameraMotion: (dx: CGFloat, dy: CGFloat) = (0, 0)
+    
+    // Maximum number of tracks to maintain in each collection to prevent unbounded growth
+    private let maxActiveTracks: Int = 100
+    private let maxLostTracks: Int = 50
+    private let maxRemovedTracks: Int = 50
+    private let maxPotentialTracks: Int = 50
+    
+    /// Track history for biasing matching towards prior associations
+    private var trackMatchHistory: [Int: Set<Int>] = [:] // Track ID -> Set of previously matched detection IDs
+    
     // Potential tracks
     /// Buffer for potential new tracks - stores potential tracks before assigning real IDs
     /// Key: temporary ID, Value: (position, detection, confidence, class, framesObserved, lastUpdatedFrame)
@@ -75,22 +86,6 @@ public class ByteTracker {
     
     /// Maximum matching distance for potential tracks - INCREASED for fast-moving fish
     private let maxMatchingDistance: CGFloat = 0.6  // Higher value to better match fast-moving fish
-    
-    /// Maximum frames a potential track can be unmatched before removal
-    private let maxUnmatchedFrames: Int = 30  // Higher value to maintain potential tracks longer
-    
-    /// Estimated camera motion between frames
-    private var lastFrameDetectionCenters: [(x: CGFloat, y: CGFloat)] = []
-    private var estimatedCameraMotion: (dx: CGFloat, dy: CGFloat) = (0, 0)
-    
-    // Maximum number of tracks to maintain in each collection to prevent unbounded growth
-    private let maxActiveTracks: Int = 100
-    private let maxLostTracks: Int = 50
-    private let maxRemovedTracks: Int = 50
-    private let maxPotentialTracks: Int = 50
-    
-    /// Track history for biasing matching towards prior associations
-    private var trackMatchHistory: [Int: Set<Int>] = [:] // Track ID -> Set of previously matched detection IDs
     
     // MARK: - Initialization
     
@@ -491,10 +486,11 @@ public class ByteTracker {
         var totalDx: CGFloat = 0
         var totalDy: CGFloat = 0
         var count: Int = 0
+        var matchingPairs: [(prev: (x: CGFloat, y: CGFloat), curr: (x: CGFloat, y: CGFloat))] = []
         
         // Simple approach: match closest centers between frames
         for prevCenter in lastFrameDetectionCenters {
-            var closestDist: CGFloat = 1.0
+            var closestDist: CGFloat = 0.4 // Increased from 1.0 to be more selective with matches
             var closestCenter: (x: CGFloat, y: CGFloat)? = nil
             
             for currCenter in currentCenters {
@@ -502,46 +498,78 @@ public class ByteTracker {
                 let dy = prevCenter.y - currCenter.y
                 let dist = sqrt(dx*dx + dy*dy)
                 
-                if dist < closestDist {
-                    closestDist = dist
+                // For fish in a tunnel, vertical movement (top to bottom) is expected
+                // This favors matches where dy is positive (moving down) and dx is small (limited horizontal motion)
+                let isExpectedMovement = dy > 0 && abs(dx) < 0.2
+                
+                // Adjust the matching distance based on expected movement pattern
+                let adjustedDist = isExpectedMovement ? dist * 0.8 : dist
+                
+                if adjustedDist < closestDist {
+                    closestDist = adjustedDist
                     closestCenter = currCenter
                 }
             }
             
             // Only use matches that are reasonably close
-            if closestDist < 0.2, let closestCenter = closestCenter {
+            // Lower threshold to 0.15 for more precise matching
+            if closestDist < 0.15, let closestCenter = closestCenter {
                 totalDx += prevCenter.x - closestCenter.x
                 totalDy += prevCenter.y - closestCenter.y
                 count += 1
+                matchingPairs.append((prev: prevCenter, curr: closestCenter))
             }
         }
         
-        if count > 0 {
+        // If we have enough matches, compute the motion
+        if count >= 3 {
             // Average motion with decay from previous estimate for smoothness
             let avgDx = totalDx / CGFloat(count)
             let avgDy = totalDy / CGFloat(count)
             
             // Apply smoothing with the previous estimate (exponential moving average)
-            estimatedCameraMotion.dx = avgDx * 0.7 + estimatedCameraMotion.dx * 0.3
-            estimatedCameraMotion.dy = avgDy * 0.7 + estimatedCameraMotion.dy * 0.3
+            // Use stronger smoothing factor to reduce jitter
+            estimatedCameraMotion.dx = avgDx * 0.6 + estimatedCameraMotion.dx * 0.4
+            estimatedCameraMotion.dy = avgDy * 0.6 + estimatedCameraMotion.dy * 0.4
+            
+            // Limit the maximum camera motion to prevent excessive compensation
+            // This helps when a single fish leaves the frame causing false motion estimate
+            let maxMotion: CGFloat = 0.05
+            estimatedCameraMotion.dx = max(-maxMotion, min(maxMotion, estimatedCameraMotion.dx))
+            estimatedCameraMotion.dy = max(-maxMotion, min(maxMotion, estimatedCameraMotion.dy))
         } else {
             // Gradually decay the motion estimate if no matches
-            estimatedCameraMotion.dx *= 0.8
-            estimatedCameraMotion.dy *= 0.8
+            estimatedCameraMotion.dx *= 0.7
+            estimatedCameraMotion.dy *= 0.7
         }
     }
     
     /// Apply estimated camera motion compensation to track predictions
     private func applyMotionCompensation(to tracks: [STrack]) {
         // Only apply if we have significant motion
-        if abs(estimatedCameraMotion.dx) < 0.01 && abs(estimatedCameraMotion.dy) < 0.01 {
+        if abs(estimatedCameraMotion.dx) < 0.005 && abs(estimatedCameraMotion.dy) < 0.005 {
             return
         }
         
         for track in tracks {
-            // Adjust the track's position by the estimated camera motion
+            // For fish specifically:
+            // 1. Apply full compensation to horizontal movement (x-axis)
+            // 2. Apply reduced compensation to vertical movement (y-axis) since fish are expected to move down
+            
+            // Get expected vertical movement direction from velocity if available
+            var expectedVerticalMotion: CGFloat = 0
+            if let mean = track.mean, mean.count >= 6 {
+                expectedVerticalMotion = CGFloat(mean[5]) // Vertical velocity component
+            }
+            
+            // Adjust horizontal position by full camera motion estimate
             let newX = track.position.x - estimatedCameraMotion.dx
-            let newY = track.position.y - estimatedCameraMotion.dy
+            
+            // For vertical position:
+            // - If fish has downward velocity (positive), apply less compensation
+            // - If fish has upward/no velocity, apply full compensation
+            let verticalCompensationFactor: CGFloat = expectedVerticalMotion > 0 ? 0.7 : 1.0
+            let newY = track.position.y - (estimatedCameraMotion.dy * verticalCompensationFactor)
             
             // Keep position within normalized bounds [0, 1]
             track.position = (
@@ -648,15 +676,82 @@ public class ByteTracker {
         // Calculate IoU distance matrix
         var dists = MatchingUtils.iouDistance(tracks: tracks, detections: detections)
         
-        // Apply bias for track history - reduce distance for historical associations
+        // Fish-specific enhancements:
+        
+        // 1. Apply bias for track history - reduce distance for historical associations
         for (i, track) in tracks.enumerated() {
             if let history = trackMatchHistory[track.trackId] {
                 for j in 0..<detections.count {
                     // If there was a previous match association, bias the cost lower
                     if history.contains(j) && dists[i][j] > 0.1 {
-                        dists[i][j] = max(0.1, dists[i][j] - 0.2) // Reduce distance by 0.2 but keep minimum of 0.1
+                        dists[i][j] = max(0.1, dists[i][j] - 0.25) // Stronger bias (0.25 vs 0.2)
                     }
                 }
+            }
+        }
+        
+        // 2. Add directional bias for fish swimming from top to bottom
+        for i in 0..<tracks.count {
+            let track = tracks[i]
+            // If we have Kalman filter mean data with velocity components
+            if let mean = track.mean, mean.count >= 6 {
+                // Extract velocity components
+                let vx = CGFloat(mean[4])
+                let vy = CGFloat(mean[5])
+                
+                // For each detection
+                for j in 0..<detections.count {
+                    let detection = detections[j]
+                    
+                    // Calculate relative movement
+                    let dx = detection.position.x - track.position.x
+                    let dy = detection.position.y - track.position.y
+                    
+                    // For fish moving top-to-bottom, favor downward motion
+                    let isMovingDown = dy > 0 && vy > 0
+                    
+                    // If the fish is moving down (as expected in the tunnel), bias matching
+                    if isMovingDown {
+                        // More aggressive bias for expected movement
+                        let distReduction: Float = 0.25
+                        dists[i][j] = max(0.05, dists[i][j] - distReduction)
+                    }
+                    
+                    // Also consider if movement direction aligns with velocity
+                    let velocityAlignment = (dx * vx + dy * vy) / 
+                        (sqrt(dx*dx + dy*dy) * sqrt(vx*vx + vy*vy) + 0.0001)
+                    
+                    if velocityAlignment > 0.5 { // Only favor strong alignment
+                        dists[i][j] = max(0.1, dists[i][j] - 0.15)
+                    }
+                }
+            }
+        }
+        
+        // 3. Add spatial proximity bias - if a detection is closer to one track than others,
+        // further bias the distance to prevent ID switches between nearby fish
+        for j in 0..<detections.count {
+            let detection = detections[j]
+            
+            // Find closest track by position
+            var closestTrackIdx = -1
+            var closestDist: CGFloat = 1.0
+            
+            for i in 0..<tracks.count {
+                let track = tracks[i]
+                let dx = detection.position.x - track.position.x
+                let dy = detection.position.y - track.position.y
+                let distSq = dx*dx + dy*dy
+                
+                if distSq < closestDist {
+                    closestDist = distSq
+                    closestTrackIdx = i
+                }
+            }
+            
+            // If we found a significantly closer track, bias the matching
+            if closestTrackIdx >= 0 && closestDist < 0.1 { // Threshold for "significantly closer"
+                dists[closestTrackIdx][j] = max(0.05, dists[closestTrackIdx][j] - 0.2)
             }
         }
         

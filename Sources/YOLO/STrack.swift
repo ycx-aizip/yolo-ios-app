@@ -67,7 +67,7 @@ public class STrack {
     public var counted: Bool = false
     
     /// Time-to-live counter for the track (decremented when object not detected)
-    public var ttl: Int = 15 // Increased from 3 to better handle brief detection failures
+    public var ttl: Int = 15 // Increased for fish with expected movement patterns
     
     /// The most recent detection box associated with this track
     public var lastDetection: Box?
@@ -98,6 +98,12 @@ public class STrack {
     
     /// Kalman filter for this track
     private var kalmanFilter: KalmanFilter?
+    
+    /// Add a new property to store movement direction consistency
+    public var movementConsistency: Float = 0.0 // Higher values = more consistent top-to-bottom movement
+    
+    /// Add a new property to track frame count with expected movement
+    public var framesWithExpectedMovement: Int = 0
     
     // MARK: - Initialization
     
@@ -171,6 +177,24 @@ public class STrack {
             return
         }
         
+        // Calculate movement direction
+        let dx = newTrack.position.x - position.x
+        let dy = newTrack.position.y - position.y
+        
+        // Check if movement follows expected top-to-bottom pattern
+        let isMovingDown = dy > 0
+        let isExpectedMovement = isMovingDown && abs(dx) < 0.2 // Moving down with limited horizontal movement
+        
+        // Update movement consistency metrics
+        if isExpectedMovement {
+            framesWithExpectedMovement += 1
+            // Increase consistency (with damping)
+            movementConsistency = min(1.0, movementConsistency + 0.15)
+        } else {
+            // Decrease consistency more aggressively for reactivation with unexpected movement
+            movementConsistency = max(0.0, movementConsistency - 0.2)
+        }
+        
         // Update Kalman filter with new detection
         let newMeasurement = newTrack.convertToXYAH()
         (self.mean, self.covariance) = kalmanFilter.update(mean: mean, covariance: covariance, measurement: newMeasurement)
@@ -187,8 +211,15 @@ public class STrack {
         self.lastDetection = newTrack.lastDetection
         self.position = newTrack.position
         
-        // Reset TTL when reactivated
-        self.ttl = 15  // Increased from 3 to better handle re-identification
+        // Set adaptive TTL based on movement consistency for reactivated tracks
+        // More conservative TTL for reactivated tracks to prevent incorrect associations
+        if movementConsistency > 0.7 && framesWithExpectedMovement > 5 {
+            self.ttl = 15  // Lower than update() to be conservative with reactivation
+        } else if movementConsistency > 0.4 {
+            self.ttl = 12
+        } else {
+            self.ttl = 8   // Even lower for reactivated tracks with inconsistent movement
+        }
     }
     
     /**
@@ -203,6 +234,24 @@ public class STrack {
     public func update(newPosition: (x: CGFloat, y: CGFloat), detection: Box?, newScore: Float, frameId: Int) {
         guard let kalmanFilter = self.kalmanFilter, let mean = self.mean, let covariance = self.covariance else {
             return
+        }
+        
+        // Calculate movement direction
+        let dx = newPosition.x - position.x
+        let dy = newPosition.y - position.y
+        
+        // Check if movement follows expected top-to-bottom pattern
+        let isMovingDown = dy > 0
+        let isExpectedMovement = isMovingDown && abs(dx) < 0.2 // Moving down with limited horizontal movement
+        
+        // Update movement consistency metrics
+        if isExpectedMovement {
+            framesWithExpectedMovement += 1
+            // Increase consistency (with damping to avoid immediate high values)
+            movementConsistency = min(1.0, movementConsistency + 0.2)
+        } else {
+            // Decrease consistency for unexpected movement
+            movementConsistency = max(0.0, movementConsistency - 0.1)
         }
         
         // Update position
@@ -221,8 +270,18 @@ public class STrack {
         self.trackletLen += 1
         self.endFrame = frameId
         
-        // Reset TTL when updated
-        self.ttl = 15  // Increased from 3 to provide more resilience to detection failures
+        // Set adaptive TTL based on movement consistency and track history
+        // Fish with consistent downward movement get higher TTL values
+        if movementConsistency > 0.7 && framesWithExpectedMovement > 5 {
+            // Fish with very consistent movements get highest TTL
+            self.ttl = 20
+        } else if movementConsistency > 0.4 {
+            // Fish with moderately consistent movements get medium TTL
+            self.ttl = 15
+        } else {
+            // Fish with erratic movements get lower TTL
+            self.ttl = 10
+        }
     }
     
     /// Decreases the time-to-live counter for this track.
@@ -300,6 +359,8 @@ public class STrack {
         trackletLen = 0
         isActivated = false
         ttl = 0
+        movementConsistency = 0
+        framesWithExpectedMovement = 0
         
         // Note: We don't reset position, trackId, or state as they may be needed for reference
     }
