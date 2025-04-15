@@ -44,10 +44,11 @@ func bestCaptureDevice(position: AVCaptureDevice.Position) -> AVCaptureDevice {
   }
 }
 
-class VideoCapture: NSObject, @unchecked Sendable {
+class VideoCapture: NSObject, FrameSource, @unchecked Sendable {
   var predictor: Predictor!
   var previewLayer: AVCaptureVideoPreviewLayer?
-  weak var delegate: VideoCaptureDelegate?
+  weak var videoCaptureDelegate: VideoCaptureDelegate?
+  weak var frameSourceDelegate: FrameSourceDelegate?
   var captureDevice: AVCaptureDevice?
   let captureSession = AVCaptureSession()
   var videoInput: AVCaptureDeviceInput? = nil
@@ -59,8 +60,22 @@ class VideoCapture: NSObject, @unchecked Sendable {
   var longSide: CGFloat = 3
   var shortSide: CGFloat = 4
   var frameSizeCaptured = false
+  
+  // Implement FrameSource protocol requirements
+  var sourceType: FrameSourceType { return .camera }
+  
+  // Implement FrameSource protocol property
+  var delegate: FrameSourceDelegate? {
+    get { return frameSourceDelegate }
+    set { frameSourceDelegate = newValue }
+  }
 
   private var currentBuffer: CVPixelBuffer?
+  
+  // Default initializer
+  override init() {
+    super.init()
+  }
 
   func setUp(
     sessionPreset: AVCaptureSession.Preset = .hd1280x720,
@@ -71,6 +86,25 @@ class VideoCapture: NSObject, @unchecked Sendable {
     cameraQueue.async {
       let success = self.setUpCamera(
         sessionPreset: sessionPreset, position: position, orientation: orientation)
+      DispatchQueue.main.async {
+        completion(success)
+      }
+    }
+  }
+  
+  // Simplified version for FrameSource protocol compatibility
+  @MainActor
+  func setUp(completion: @escaping @Sendable (Bool) -> Void) {
+    // Capture orientation on the main actor
+    let orientation = UIDevice.current.orientation
+    
+    // Then dispatch to background queue for camera setup
+    cameraQueue.async {
+      let success = self.setUpCamera(
+        sessionPreset: .hd1280x720, 
+        position: .back, 
+        orientation: orientation)
+      
       DispatchQueue.main.async {
         completion(success)
       }
@@ -151,7 +185,7 @@ class VideoCapture: NSObject, @unchecked Sendable {
     return true
   }
 
-  func start() {
+  nonisolated func start() {
     if !captureSession.isRunning {
       DispatchQueue.global().async {
         self.captureSession.startRunning()
@@ -159,7 +193,7 @@ class VideoCapture: NSObject, @unchecked Sendable {
     }
   }
 
-  func stop() {
+  nonisolated func stop() {
     if captureSession.isRunning {
       DispatchQueue.global().async {
         self.captureSession.stopRunning()
@@ -167,7 +201,7 @@ class VideoCapture: NSObject, @unchecked Sendable {
     }
   }
 
-  func setZoomRatio(ratio: CGFloat) {
+  nonisolated func setZoomRatio(ratio: CGFloat) {
     do {
       try captureDevice!.lockForConfiguration()
       defer {
@@ -176,14 +210,33 @@ class VideoCapture: NSObject, @unchecked Sendable {
       captureDevice!.videoZoomFactor = ratio
     } catch {}
   }
+  
+  // Implement the capturePhoto method required by FrameSource protocol
+  func capturePhoto(completion: @escaping @Sendable (UIImage?) -> Void) {
+    guard photoOutput.connection(with: .video) != nil else {
+      completion(nil)
+      return
+    }
+    
+    let settings = AVCapturePhotoSettings()
+    self.lastCapturedPhoto = nil
+    
+    photoOutput.capturePhoto(with: settings, delegate: self)
+    
+    // Wait a bit for photo capture to complete
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+      completion(self.lastCapturedPhoto)
+    }
+  }
 
-  private func predictOnFrame(sampleBuffer: CMSampleBuffer) {
+  private func processFrameOnCameraQueue(sampleBuffer: CMSampleBuffer) {
     guard let predictor = predictor else {
       print("predictor is nil")
       return
     }
-    if currentBuffer == nil, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
-      currentBuffer = pixelBuffer
+    
+    if let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
+      // Update frame size if needed
       if !frameSizeCaptured {
         let frameWidth = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
         let frameHeight = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
@@ -191,29 +244,28 @@ class VideoCapture: NSObject, @unchecked Sendable {
         shortSide = min(frameWidth, frameHeight)
         frameSizeCaptured = true
       }
-
-      /// - Tag: MappingOrientation
-      // The frame is always oriented based on the camera sensor,
-      // so in most cases Vision needs to rotate it for the model to work as expected.
-      var imageOrientation: CGImagePropertyOrientation = .up
-      //            switch UIDevice.current.orientation {
-      //            case .portrait:
-      //                imageOrientation = .up
-      //            case .portraitUpsideDown:
-      //                imageOrientation = .down
-      //            case .landscapeLeft:
-      //                imageOrientation = .up
-      //            case .landscapeRight:
-      //                imageOrientation = .up
-      //            case .unknown:
-      //                imageOrientation = .up
-      //
-      //            default:
-      //                imageOrientation = .up
-      //            }
-
+      
+      // For frameSourceDelegate, we need to safely pass the frame data to the main thread
+      // Create a CIImage from the pixel buffer which can be safely passed between threads
+      if let frameSourceDelegate = frameSourceDelegate {
+        // Create a CIImage from the pixel buffer - this is thread-safe
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        
+        // Convert to UIImage which is also thread-safe
+        let context = CIContext()
+        if let cgImage = context.createCGImage(ciImage, from: ciImage.extent) {
+          let uiImage = UIImage(cgImage: cgImage)
+          
+          // Dispatch to main thread with the thread-safe image
+          DispatchQueue.main.async {
+            // Use the new delegate method that accepts UIImage
+            self.frameSourceDelegate?.frameSource(self, didOutputImage: uiImage)
+          }
+        }
+      }
+      
+      // Process with predictor - this happens on camera queue
       predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
-      currentBuffer = nil
     }
   }
 
@@ -227,7 +279,8 @@ class VideoCapture: NSObject, @unchecked Sendable {
     } else {
       connection.isVideoMirrored = false
     }
-    let o = connection.videoOrientation
+    
+    // No need to store the orientation in a variable
     self.previewLayer?.connection?.videoOrientation = connection.videoOrientation
   }
 }
@@ -238,7 +291,10 @@ extension VideoCapture: AVCaptureVideoDataOutputSampleBufferDelegate {
     from connection: AVCaptureConnection
   ) {
     guard inferenceOK else { return }
-    predictOnFrame(sampleBuffer: sampleBuffer)
+    
+    // Process the frame directly on the camera queue instead of dispatching to main thread
+    // This avoids data races with the sample buffer
+    processFrameOnCameraQueue(sampleBuffer: sampleBuffer)
   }
 }
 
@@ -260,13 +316,14 @@ extension VideoCapture: AVCapturePhotoCaptureDelegate {
 extension VideoCapture: ResultsListener, InferenceTimeListener {
   func on(inferenceTime: Double, fpsRate: Double) {
     DispatchQueue.main.async {
-      self.delegate?.onInferenceTime(speed: inferenceTime, fps: fpsRate)
+      self.videoCaptureDelegate?.onInferenceTime(speed: inferenceTime, fps: fpsRate)
+      self.frameSourceDelegate?.frameSource(self, didUpdateWithSpeed: inferenceTime, fps: fpsRate)
     }
   }
 
   func on(result: YOLOResult) {
     DispatchQueue.main.async {
-      self.delegate?.onPredict(result: result)
+      self.videoCaptureDelegate?.onPredict(result: result)
     }
   }
 }

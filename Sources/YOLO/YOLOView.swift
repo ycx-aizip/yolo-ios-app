@@ -17,7 +17,7 @@ import Vision
 
 /// A UIView component that provides real-time object detection, segmentation, and pose estimation capabilities.
 @MainActor
-public class YOLOView: UIView, VideoCaptureDelegate {
+public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   func onInferenceTime(speed: Double, fps: Double) {
     DispatchQueue.main.async {
       self.labelFPS.text = String(format: "%.1f FPS - %.1f ms", fps, speed)  // t2 seconds to ms
@@ -67,6 +67,17 @@ public class YOLOView: UIView, VideoCaptureDelegate {
         lineWidth: 3
       )
     }
+  }
+
+  // Implement FrameSourceDelegate methods
+  func frameSource(_ source: FrameSource, didOutputImage image: UIImage) {
+    // We can add frame handling here in the future when needed
+    // For now, we're relying on the predictor to handle frames and onPredict for results
+  }
+  
+  func frameSource(_ source: FrameSource, didUpdateWithSpeed speed: Double, fps: Double) {
+    // This is already handled by onInferenceTime, but we keep this for protocol compliance
+    // No need to duplicate the UI updates
   }
 
   var onDetection: ((YOLOResult) -> Void)?
@@ -141,7 +152,8 @@ public class YOLOView: UIView, VideoCaptureDelegate {
     setUpOrientationChangeNotification()
     self.setUpBoundingBoxViews()
     self.setupUI()
-    self.videoCapture.delegate = self
+    self.videoCapture.videoCaptureDelegate = self // Use videoCaptureDelegate instead of delegate
+    self.videoCapture.frameSourceDelegate = self  // Set the frameSourceDelegate
     start(position: .back)
     setupOverlayLayer()
   }
@@ -157,7 +169,8 @@ public class YOLOView: UIView, VideoCaptureDelegate {
       setUpOrientationChangeNotification()
       setUpBoundingBoxViews()
       setupUI()
-      videoCapture.delegate = self
+      videoCapture.videoCaptureDelegate = self // Use videoCaptureDelegate instead of delegate
+      videoCapture.frameSourceDelegate = self  // Set the frameSourceDelegate
       start(position: .back)
       setupOverlayLayer()
     }
