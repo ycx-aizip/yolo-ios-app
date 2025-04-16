@@ -992,11 +992,10 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     toolbar.addSubview(pauseButton)
     toolbar.addSubview(switchCameraButton)
 
-    // Create switch source button
-    switchSourceButton.setImage(UIImage(systemName: "photo.on.rectangle"), for: .normal)
-    switchSourceButton.tintColor = .white
-    switchSourceButton.backgroundColor = UIColor.darkGray.withAlphaComponent(0.6)
-    switchSourceButton.layer.cornerRadius = 8
+    // Create switch source button with matching style
+    switchSourceButton.setImage(UIImage(systemName: "photo.on.rectangle", withConfiguration: config), for: .normal)
+    switchSourceButton.tintColor = .systemGray // Match other buttons' tint color
+    switchSourceButton.backgroundColor = .clear // Remove background color to match other buttons
     switchSourceButton.addTarget(self, action: #selector(switchSourceButtonTapped), for: .touchUpInside)
     toolbar.addSubview(switchSourceButton)
 
@@ -1358,6 +1357,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     // Update layout for player layer if using video source
     if frameSourceType == .videoFile, let playerLayer = albumVideoSource?.playerLayer {
       playerLayer.frame = self.bounds
+      setupOverlayLayer() // Make sure overlay is properly sized for current orientation
     }
   }
 
@@ -1382,8 +1382,12 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       return
     }
     videoCapture.updateVideoOrientation(orientation: orientation)
-
-    //      frameSizeCaptured = false
+    
+    // Update player layer frame when orientation changes
+    if frameSourceType == .videoFile, let playerLayer = albumVideoSource?.playerLayer {
+      playerLayer.frame = self.bounds
+      setupOverlayLayer()
+    }
   }
 
   @objc func sliderChanged(_ sender: Any) {
@@ -1589,6 +1593,11 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     // Stop current frame source
     currentFrameSource.stop()
     
+    // Clear any existing bounding boxes
+    boundingBoxViews.forEach { box in
+      box.hide()
+    }
+    
     // Switch to new frame source
     switch sourceType {
     case .camera:
@@ -1650,6 +1659,12 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       albumVideoSource = AlbumVideoSource()
       albumVideoSource?.predictor = videoCapture.predictor
       albumVideoSource?.delegate = self
+      albumVideoSource?.videoCaptureDelegate = self
+    }
+    
+    // Clear any existing bounding boxes again before setting up new source
+    boundingBoxViews.forEach { box in
+      box.hide()
     }
     
     // Configure the video source
@@ -1663,6 +1678,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         if let playerLayer = self.albumVideoSource?.playerLayer {
           playerLayer.frame = self.bounds
           playerLayer.videoGravity = .resizeAspectFill
+          
+          // Insert player layer at index 0 (same as camera preview layer)
           self.layer.insertSublayer(playerLayer, at: 0)
           
           // Add overlay layer to player layer
@@ -1672,6 +1689,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
           for box in self.boundingBoxViews {
             box.addToLayer(playerLayer)
           }
+          
+          // Update the overlay layer frame to match the view bounds
+          self.setupOverlayLayer()
         }
         
         // Start playback

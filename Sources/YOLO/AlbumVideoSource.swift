@@ -17,9 +17,12 @@ import Vision
 
 /// Frame source implementation that plays videos from the photo library.
 @preconcurrency
-class AlbumVideoSource: NSObject, FrameSource {
+class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeListener {
     /// The delegate to receive frames and performance metrics.
     weak var delegate: FrameSourceDelegate?
+    
+    /// The VideoCaptureDelegate to receive prediction results (same as in VideoCapture).
+    weak var videoCaptureDelegate: VideoCaptureDelegate?
     
     /// The predictor used to process frames from this source.
     var predictor: Predictor!
@@ -205,6 +208,23 @@ class AlbumVideoSource: NSObject, FrameSource {
         // Zoom not supported for video playback
     }
     
+    // MARK: - ResultsListener & InferenceTimeListener Implementation
+    
+    func on(inferenceTime: Double, fpsRate: Double) {
+        // Forward to delegates on the main thread
+        Task { @MainActor in
+            self.videoCaptureDelegate?.onInferenceTime(speed: inferenceTime, fps: fpsRate)
+            self.delegate?.frameSource(self, didUpdateWithSpeed: inferenceTime, fps: fpsRate)
+        }
+    }
+    
+    func on(result: YOLOResult) {
+        // Forward results to VideoCaptureDelegate on the main thread
+        Task { @MainActor in
+            self.videoCaptureDelegate?.onPredict(result: result)
+        }
+    }
+    
     // MARK: - Private Methods
     
     @MainActor
@@ -282,6 +302,13 @@ class AlbumVideoSource: NSObject, FrameSource {
         // Try to get frame from asset reader first (more efficient)
         if let frame = getNextFrameFromAssetReader() {
             processFrame(frame)
+            
+            // Create sample buffer from UIImage to process with predictor
+            if let sampleBuffer = createSampleBufferFrom(image: frame) {
+                // Process with predictor - using self as the results and inference time listener
+                predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
+            }
+            
             return
         }
         
@@ -308,10 +335,22 @@ class AlbumVideoSource: NSObject, FrameSource {
                 // Pass the frame to delegate on the main thread
                 Task { @MainActor in
                     self.delegate?.frameSource(self, didOutputImage: capturedImage)
-                    
-                    // Track and report performance
-                    let processingTime = CACurrentMediaTime() - capturedTime
-                    updatePerformanceMetrics(processingTime: processingTime, frameTime: capturedDeltaTime)
+                }
+                
+                // Create sample buffer from pixelBuffer to process with predictor
+                // Use the pixel buffer directly for prediction
+                let sampleBuffer = createSampleBufferFrom(pixelBuffer: pixelBuffer)
+                if let sampleBuffer = sampleBuffer {
+                    predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
+                }
+                
+                // Track and report performance metrics only if we didn't succeed with prediction
+                // (otherwise the InferenceTimeListener will handle it)
+                if sampleBuffer == nil {
+                    Task { @MainActor in
+                        let processingTime = CACurrentMediaTime() - capturedTime
+                        updatePerformanceMetrics(processingTime: processingTime, frameTime: capturedDeltaTime)
+                    }
                 }
             }
         }
@@ -399,5 +438,64 @@ class AlbumVideoSource: NSObject, FrameSource {
         trackOutput = nil
         
         processingTimes.removeAll()
+    }
+    
+    // Helper method to create CMSampleBuffer from UIImage
+    private func createSampleBufferFrom(image: UIImage) -> CMSampleBuffer? {
+        guard let cgImage = image.cgImage else { return nil }
+        
+        let width = cgImage.width
+        let height = cgImage.height
+        
+        var pixelBuffer: CVPixelBuffer?
+        let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32ARGB, nil, &pixelBuffer)
+        
+        guard status == kCVReturnSuccess, let pixelBuffer = pixelBuffer else { return nil }
+        
+        CVPixelBufferLockBaseAddress(pixelBuffer, [])
+        let data = CVPixelBufferGetBaseAddress(pixelBuffer)
+        
+        let context = CGContext(
+            data: data,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer),
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
+        )
+        
+        context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        
+        CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
+        
+        return createSampleBufferFrom(pixelBuffer: pixelBuffer)
+    }
+    
+    // Helper method to create CMSampleBuffer from CVPixelBuffer
+    private func createSampleBufferFrom(pixelBuffer: CVPixelBuffer) -> CMSampleBuffer? {
+        var sampleBuffer: CMSampleBuffer?
+        
+        var timimgInfo = CMSampleTimingInfo()
+        timimgInfo.duration = CMTime.invalid
+        timimgInfo.decodeTimeStamp = CMTime.invalid
+        timimgInfo.presentationTimeStamp = CMTime(value: Int64(CACurrentMediaTime() * 1000), timescale: 1000)
+        
+        var formatDescription: CMFormatDescription?
+        CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, 
+                                                   imageBuffer: pixelBuffer,
+                                                   formatDescriptionOut: &formatDescription)
+        
+        guard let formatDescription = formatDescription else { return nil }
+        
+        CMSampleBufferCreateReadyWithImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: pixelBuffer,
+            formatDescription: formatDescription,
+            sampleTiming: &timimgInfo,
+            sampleBufferOut: &sampleBuffer
+        )
+        
+        return sampleBuffer
     }
 } 
