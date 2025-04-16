@@ -458,9 +458,13 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         
         // Check if video has reached the end
         if player.currentTime() >= player.currentItem?.duration ?? CMTime.zero {
-            // Loop playback
-            player.seek(to: CMTime.zero)
-            player.play()
+            // Stop playback and processing when video ends
+            stopMainActorIsolated()
+            
+            // Notify that playback has completed via a notification
+            Task { @MainActor in
+                NotificationCenter.default.post(name: .videoPlaybackDidEnd, object: self)
+            }
         }
     }
     
