@@ -71,17 +71,21 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
 
   // Implement FrameSourceDelegate methods
   func frameSource(_ source: FrameSource, didOutputImage image: UIImage) {
-    // We can add frame handling here in the future when needed
-    // For now, we're relying on the predictor to handle frames and onPredict for results
+    // When we receive a frame from any frame source, we can process it here
+    // Currently, we're relying on predictor to handle frames through its internal pipeline
   }
   
   func frameSource(_ source: FrameSource, didUpdateWithSpeed speed: Double, fps: Double) {
-    // This is already handled by onInferenceTime, but we keep this for protocol compliance
-    // No need to duplicate the UI updates
+    // Update UI with performance metrics
+    DispatchQueue.main.async {
+      self.labelFPS.text = String(format: "%.1f FPS - %.1f ms", fps, speed)
+    }
   }
 
   var onDetection: ((YOLOResult) -> Void)?
   private var videoCapture: VideoCapture
+  private var albumVideoSource: AlbumVideoSource?
+  private var currentFrameSource: FrameSource
   private var busy = false
   private var currentBuffer: CVPixelBuffer?
   var framesDone = 0
@@ -141,25 +145,31 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   public var capturedImage: UIImage?
   private var photoCaptureCompletion: ((UIImage?) -> Void)?
 
+  // Add new properties for frame source switching
+  public var switchSourceButton = UIButton()
+  private var frameSourceType: FrameSourceType = .camera
+
   public init(
     frame: CGRect,
     modelPathOrName: String,
     task: YOLOTask
   ) {
     self.videoCapture = VideoCapture()
+    self.currentFrameSource = self.videoCapture
     super.init(frame: frame)
     setModel(modelPathOrName: modelPathOrName, task: task)
     setUpOrientationChangeNotification()
     self.setUpBoundingBoxViews()
     self.setupUI()
-    self.videoCapture.videoCaptureDelegate = self // Use videoCaptureDelegate instead of delegate
-    self.videoCapture.frameSourceDelegate = self  // Set the frameSourceDelegate
+    self.videoCapture.videoCaptureDelegate = self
+    self.videoCapture.frameSourceDelegate = self
     start(position: .back)
     setupOverlayLayer()
   }
 
   required init?(coder: NSCoder) {
     self.videoCapture = VideoCapture()
+    self.currentFrameSource = self.videoCapture
     super.init(coder: coder)
   }
 
@@ -169,8 +179,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       setUpOrientationChangeNotification()
       setUpBoundingBoxViews()
       setupUI()
-      videoCapture.videoCaptureDelegate = self // Use videoCaptureDelegate instead of delegate
-      videoCapture.frameSourceDelegate = self  // Set the frameSourceDelegate
+      videoCapture.videoCaptureDelegate = self
+      videoCapture.frameSourceDelegate = self
       start(position: .back)
       setupOverlayLayer()
     }
@@ -365,11 +375,11 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   }
 
   public func stop() {
-    videoCapture.stop()
+    currentFrameSource.stop()
   }
 
   public func resume() {
-    videoCapture.start()
+    currentFrameSource.start()
   }
 
   func setUpBoundingBoxViews() {
@@ -982,6 +992,14 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     toolbar.addSubview(pauseButton)
     toolbar.addSubview(switchCameraButton)
 
+    // Create switch source button
+    switchSourceButton.setImage(UIImage(systemName: "photo.on.rectangle"), for: .normal)
+    switchSourceButton.tintColor = .white
+    switchSourceButton.backgroundColor = UIColor.darkGray.withAlphaComponent(0.6)
+    switchSourceButton.layer.cornerRadius = 8
+    switchSourceButton.addTarget(self, action: #selector(switchSourceButtonTapped), for: .touchUpInside)
+    toolbar.addSubview(switchSourceButton)
+
     self.addGestureRecognizer(UIPinchGestureRecognizer(target: self, action: #selector(pinch)))
   }
 
@@ -1331,9 +1349,16 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         x: playButton.frame.maxX, y: 0, width: buttonHeight, height: buttonHeight)
       switchCameraButton.frame = CGRect(
         x: pauseButton.frame.maxX, y: 0, width: buttonHeight, height: buttonHeight)
+      switchSourceButton.frame = CGRect(
+        x: switchCameraButton.frame.maxX, y: 0, width: buttonHeight, height: buttonHeight)
     }
 
     self.videoCapture.previewLayer?.frame = self.bounds
+
+    // Update layout for player layer if using video source
+    if frameSourceType == .videoFile, let playerLayer = albumVideoSource?.playerLayer {
+      playerLayer.frame = self.bounds
+    }
   }
 
   private func setUpOrientationChangeNotification() {
@@ -1553,26 +1578,184 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       labelFishCount.text = "Fish Count: 0"
     }
   }
+
+  // Method to switch between frame sources
+  public func switchToFrameSource(_ sourceType: FrameSourceType) {
+    // Already using this source type
+    if frameSourceType == sourceType {
+      return
+    }
+    
+    // Stop current frame source
+    currentFrameSource.stop()
+    
+    // Switch to new frame source
+    switch sourceType {
+    case .camera:
+      // Remove any existing video player layer
+      if let albumSource = albumVideoSource, let playerLayer = albumSource.playerLayer {
+        playerLayer.removeFromSuperlayer()
+      }
+      
+      // Show camera preview layer
+      if let previewLayer = videoCapture.previewLayer {
+        previewLayer.isHidden = false
+      }
+      
+      // Use camera as current frame source
+      currentFrameSource = videoCapture
+      frameSourceType = .camera
+      
+      // Start camera capture
+      start(position: .back)
+      
+    case .videoFile:
+      // Hide camera preview layer
+      if let previewLayer = videoCapture.previewLayer {
+        previewLayer.isHidden = true
+      }
+      
+      // Show video selection picker
+      showVideoPickerAlert()
+      
+    default:
+      // For future source types
+      break
+    }
+  }
+  
+  // Shows UI for selecting a video from the photo library
+  private func showVideoPickerAlert() {
+    // This is called from the main thread because it's triggered by UI interactions
+    let picker = UIImagePickerController()
+    picker.delegate = self
+    picker.sourceType = .photoLibrary
+    picker.mediaTypes = ["public.movie"]
+    picker.videoQuality = .typeHigh
+    picker.allowsEditing = false
+    
+    // Find the current view controller to present the picker
+    var topViewController = UIApplication.shared.windows.first?.rootViewController
+    while let presentedViewController = topViewController?.presentedViewController {
+      topViewController = presentedViewController
+    }
+    
+    topViewController?.present(picker, animated: true)
+  }
+  
+  // Method to set up the video source with a selected URL
+  private func setupVideoSource(with url: URL) {
+    // Create album video source if needed
+    if albumVideoSource == nil {
+      albumVideoSource = AlbumVideoSource()
+      albumVideoSource?.predictor = videoCapture.predictor
+      albumVideoSource?.delegate = self
+    }
+    
+    // Configure the video source
+    albumVideoSource?.setVideoURL(url) { success in
+      if success {
+        // Set as current frame source
+        self.currentFrameSource = self.albumVideoSource!
+        self.frameSourceType = .videoFile
+        
+        // Configure player layer
+        if let playerLayer = self.albumVideoSource?.playerLayer {
+          playerLayer.frame = self.bounds
+          playerLayer.videoGravity = .resizeAspectFill
+          self.layer.insertSublayer(playerLayer, at: 0)
+          
+          // Add overlay layer to player layer
+          playerLayer.addSublayer(self.overlayLayer)
+          
+          // Add bounding box views to the overlay
+          for box in self.boundingBoxViews {
+            box.addToLayer(playerLayer)
+          }
+        }
+        
+        // Start playback
+        self.albumVideoSource?.start()
+      } else {
+        // If video setup failed, switch back to camera
+        self.switchToFrameSource(.camera)
+      }
+    }
+  }
+
+  @objc func switchSourceButtonTapped() {
+    // Toggle between camera and video source
+    if frameSourceType == .camera {
+      switchToFrameSource(.videoFile)
+    } else {
+      switchToFrameSource(.camera)
+    }
+  }
 }
 
-extension YOLOView: @preconcurrency AVCapturePhotoCaptureDelegate {
-  public func photoOutput(
+// MARK: - UIImagePickerControllerDelegate
+extension YOLOView: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+  public func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+    picker.dismiss(animated: true)
+    
+    guard let mediaType = info[.mediaType] as? String,
+          mediaType == "public.movie",
+          let url = info[.mediaURL] as? URL else {
+      return
+    }
+    
+    // Setup the video source with the selected URL
+    setupVideoSource(with: url)
+  }
+  
+  public func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+    picker.dismiss(animated: true)
+    
+    // Switch back to camera if video selection was cancelled
+    if frameSourceType == .videoFile && albumVideoSource?.videoURL == nil {
+      switchToFrameSource(.camera)
+    }
+  }
+}
+
+// MARK: - AVCapturePhotoCaptureDelegate
+extension YOLOView: AVCapturePhotoCaptureDelegate {
+  public nonisolated func photoOutput(
     _ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?
   ) {
     if let error = error {
       print("error occurred : \(error.localizedDescription)")
+      return
     }
-    if let dataImage = photo.fileDataRepresentation() {
-      let dataProvider = CGDataProvider(data: dataImage as CFData)
-      let cgImageRef: CGImage! = CGImage(
-        jpegDataProviderSource: dataProvider!, decode: nil, shouldInterpolate: true,
-        intent: .defaultIntent)
+    
+    // Process the photo in the nonisolated context first
+    guard let dataImage = photo.fileDataRepresentation() else {
+      print("AVCapturePhotoCaptureDelegate Error: No image data")
+      return
+    }
+    
+    // Create the image in the nonisolated context
+    let dataProvider = CGDataProvider(data: dataImage as CFData)
+    guard let cgImageRef = CGImage(
+      jpegDataProviderSource: dataProvider!, decode: nil, shouldInterpolate: true,
+      intent: .defaultIntent) else {
+      print("AVCapturePhotoCaptureDelegate Error: Cannot create CGImage")
+      return
+    }
+    
+    // Create the initial UIImage
+    let initialImage = UIImage(cgImage: cgImageRef, scale: 0.5, orientation: .right)
+    
+    // Now move to the MainActor context with the captured image
+    Task { @MainActor in
+      // Determine camera position and orientation 
       var isCameraFront = false
       if let currentInput = self.videoCapture.captureSession.inputs.first as? AVCaptureDeviceInput,
         currentInput.device.position == .front
       {
         isCameraFront = true
       }
+      
       var orientation: CGImagePropertyOrientation = isCameraFront ? .leftMirrored : .right
       switch UIDevice.current.orientation {
       case .landscapeLeft:
@@ -1582,40 +1765,48 @@ extension YOLOView: @preconcurrency AVCapturePhotoCaptureDelegate {
       default:
         break
       }
-      var image = UIImage(cgImage: cgImageRef, scale: 0.5, orientation: .right)
+      
+      // Process the image with the correct orientation
+      var image = initialImage
       if let orientedCIImage = CIImage(image: image)?.oriented(orientation),
         let cgImage = CIContext().createCGImage(orientedCIImage, from: orientedCIImage.extent)
       {
         image = UIImage(cgImage: cgImage)
       }
+      
+      // Create and add the image view layer
       let imageView = UIImageView(image: image)
       imageView.contentMode = .scaleAspectFill
       imageView.frame = self.frame
       let imageLayer = imageView.layer
       self.layer.insertSublayer(imageLayer, above: videoCapture.previewLayer)
 
+      // Add bounding boxes
       var tempViews = [UIView]()
       let boundingBoxInfos = makeBoundingBoxInfos(from: boundingBoxViews)
       for info in boundingBoxInfos where !info.isHidden {
         let boxView = createBoxView(from: info)
         boxView.frame = info.rect
-
         self.addSubview(boxView)
         tempViews.append(boxView)
       }
+      
+      // Capture the resulting view as an image
       let bounds = UIScreen.main.bounds
       UIGraphicsBeginImageContextWithOptions(bounds.size, true, 0.0)
       self.drawHierarchy(in: bounds, afterScreenUpdates: true)
       let img = UIGraphicsGetImageFromCurrentImageContext()
       UIGraphicsEndImageContext()
+      
+      // Clean up the temporary views
       imageLayer.removeFromSuperlayer()
       for v in tempViews {
         v.removeFromSuperview()
       }
+      
+      // Call the completion with the captured image
       photoCaptureCompletion?(img)
       photoCaptureCompletion = nil
-    } else {
-      print("AVCapturePhotoCaptureDelegate Error")
     }
   }
 }

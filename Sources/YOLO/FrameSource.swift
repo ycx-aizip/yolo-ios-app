@@ -1,8 +1,4 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO Package, defining the abstraction for frame sources.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
+// from Aizip
 //
 //  The FrameSource component provides an abstraction layer for different sources of video frames,
 //  such as camera feeds, video files, or image sequences. This protocol-based design enables
@@ -63,6 +59,7 @@ protocol FrameSource: AnyObject {
     ///
     /// - Parameters:
     ///   - completion: Callback with the captured image, or nil if capture failed.
+    @MainActor
     func capturePhoto(completion: @escaping @Sendable (UIImage?) -> Void)
     
     /// Sets the zoom level for the frame source, if supported.
@@ -75,7 +72,7 @@ protocol FrameSource: AnyObject {
 }
 
 /// Enumeration of available frame source types.
-enum FrameSourceType {
+public enum FrameSourceType {
     case camera
     case videoFile
     case imageSequence

@@ -44,6 +44,7 @@ func bestCaptureDevice(position: AVCaptureDevice.Position) -> AVCaptureDevice {
   }
 }
 
+@preconcurrency
 class VideoCapture: NSObject, FrameSource, @unchecked Sendable {
   var predictor: Predictor!
   var previewLayer: AVCaptureVideoPreviewLayer?
@@ -61,14 +62,14 @@ class VideoCapture: NSObject, FrameSource, @unchecked Sendable {
   var shortSide: CGFloat = 4
   var frameSizeCaptured = false
   
-  // Implement FrameSource protocol requirements
-  var sourceType: FrameSourceType { return .camera }
-  
   // Implement FrameSource protocol property
   var delegate: FrameSourceDelegate? {
     get { return frameSourceDelegate }
     set { frameSourceDelegate = newValue }
   }
+  
+  // Implement FrameSource protocol property
+  var sourceType: FrameSourceType { return .camera }
 
   private var currentBuffer: CVPixelBuffer?
   
