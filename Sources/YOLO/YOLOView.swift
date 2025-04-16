@@ -614,42 +614,52 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
           
           // For video source, use the special conversion to handle letterboxing/pillarboxing
           if frameSourceType == .videoFile, let albumSource = albumVideoSource {
+            // Make sure we're using the right coordinates for video source
+            // For video sources, we need to invert the y-axis transformation
+            // since it's already been inverted in the construction of displayRect
+            let normalizedRect = CGRect(
+              x: displayRect.minX,
+              y: displayRect.minY,
+              width: displayRect.width,
+              height: displayRect.height
+            )
+            
             // Convert normalized coordinates to screen coordinates based on video content rect
-            let screenRect = albumSource.convertNormalizedRectToScreenRect(displayRect)
+            let screenRect = albumSource.convertNormalizedRectToScreenRect(normalizedRect)
             
             // Set the box with the converted rect
             boundingBoxViews[i].show(
               frame: screenRect, label: label, color: boxColor, alpha: alpha)
           } else {
             // Original camera frame handling
-            if ratio >= 1 {
-              let offset = (1 - ratio) * (0.5 - displayRect.minX)
-              if task == .detect || task == .fishCount {
-                let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: offset, y: -1)
-                displayRect = displayRect.applying(transform)
-              } else {
-                let transform = CGAffineTransform(translationX: offset, y: 0)
-                displayRect = displayRect.applying(transform)
-              }
-              displayRect.size.width *= ratio
+          if ratio >= 1 {
+            let offset = (1 - ratio) * (0.5 - displayRect.minX)
+            if task == .detect || task == .fishCount {
+              let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: offset, y: -1)
+              displayRect = displayRect.applying(transform)
             } else {
-              if task == .detect || task == .fishCount {
-                let offset = (ratio - 1) * (0.5 - displayRect.maxY)
-
-                let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: 0, y: offset - 1)
-                displayRect = displayRect.applying(transform)
-              } else {
-                let offset = (ratio - 1) * (0.5 - displayRect.minY)
-                let transform = CGAffineTransform(translationX: 0, y: offset)
-                displayRect = displayRect.applying(transform)
-              }
-              ratio = (height / width) / (3.0 / 4.0)
-              displayRect.size.height /= ratio
+              let transform = CGAffineTransform(translationX: offset, y: 0)
+              displayRect = displayRect.applying(transform)
             }
-            displayRect = VNImageRectForNormalizedRect(displayRect, Int(width), Int(height))
-            
-            boundingBoxViews[i].show(
-              frame: displayRect, label: label, color: boxColor, alpha: alpha)
+            displayRect.size.width *= ratio
+          } else {
+            if task == .detect || task == .fishCount {
+              let offset = (ratio - 1) * (0.5 - displayRect.maxY)
+
+              let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: 0, y: offset - 1)
+              displayRect = displayRect.applying(transform)
+            } else {
+              let offset = (ratio - 1) * (0.5 - displayRect.minY)
+              let transform = CGAffineTransform(translationX: 0, y: offset)
+              displayRect = displayRect.applying(transform)
+            }
+            ratio = (height / width) / (3.0 / 4.0)
+            displayRect.size.height /= ratio
+          }
+          displayRect = VNImageRectForNormalizedRect(displayRect, Int(width), Int(height))
+
+          boundingBoxViews[i].show(
+            frame: displayRect, label: label, color: boxColor, alpha: alpha)
           }
         } else {
           boundingBoxViews[i].hide()
@@ -774,40 +784,46 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
 
           // For non-fishCount tasks, use standard label format
           if task != .fishCount {
-            label = String(format: "%@ %.1f", bestClass, confidence * 100)
-            alpha = CGFloat((confidence - 0.2) / (1.0 - 0.2) * 0.9)
+          label = String(format: "%@ %.1f", bestClass, confidence * 100)
+          alpha = CGFloat((confidence - 0.2) / (1.0 - 0.2) * 0.9)
           }
           
           // For video source, use the special conversion to handle letterboxing/pillarboxing
           if frameSourceType == .videoFile, let albumSource = albumVideoSource {
+            // Make sure we're using the right coordinates for video source
+            // For video sources, we need to invert the y-axis transformation
+            // since it's already been inverted in the construction of displayRect
+            let normalizedRect = CGRect(
+              x: rect.minX,
+              y: rect.minY,
+              width: rect.width,
+              height: rect.height
+            )
+            
             // Convert normalized coordinates to screen coordinates based on video content rect
-            let screenRect = albumSource.convertNormalizedRectToScreenRect(rect)
+            let screenRect = albumSource.convertNormalizedRectToScreenRect(normalizedRect)
             
             // Set the box with the converted rect
             boundingBoxViews[i].show(
-              frame: screenRect,
-              label: label,
-              color: boxColor,
-              alpha: alpha
-            )
+              frame: screenRect, label: label, color: boxColor, alpha: alpha)
           } else {
             // Original camera frame handling
             // Transform rectangle to screen coordinates - use currentFrameSource
             rect.origin.x = rect.origin.x * currentFrameSource.longSide * scaleX - offsetX
-            rect.origin.y =
-              height
+          rect.origin.y =
+            height
               - (rect.origin.y * currentFrameSource.shortSide * scaleY
-                - offsetY
+              - offsetY
                 + rect.size.height * currentFrameSource.shortSide * scaleY)
             rect.size.width *= currentFrameSource.longSide * scaleX
             rect.size.height *= currentFrameSource.shortSide * scaleY
 
-            boundingBoxViews[i].show(
-              frame: rect,
-              label: label,
-              color: boxColor,
-              alpha: alpha
-            )
+          boundingBoxViews[i].show(
+            frame: rect,
+            label: label,
+            color: boxColor,
+            alpha: alpha
+          )
           }
         }
       }
@@ -1175,7 +1191,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         width: numItemsSliderWidth,
         height: numItemsSliderHeight
       )
-      
+
       // Position label for model dropdown
       labelSliderNumItems.frame = CGRect(
         x: (width - numItemsSliderWidth) / 2,
@@ -1193,7 +1209,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         width: zoomLabelWidth,
         height: height * 0.03
       )
-      
+
       // Position toolbar at bottom
       toolbar.frame = CGRect(
         x: 0, 
@@ -1432,7 +1448,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     // Update camera orientation if using camera source
     if frameSourceType == .camera {
-      videoCapture.updateVideoOrientation(orientation: orientation)
+    videoCapture.updateVideoOrientation(orientation: orientation)
     }
     
     // Update player layer when orientation changes
@@ -1522,7 +1538,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       }
     } else {
       // Camera source - standard behavior
-      self.videoCapture.start()
+    self.videoCapture.start()
     }
     
     playButton.isEnabled = false
@@ -1856,9 +1872,9 @@ extension YOLOView: AVCapturePhotoCaptureDelegate {
       return
     }
     
-    let dataProvider = CGDataProvider(data: dataImage as CFData)
+      let dataProvider = CGDataProvider(data: dataImage as CFData)
     guard let cgImageRef = CGImage(
-      jpegDataProviderSource: dataProvider!, decode: nil, shouldInterpolate: true,
+        jpegDataProviderSource: dataProvider!, decode: nil, shouldInterpolate: true,
       intent: .defaultIntent) else {
       print("AVCapturePhotoCaptureDelegate Error: Cannot create CGImage")
       return
