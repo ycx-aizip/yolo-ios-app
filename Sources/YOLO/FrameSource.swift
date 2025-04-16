@@ -42,6 +42,12 @@ protocol FrameSource: AnyObject {
     /// The predictor used to process frames from this source.
     var predictor: Predictor! { get set }
     
+    /// The long side dimension of the frames produced by this source.
+    var longSide: CGFloat { get }
+    
+    /// The short side dimension of the frames produced by this source.
+    var shortSide: CGFloat { get }
+    
     /// Begins frame acquisition from the source.
     nonisolated func start()
     

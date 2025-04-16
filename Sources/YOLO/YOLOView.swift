@@ -71,15 +71,13 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
 
   // Implement FrameSourceDelegate methods
   func frameSource(_ source: FrameSource, didOutputImage image: UIImage) {
-    // When we receive a frame from any frame source, we can process it here
-    // Currently, we're relying on predictor to handle frames through its internal pipeline
+    // We can add frame handling here in the future when needed
+    // For now, we're relying on the predictor to handle frames and onPredict for results
   }
   
   func frameSource(_ source: FrameSource, didUpdateWithSpeed speed: Double, fps: Double) {
-    // Update UI with performance metrics
-    DispatchQueue.main.async {
-      self.labelFPS.text = String(format: "%.1f FPS - %.1f ms", fps, speed)
-    }
+    // This is already handled by onInferenceTime, but we keep this for protocol compliance
+    // No need to duplicate the UI updates
   }
 
   var onDetection: ((YOLOResult) -> Void)?
@@ -130,6 +128,11 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   public var pauseButton = UIButton()
   public var switchCameraButton = UIButton()
   public var toolbar = UIView()
+  
+  // Add new properties for frame source switching
+  public var switchSourceButton = UIButton()
+  private var frameSourceType: FrameSourceType = .camera
+
   let selection = UISelectionFeedbackGenerator()
   private var overlayLayer = CALayer()
   private var maskLayer: CALayer?
@@ -144,10 +147,6 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
 
   public var capturedImage: UIImage?
   private var photoCaptureCompletion: ((UIImage?) -> Void)?
-
-  // Add new properties for frame source switching
-  public var switchSourceButton = UIButton()
-  private var frameSourceType: FrameSourceType = .camera
 
   public init(
     frame: CGRect,
@@ -500,7 +499,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     if UIDevice.current.orientation == .portrait {
       var ratio: CGFloat = 1.0
 
-      if videoCapture.captureSession.sessionPreset == .photo {
+      // Use the session preset from the active frame source (only VideoCapture has this)
+      if currentFrameSource.sourceType == .camera && videoCapture.captureSession.sessionPreset == .photo {
         ratio = (height / width) / (4.0 / 3.0)
       } else {
         ratio = (height / width) / (16.0 / 9.0)
@@ -538,8 +538,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             bestClass = prediction.cls
             confidence = CGFloat(prediction.conf)
             
-            // Check tracking status to determine color
-            if let trackingDetector = videoCapture.predictor as? TrackingDetector {
+            // Check tracking status to determine color - need to ensure this works with current frame source
+            if let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
               let isTracked = trackingDetector.isObjectTracked(box: prediction)
               let isCounted = trackingDetector.isObjectCounted(box: prediction)
               
@@ -611,34 +611,46 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             fallthrough
           default: break
           }
-          if ratio >= 1 {
-            let offset = (1 - ratio) * (0.5 - displayRect.minX)
-            if task == .detect || task == .fishCount {
-              let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: offset, y: -1)
-              displayRect = displayRect.applying(transform)
-            } else {
-              let transform = CGAffineTransform(translationX: offset, y: 0)
-              displayRect = displayRect.applying(transform)
-            }
-            displayRect.size.width *= ratio
+          
+          // For video source, use the special conversion to handle letterboxing/pillarboxing
+          if frameSourceType == .videoFile, let albumSource = albumVideoSource {
+            // Convert normalized coordinates to screen coordinates based on video content rect
+            let screenRect = albumSource.convertNormalizedRectToScreenRect(displayRect)
+            
+            // Set the box with the converted rect
+            boundingBoxViews[i].show(
+              frame: screenRect, label: label, color: boxColor, alpha: alpha)
           } else {
-            if task == .detect || task == .fishCount {
-              let offset = (ratio - 1) * (0.5 - displayRect.maxY)
-
-              let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: 0, y: offset - 1)
-              displayRect = displayRect.applying(transform)
+            // Original camera frame handling
+            if ratio >= 1 {
+              let offset = (1 - ratio) * (0.5 - displayRect.minX)
+              if task == .detect || task == .fishCount {
+                let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: offset, y: -1)
+                displayRect = displayRect.applying(transform)
+              } else {
+                let transform = CGAffineTransform(translationX: offset, y: 0)
+                displayRect = displayRect.applying(transform)
+              }
+              displayRect.size.width *= ratio
             } else {
-              let offset = (ratio - 1) * (0.5 - displayRect.minY)
-              let transform = CGAffineTransform(translationX: 0, y: offset)
-              displayRect = displayRect.applying(transform)
-            }
-            ratio = (height / width) / (3.0 / 4.0)
-            displayRect.size.height /= ratio
-          }
-          displayRect = VNImageRectForNormalizedRect(displayRect, Int(width), Int(height))
+              if task == .detect || task == .fishCount {
+                let offset = (ratio - 1) * (0.5 - displayRect.maxY)
 
-          boundingBoxViews[i].show(
-            frame: displayRect, label: label, color: boxColor, alpha: alpha)
+                let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: 0, y: offset - 1)
+                displayRect = displayRect.applying(transform)
+              } else {
+                let offset = (ratio - 1) * (0.5 - displayRect.minY)
+                let transform = CGAffineTransform(translationX: 0, y: offset)
+                displayRect = displayRect.applying(transform)
+              }
+              ratio = (height / width) / (3.0 / 4.0)
+              displayRect.size.height /= ratio
+            }
+            displayRect = VNImageRectForNormalizedRect(displayRect, Int(width), Int(height))
+            
+            boundingBoxViews[i].show(
+              frame: displayRect, label: label, color: boxColor, alpha: alpha)
+          }
         } else {
           boundingBoxViews[i].hide()
         }
@@ -649,7 +661,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       self.labelSliderNumItems.text =
         String(resultCount) + " items (max " + String(Int(sliderNumItems.value)) + ")"
 
-      let frameAspectRatio = videoCapture.longSide / videoCapture.shortSide
+      // Use longSide and shortSide from the current frame source (important fix)
+      let frameAspectRatio = currentFrameSource.longSide / currentFrameSource.shortSide
       let viewAspectRatio = width / height
       var scaleX: CGFloat = 1.0
       var scaleY: CGFloat = 1.0
@@ -657,13 +670,13 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       var offsetY: CGFloat = 0.0
 
       if frameAspectRatio > viewAspectRatio {
-        scaleY = height / videoCapture.shortSide
+        scaleY = height / currentFrameSource.shortSide
         scaleX = scaleY
-        offsetX = (videoCapture.longSide * scaleX - width) / 2
+        offsetX = (currentFrameSource.longSide * scaleX - width) / 2
       } else {
-        scaleX = width / videoCapture.longSide
+        scaleX = width / currentFrameSource.longSide
         scaleY = scaleX
-        offsetY = (videoCapture.shortSide * scaleY - height) / 2
+        offsetY = (currentFrameSource.shortSide * scaleY - height) / 2
       }
 
       // Important: First hide all boxes, then show only the active ones
@@ -708,8 +721,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             bestClass = prediction.cls
             confidence = CGFloat(prediction.conf)
             
-            // Check tracking status to determine color
-            if let trackingDetector = videoCapture.predictor as? TrackingDetector {
+            // Check tracking status to determine color - need to ensure this works with current frame source
+            if let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
               let isTracked = trackingDetector.isObjectTracked(box: prediction)
               let isCounted = trackingDetector.isObjectCounted(box: prediction)
               
@@ -765,28 +778,43 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             alpha = CGFloat((confidence - 0.2) / (1.0 - 0.2) * 0.9)
           }
           
-          // Transform rectangle to screen coordinates
-          rect.origin.x = rect.origin.x * videoCapture.longSide * scaleX - offsetX
-          rect.origin.y =
-            height
-            - (rect.origin.y * videoCapture.shortSide * scaleY
-              - offsetY
-              + rect.size.height * videoCapture.shortSide * scaleY)
-          rect.size.width *= videoCapture.longSide * scaleX
-          rect.size.height *= videoCapture.shortSide * scaleY
+          // For video source, use the special conversion to handle letterboxing/pillarboxing
+          if frameSourceType == .videoFile, let albumSource = albumVideoSource {
+            // Convert normalized coordinates to screen coordinates based on video content rect
+            let screenRect = albumSource.convertNormalizedRectToScreenRect(rect)
+            
+            // Set the box with the converted rect
+            boundingBoxViews[i].show(
+              frame: screenRect,
+              label: label,
+              color: boxColor,
+              alpha: alpha
+            )
+          } else {
+            // Original camera frame handling
+            // Transform rectangle to screen coordinates - use currentFrameSource
+            rect.origin.x = rect.origin.x * currentFrameSource.longSide * scaleX - offsetX
+            rect.origin.y =
+              height
+              - (rect.origin.y * currentFrameSource.shortSide * scaleY
+                - offsetY
+                + rect.size.height * currentFrameSource.shortSide * scaleY)
+            rect.size.width *= currentFrameSource.longSide * scaleX
+            rect.size.height *= currentFrameSource.shortSide * scaleY
 
-          boundingBoxViews[i].show(
-            frame: rect,
-            label: label,
-            color: boxColor,
-            alpha: alpha
-          )
+            boundingBoxViews[i].show(
+              frame: rect,
+              label: label,
+              color: boxColor,
+              alpha: alpha
+            )
+          }
         }
       }
     }
 
     // Update fish count display if we're in fish count mode
-    if task == .fishCount, let trackingDetector = videoCapture.predictor as? TrackingDetector {
+    if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
       let currentCount = trackingDetector.getCount()
       labelFishCount.text = "Fish Count: \(currentCount)"
     }
@@ -1193,6 +1221,14 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         width: buttonSize, 
         height: buttonSize
       )
+
+      // Position switch source button in landscape mode
+      switchSourceButton.frame = CGRect(
+        x: switchCameraButton.frame.maxX + 10, 
+        y: (toolBarHeight - buttonSize) / 2, 
+        width: buttonSize, 
+        height: buttonSize
+      )
     } else {
       toolbar.backgroundColor = .darkGray.withAlphaComponent(0.7)
       playButton.tintColor = .systemGray
@@ -1348,16 +1384,28 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         x: playButton.frame.maxX, y: 0, width: buttonHeight, height: buttonHeight)
       switchCameraButton.frame = CGRect(
         x: pauseButton.frame.maxX, y: 0, width: buttonHeight, height: buttonHeight)
+
+      // Position switch source button in portrait mode
       switchSourceButton.frame = CGRect(
-        x: switchCameraButton.frame.maxX, y: 0, width: buttonHeight, height: buttonHeight)
+        x: switchCameraButton.frame.maxX, 
+        y: 0, 
+        width: buttonHeight, 
+        height: buttonHeight
+      )
     }
 
     self.videoCapture.previewLayer?.frame = self.bounds
 
     // Update layout for player layer if using video source
     if frameSourceType == .videoFile, let playerLayer = albumVideoSource?.playerLayer {
+      // Set frame to full bounds for proper display
       playerLayer.frame = self.bounds
-      setupOverlayLayer() // Make sure overlay is properly sized for current orientation
+      
+      // Force update of AlbumVideoSource configuration to adapt to new layout
+      albumVideoSource?.updateForOrientationChange()
+      
+      // Ensure overlay is properly updated
+      setupOverlayLayer()
     }
   }
 
@@ -1381,11 +1429,23 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     default:
       return
     }
-    videoCapture.updateVideoOrientation(orientation: orientation)
     
-    // Update player layer frame when orientation changes
-    if frameSourceType == .videoFile, let playerLayer = albumVideoSource?.playerLayer {
-      playerLayer.frame = self.bounds
+    // Update camera orientation if using camera source
+    if frameSourceType == .camera {
+      videoCapture.updateVideoOrientation(orientation: orientation)
+    }
+    
+    // Update player layer when orientation changes
+    if frameSourceType == .videoFile, let albumSource = albumVideoSource {
+      // First update the player layer frame
+      if let playerLayer = albumSource.playerLayer {
+        playerLayer.frame = self.bounds
+      }
+      
+      // Then update the album source's orientation handling
+      albumSource.updateForOrientationChange()
+      
+      // Update overlay layer
       setupOverlayLayer()
     }
   }
@@ -1443,14 +1503,35 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
 
   @objc func playTapped() {
     selection.selectionChanged()
-    self.videoCapture.start()
+    
+    if frameSourceType == .videoFile, let albumSource = albumVideoSource {
+      // For video source, handle special case of restarting
+      if !self.pauseButton.isEnabled {
+        // If paused or ended, restart from beginning
+        albumSource.stop()
+        Task { @MainActor in
+          // Seek to beginning and start
+          if let player = albumSource.playerLayer?.player {
+            player.seek(to: CMTime.zero)
+            albumSource.start()
+          }
+        }
+      } else {
+        // Normal resume
+        albumSource.start()
+      }
+    } else {
+      // Camera source - standard behavior
+      self.videoCapture.start()
+    }
+    
     playButton.isEnabled = false
     pauseButton.isEnabled = true
   }
 
   @objc func pauseTapped() {
     selection.selectionChanged()
-    self.videoCapture.stop()
+    currentFrameSource.stop()
     playButton.isEnabled = true
     pauseButton.isEnabled = false
   }
@@ -1598,6 +1679,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       box.hide()
     }
     
+    // Clear any existing layers that might show outdated content
+    resetLayers()
+    
     // Switch to new frame source
     switch sourceType {
     case .camera:
@@ -1654,17 +1738,25 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   
   // Method to set up the video source with a selected URL
   private func setupVideoSource(with url: URL) {
+    // Clear any existing bounding boxes first
+    boundingBoxViews.forEach { box in
+      box.hide()
+    }
+    
     // Create album video source if needed
     if albumVideoSource == nil {
       albumVideoSource = AlbumVideoSource()
       albumVideoSource?.predictor = videoCapture.predictor
       albumVideoSource?.delegate = self
       albumVideoSource?.videoCaptureDelegate = self
-    }
-    
-    // Clear any existing bounding boxes again before setting up new source
-    boundingBoxViews.forEach { box in
-      box.hide()
+      
+      // Register for video playback end notification
+      NotificationCenter.default.addObserver(
+        self,
+        selector: #selector(handleVideoPlaybackEnd),
+        name: .videoPlaybackDidEnd,
+        object: nil
+      )
     }
     
     // Configure the video source
@@ -1677,7 +1769,6 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         // Configure player layer
         if let playerLayer = self.albumVideoSource?.playerLayer {
           playerLayer.frame = self.bounds
-          playerLayer.videoGravity = .resizeAspectFill
           
           // Insert player layer at index 0 (same as camera preview layer)
           self.layer.insertSublayer(playerLayer, at: 0)
@@ -1709,6 +1800,18 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       switchToFrameSource(.videoFile)
     } else {
       switchToFrameSource(.camera)
+    }
+  }
+
+  @objc func handleVideoPlaybackEnd(_ notification: Notification) {
+    // When video playback ends, provide visual feedback
+    DispatchQueue.main.async {
+      // Enable the play button and disable the pause button
+      self.playButton.isEnabled = true
+      self.pauseButton.isEnabled = false
+      
+      // Optionally show a message or UI change to indicate playback ended
+      // For example, we could show a toast or change button appearance
     }
   }
 }
@@ -1748,13 +1851,11 @@ extension YOLOView: AVCapturePhotoCaptureDelegate {
       return
     }
     
-    // Process the photo in the nonisolated context first
     guard let dataImage = photo.fileDataRepresentation() else {
       print("AVCapturePhotoCaptureDelegate Error: No image data")
       return
     }
     
-    // Create the image in the nonisolated context
     let dataProvider = CGDataProvider(data: dataImage as CFData)
     guard let cgImageRef = CGImage(
       jpegDataProviderSource: dataProvider!, decode: nil, shouldInterpolate: true,
@@ -1766,9 +1867,8 @@ extension YOLOView: AVCapturePhotoCaptureDelegate {
     // Create the initial UIImage
     let initialImage = UIImage(cgImage: cgImageRef, scale: 0.5, orientation: .right)
     
-    // Now move to the MainActor context with the captured image
+    // Process on the main actor
     Task { @MainActor in
-      // Determine camera position and orientation 
       var isCameraFront = false
       if let currentInput = self.videoCapture.captureSession.inputs.first as? AVCaptureDeviceInput,
         currentInput.device.position == .front

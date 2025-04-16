@@ -15,6 +15,12 @@ import CoreVideo
 import UIKit
 import Vision
 
+// Extension for Notification.Name to define custom notifications
+extension Notification.Name {
+    /// Notification posted when video playback has ended
+    static let videoPlaybackDidEnd = Notification.Name("videoPlaybackDidEnd")
+}
+
 /// Frame source implementation that plays videos from the photo library.
 @preconcurrency
 class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeListener {
@@ -53,6 +59,24 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     
     /// The size of the video frames.
     private var videoSize: CGSize = .zero
+    
+    /// The long side of the video frame (for compatibility with VideoCapture).
+    var longSide: CGFloat = 3
+    
+    /// The short side of the video frame (for compatibility with VideoCapture).
+    var shortSide: CGFloat = 4
+    
+    /// Flag indicating if the frame size has been captured.
+    var frameSizeCaptured = false
+    
+    /// The actual rect of the video content within the player layer (accounting for aspect ratio).
+    private var videoContentRect: CGRect = .zero
+    
+    /// Scale factor for converting normalized coordinates to screen coordinates.
+    private var videoToScreenScale: CGPoint = CGPoint(x: 1.0, y: 1.0)
+    
+    /// Offset for converting normalized coordinates to screen coordinates.
+    private var videoToScreenOffset: CGPoint = .zero
     
     /// The URL of the current video.
     private(set) var videoURL: URL?
@@ -108,7 +132,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         player = AVPlayer(playerItem: playerItem)
         
         _previewLayer = AVPlayerLayer(player: player)
-        _previewLayer?.videoGravity = .resizeAspectFill
+        _previewLayer?.videoGravity = .resizeAspect  // Default - will be adjusted later
         
         // Create a pixel buffer attributes dictionary
         let pixelBufferAttributes: [String: Any] = [
@@ -119,21 +143,152 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         videoOutput = AVPlayerItemVideoOutput(pixelBufferAttributes: pixelBufferAttributes)
         playerItem.add(videoOutput!)
         
-        // Get video size
+        // Get video size and set up frame dimensions
         if let track = asset.tracks(withMediaType: .video).first {
-            videoSize = track.naturalSize
+            // Get accurate video dimensions including the transform
+            let videoTransform = track.preferredTransform
+            let naturalSize = track.naturalSize
+            let transformedSize = naturalSize.applying(videoTransform)
+            
+            // Use absolute values as transform can make dimensions negative
+            videoSize = CGSize(width: abs(transformedSize.width), height: abs(transformedSize.height))
+            
+            // Set longSide and shortSide for compatibility with camera frame handling
+            longSide = max(videoSize.width, videoSize.height)
+            shortSide = min(videoSize.width, videoSize.height)
+            frameSizeCaptured = true
             
             // Try to get frame rate
             let frameRateValue = track.nominalFrameRate
             if frameRateValue > 0 {
                 frameRate = min(frameRateValue, 30.0) // Cap at 30fps
             }
+            
+            // Adjust player content for optimal display
+            adjustPlayerContentForCurrentLayout()
         }
         
         // Try to setup asset reader for more efficient extraction
         setupAssetReader(asset: asset)
         
         completion(true)
+    }
+    
+    /// Configures video orientation based on video dimensions and device orientation
+    @MainActor
+    private func configureVideoOrientation() {
+        guard let playerLayer = _previewLayer else { return }
+        
+        // Get current device orientation
+        let deviceOrientation = UIDevice.current.orientation
+        
+        // Determine if video is portrait or landscape based on dimensions
+        let isVideoPortrait = videoSize.height > videoSize.width
+        
+        // For box scaling and positioning, ensure longSide and shortSide are set correctly
+        // based on the actual video dimensions, not the device orientation
+        longSide = isVideoPortrait ? videoSize.height : videoSize.width
+        shortSide = isVideoPortrait ? videoSize.width : videoSize.height
+        
+        // NOTE: We don't set videoGravity here anymore since it's handled in adjustPlayerContentForCurrentLayout
+    }
+    
+    /// Updates the player layer frame and orientation when device orientation changes
+    @MainActor
+    func updateForOrientationChange() {
+        configureVideoOrientation()
+        
+        // Adjust player content and layer settings for optimal display
+        adjustPlayerContentForCurrentLayout()
+    }
+    
+    /// Adjusts the player content and layer settings based on current layout
+    @MainActor
+    private func adjustPlayerContentForCurrentLayout() {
+        guard let playerLayer = _previewLayer else { return }
+        
+        // Get current device orientation
+        let deviceOrientation = UIDevice.current.orientation
+        
+        // Set appropriate video gravity based on orientation to avoid cropping
+        // while still filling the view as much as possible
+        if videoSize.width > 0 && videoSize.height > 0 {
+            let videoAspect = videoSize.width / videoSize.height
+            
+            // For landscape device orientation
+            if deviceOrientation.isLandscape {
+                // For landscape videos on landscape device, use aspect to prevent zooming
+                // For portrait videos on landscape device, use aspect
+                playerLayer.videoGravity = .resizeAspect
+            } 
+            // For portrait device orientation
+            else {
+                // For portrait videos on portrait device, use aspect to prevent zooming
+                // For landscape videos on portrait device, use aspect
+                playerLayer.videoGravity = .resizeAspect
+            }
+            
+            // Calculate the video content rect within the player layer
+            updateVideoContentRect()
+        }
+    }
+    
+    /// Updates the calculated video content rect and scaling factors based on current layout
+    @MainActor
+    private func updateVideoContentRect() {
+        guard let playerLayer = _previewLayer, videoSize.width > 0, videoSize.height > 0 else { return }
+        
+        let layerSize = playerLayer.bounds.size
+        
+        // Calculate aspect ratios
+        let videoAspect = videoSize.width / videoSize.height
+        let layerAspect = layerSize.width / layerSize.height
+        
+        // Calculate the rectangle of the video within the player layer
+        var rect = CGRect.zero
+        
+        if videoAspect > layerAspect {
+            // Video is wider than the layer (letterboxing - black bars on top and bottom)
+            let height = layerSize.width / videoAspect
+            let y = (layerSize.height - height) / 2
+            rect = CGRect(x: 0, y: y, width: layerSize.width, height: height)
+        } else {
+            // Video is taller than the layer (pillarboxing - black bars on sides)
+            let width = layerSize.height * videoAspect
+            let x = (layerSize.width - width) / 2
+            rect = CGRect(x: x, y: 0, width: width, height: layerSize.height)
+        }
+        
+        // Store the calculated rect
+        videoContentRect = rect
+        
+        // Calculate scale factors for converting normalized coordinates to screen
+        videoToScreenScale = CGPoint(
+            x: rect.width,
+            y: rect.height
+        )
+        
+        // Calculate offset for converting normalized coordinates to screen
+        videoToScreenOffset = CGPoint(
+            x: rect.minX,
+            y: rect.minY
+        )
+        
+        // Set longSide and shortSide for proper box scaling
+        // These should be the actual video dimensions, not the screen dimensions
+        longSide = max(videoSize.width, videoSize.height)
+        shortSide = min(videoSize.width, videoSize.height)
+    }
+    
+    /// Converts normalized video coordinates to screen coordinates based on content rect
+    func convertNormalizedRectToScreenRect(_ normalizedRect: CGRect) -> CGRect {
+        // Convert from normalized [0,1] to the content rectangle coordinates
+        return CGRect(
+            x: normalizedRect.minX * videoToScreenScale.x + videoToScreenOffset.x,
+            y: normalizedRect.minY * videoToScreenScale.y + videoToScreenOffset.y,
+            width: normalizedRect.width * videoToScreenScale.x,
+            height: normalizedRect.height * videoToScreenScale.y
+        )
     }
     
     /// Sets up the frame source with default configuration.
@@ -232,6 +387,21 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         do {
             guard let videoTrack = asset.tracks(withMediaType: .video).first else { return }
             
+            // Get more accurate dimensions from the video track
+            let videoTransform = videoTrack.preferredTransform
+            let videoSize = videoTrack.naturalSize.applying(videoTransform)
+            
+            // Update dimensions based on the actual transformed video size
+            // This helps with proper box scaling
+            let frameWidth = abs(videoSize.width)
+            let frameHeight = abs(videoSize.height)
+            
+            // For proper box scaling, use the video's actual orientation
+            let isVideoPortrait = frameHeight > frameWidth
+            self.longSide = isVideoPortrait ? frameHeight : frameWidth
+            self.shortSide = isVideoPortrait ? frameWidth : frameHeight
+            self.frameSizeCaptured = true
+            
             // Create asset reader
             assetReader = try AVAssetReader(asset: asset)
             
@@ -321,6 +491,16 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         
         // Check if a new pixel buffer is available
         if let pixelBuffer = videoOutput.copyPixelBuffer(forItemTime: playerTime, itemTimeForDisplay: nil) {
+            // Update frame dimensions for proper box scaling
+            let frameWidth = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
+            let frameHeight = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
+            
+            // For proper box scaling, use the video's actual orientation
+            let isVideoPortrait = frameHeight > frameWidth
+            longSide = isVideoPortrait ? frameHeight : frameWidth
+            shortSide = isVideoPortrait ? frameWidth : frameHeight
+            frameSizeCaptured = true
+            
             // Convert CVPixelBuffer to UIImage
             let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
             let context = CIContext()
@@ -337,15 +517,37 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
                     self.delegate?.frameSource(self, didOutputImage: capturedImage)
                 }
                 
-                // Create sample buffer from pixelBuffer to process with predictor
-                // Use the pixel buffer directly for prediction
-                let sampleBuffer = createSampleBufferFrom(pixelBuffer: pixelBuffer)
-                if let sampleBuffer = sampleBuffer {
-                    predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
+                // Rather than creating a new sample buffer, use the pixel buffer directly
+                // which is more efficient and maintains the original format
+                let cmTime = CMTime(value: Int64(currentTime * 1000), timescale: 1000)
+                var sampleBuffer: CMSampleBuffer?
+                var formatDescription: CMFormatDescription?
+                
+                CMVideoFormatDescriptionCreateForImageBuffer(
+                    allocator: kCFAllocatorDefault,
+                    imageBuffer: pixelBuffer,
+                    formatDescriptionOut: &formatDescription)
+                
+                if let formatDescription = formatDescription {
+                    var timingInfo = CMSampleTimingInfo(
+                        duration: CMTime.invalid,
+                        presentationTimeStamp: cmTime,
+                        decodeTimeStamp: CMTime.invalid)
+                    
+                    CMSampleBufferCreateReadyWithImageBuffer(
+                        allocator: kCFAllocatorDefault,
+                        imageBuffer: pixelBuffer,
+                        formatDescription: formatDescription,
+                        sampleTiming: &timingInfo,
+                        sampleBufferOut: &sampleBuffer)
+                    
+                    if let sampleBuffer = sampleBuffer {
+                        // Process with predictor
+                        predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
+                    }
                 }
                 
-                // Track and report performance metrics only if we didn't succeed with prediction
-                // (otherwise the InferenceTimeListener will handle it)
+                // Track performance metrics if we didn't process with predictor
                 if sampleBuffer == nil {
                     Task { @MainActor in
                         let processingTime = CACurrentMediaTime() - capturedTime
@@ -355,11 +557,15 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
             }
         }
         
-        // Check if video has reached the end
+        // Check if video has reached the end - play only once instead of looping
         if player.currentTime() >= player.currentItem?.duration ?? CMTime.zero {
-            // Loop playback
-            player.seek(to: CMTime.zero)
-            player.play()
+            // Stop playback and processing when video ends
+            stopMainActorIsolated()
+            
+            // Notify that playback has completed via a notification
+            Task { @MainActor in
+                NotificationCenter.default.post(name: .videoPlaybackDidEnd, object: self)
+            }
         }
     }
     
