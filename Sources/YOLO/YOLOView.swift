@@ -81,7 +81,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   }
 
   var onDetection: ((YOLOResult) -> Void)?
-  private var videoCapture: VideoCapture
+  private var videoCapture: CameraVideoSource
   private var albumVideoSource: AlbumVideoSource?
   private var currentFrameSource: FrameSource
   private var busy = false
@@ -153,7 +153,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     modelPathOrName: String,
     task: YOLOTask
   ) {
-    self.videoCapture = VideoCapture()
+    self.videoCapture = CameraVideoSource()
     self.currentFrameSource = self.videoCapture
     super.init(frame: frame)
     setModel(modelPathOrName: modelPathOrName, task: task)
@@ -167,7 +167,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   }
 
   required init?(coder: NSCoder) {
-    self.videoCapture = VideoCapture()
+    self.videoCapture = CameraVideoSource()
     self.currentFrameSource = self.videoCapture
     super.init(coder: coder)
   }
@@ -499,7 +499,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     if UIDevice.current.orientation == .portrait {
       var ratio: CGFloat = 1.0
 
-      // Use the session preset from the active frame source (only VideoCapture has this)
+      // Use the session preset from the active frame source (only CameraVideoSource has this)
       if currentFrameSource.sourceType == .camera && videoCapture.captureSession.sessionPreset == .photo {
         ratio = (height / width) / (4.0 / 3.0)
       } else {

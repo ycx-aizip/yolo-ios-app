@@ -54,7 +54,7 @@ struct YOLORealTimeUIKitTests {
     // Test that the video capture session is properly initialized
     if let videoCapture = Mirror(reflecting: yoloView).children.first(where: {
       $0.label == "videoCapture"
-    })?.value as? VideoCapture {
+    })?.value as? CameraVideoSource {
       #expect(videoCapture.captureSession != nil)
     } else {
       XCTFail("Could not access videoCapture property")

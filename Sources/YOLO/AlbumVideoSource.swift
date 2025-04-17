@@ -27,7 +27,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     /// The delegate to receive frames and performance metrics.
     weak var delegate: FrameSourceDelegate?
     
-    /// The VideoCaptureDelegate to receive prediction results (same as in VideoCapture).
+    /// The VideoCaptureDelegate to receive prediction results (same as in CameraVideoSource).
     weak var videoCaptureDelegate: VideoCaptureDelegate?
     
     /// The predictor used to process frames from this source.
@@ -60,10 +60,10 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     /// The size of the video frames.
     private var videoSize: CGSize = .zero
     
-    /// The long side of the video frame (for compatibility with VideoCapture).
+    /// The long side of the video frame (for compatibility with CameraVideoSource).
     var longSide: CGFloat = 3
     
-    /// The short side of the video frame (for compatibility with VideoCapture).
+    /// The short side of the video frame (for compatibility with CameraVideoSource).
     var shortSide: CGFloat = 4
     
     /// Flag indicating if the frame size has been captured.

@@ -4,7 +4,7 @@
 //  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
 //  Access the source code: https://github.com/ultralytics/yolo-ios-app
 //
-//  The VideoCapture component manages the camera and video processing pipeline for real-time
+//  The CameraVideoSource component manages the camera and video processing pipeline for real-time
 //  object detection. It handles setting up the AVCaptureSession, managing camera devices,
 //  configuring camera properties like focus and exposure, and processing video frames for
 //  model inference. The class delivers capture frames to the predictor component for real-time
@@ -45,7 +45,7 @@ func bestCaptureDevice(position: AVCaptureDevice.Position) -> AVCaptureDevice {
 }
 
 @preconcurrency
-class VideoCapture: NSObject, FrameSource, @unchecked Sendable {
+class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
   var predictor: Predictor!
   var previewLayer: AVCaptureVideoPreviewLayer?
   weak var videoCaptureDelegate: VideoCaptureDelegate?
@@ -286,7 +286,7 @@ class VideoCapture: NSObject, FrameSource, @unchecked Sendable {
   }
 }
 
-extension VideoCapture: AVCaptureVideoDataOutputSampleBufferDelegate {
+extension CameraVideoSource: AVCaptureVideoDataOutputSampleBufferDelegate {
   func captureOutput(
     _ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
     from connection: AVCaptureConnection
@@ -299,7 +299,7 @@ extension VideoCapture: AVCaptureVideoDataOutputSampleBufferDelegate {
   }
 }
 
-extension VideoCapture: AVCapturePhotoCaptureDelegate {
+extension CameraVideoSource: AVCapturePhotoCaptureDelegate {
   @available(iOS 11.0, *)
   func photoOutput(
     _ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?
@@ -314,7 +314,7 @@ extension VideoCapture: AVCapturePhotoCaptureDelegate {
   }
 }
 
-extension VideoCapture: ResultsListener, InferenceTimeListener {
+extension CameraVideoSource: ResultsListener, InferenceTimeListener {
   func on(inferenceTime: Double, fpsRate: Double) {
     DispatchQueue.main.async {
       self.videoCaptureDelegate?.onInferenceTime(speed: inferenceTime, fps: fpsRate)
