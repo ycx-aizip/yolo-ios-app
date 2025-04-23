@@ -252,7 +252,7 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
         // Create a CIImage from the pixel buffer - this is thread-safe
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         
-        // Convert to UIImage which is also thread-safe
+        // Convert to UIImage using original working method
         let context = CIContext()
         if let cgImage = context.createCGImage(ciImage, from: ciImage.extent) {
           let uiImage = UIImage(cgImage: cgImage)

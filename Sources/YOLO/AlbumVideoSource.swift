@@ -136,7 +136,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         
         // Create a pixel buffer attributes dictionary
         let pixelBufferAttributes: [String: Any] = [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+            kCVPixelBufferPixelFormatTypeKey as String: FrameSourceSettings.videoSourcePixelFormat
         ]
         
         // Setup video output for frame extraction
@@ -281,6 +281,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         
         let currentTime = player.currentTime()
         if let pixelBuffer = videoOutput.copyPixelBuffer(forItemTime: currentTime, itemTimeForDisplay: nil) {
+            // Convert to UIImage using original working method
             let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
             let context = CIContext()
             if let cgImage = context.createCGImage(ciImage, from: ciImage.extent) {
@@ -329,7 +330,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
             
             // Configure reader with video track
             let outputSettings: [String: Any] = [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+                kCVPixelBufferPixelFormatTypeKey as String: FrameSourceSettings.videoSourcePixelFormat
             ]
             
             trackOutput = AVAssetReaderTrackOutput(
@@ -422,7 +423,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
                 frameSizeCaptured = true
             }
             
-            // Convert CVPixelBuffer to UIImage
+            // Convert CVPixelBuffer to UIImage using original working method
             let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
             let context = CIContext()
             if let cgImage = context.createCGImage(ciImage, from: ciImage.extent) {
@@ -476,15 +477,15 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
             return nil
         }
         
-        // Convert to UIImage
+        // Convert CVPixelBuffer to UIImage using original working method
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         let context = CIContext()
-        
-        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
-            return nil
+        if let cgImage = context.createCGImage(ciImage, from: ciImage.extent) {
+            let image = UIImage(cgImage: cgImage)
+            return image
         }
         
-        return UIImage(cgImage: cgImage)
+        return nil
     }
     
     @MainActor
@@ -547,6 +548,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     
     // Helper method to create CMSampleBuffer from UIImage
     private func createSampleBufferFrom(image: UIImage) -> CMSampleBuffer? {
+        // Revert to original working implementation
         guard let cgImage = image.cgImage else { return nil }
         
         let width = cgImage.width
@@ -579,12 +581,13 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     
     // Helper method to create CMSampleBuffer from CVPixelBuffer
     private func createSampleBufferFrom(pixelBuffer: CVPixelBuffer) -> CMSampleBuffer? {
+        // Revert to original working implementation
         var sampleBuffer: CMSampleBuffer?
         
-        var timimgInfo = CMSampleTimingInfo()
-        timimgInfo.duration = CMTime.invalid
-        timimgInfo.decodeTimeStamp = CMTime.invalid
-        timimgInfo.presentationTimeStamp = CMTime(value: Int64(CACurrentMediaTime() * 1000), timescale: 1000)
+        var timingInfo = CMSampleTimingInfo()
+        timingInfo.duration = CMTime.invalid
+        timingInfo.decodeTimeStamp = CMTime.invalid
+        timingInfo.presentationTimeStamp = CMTime(value: Int64(CACurrentMediaTime() * 1000), timescale: 1000)
         
         var formatDescription: CMFormatDescription?
         CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, 
@@ -597,7 +600,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
             allocator: kCFAllocatorDefault,
             imageBuffer: pixelBuffer,
             formatDescription: formatDescription,
-            sampleTiming: &timimgInfo,
+            sampleTiming: &timingInfo,
             sampleBufferOut: &sampleBuffer
         )
         
