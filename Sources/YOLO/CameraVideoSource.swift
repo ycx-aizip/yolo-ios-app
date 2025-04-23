@@ -46,7 +46,7 @@ func bestCaptureDevice(position: AVCaptureDevice.Position) -> AVCaptureDevice {
 
 @preconcurrency
 class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
-  var predictor: Predictor!
+  var predictor: FrameProcessor!
   var previewLayer: AVCaptureVideoPreviewLayer?
   weak var videoCaptureDelegate: VideoCaptureDelegate?
   weak var frameSourceDelegate: FrameSourceDelegate?

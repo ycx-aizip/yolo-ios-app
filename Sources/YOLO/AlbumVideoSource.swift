@@ -31,7 +31,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     weak var videoCaptureDelegate: VideoCaptureDelegate?
     
     /// The predictor used to process frames from this source.
-    var predictor: Predictor!
+    var predictor: FrameProcessor!
     
     /// The video player.
     private var player: AVPlayer?

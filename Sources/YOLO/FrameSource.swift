@@ -31,6 +31,10 @@ protocol FrameSourceDelegate: AnyObject {
     func frameSource(_ source: FrameSource, didUpdateWithSpeed speed: Double, fps: Double)
 }
 
+/// Protocol defining the minimal interface needed for processing frames
+/// This simply uses Predictor directly, avoiding protocol extension issues
+typealias FrameProcessor = Predictor
+
 /// Protocol defining a common interface for all frame sources.
 protocol FrameSource: AnyObject {
     /// The delegate to receive frames and performance metrics.
@@ -39,8 +43,8 @@ protocol FrameSource: AnyObject {
     /// The preview layer for displaying the source's visual output.
     var previewLayer: AVCaptureVideoPreviewLayer? { get }
     
-    /// The predictor used to process frames from this source.
-    var predictor: Predictor! { get set }
+    /// The processor used to process frames from this source.
+    var predictor: FrameProcessor! { get set }
     
     /// The long side dimension of the frames produced by this source.
     var longSide: CGFloat { get }

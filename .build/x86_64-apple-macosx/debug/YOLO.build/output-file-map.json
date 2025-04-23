@@ -2,6 +2,12 @@
   "": {
     "swift-dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/master.swiftdeps"
   },
+  "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/Sources/YOLO/AlbumVideoSource.swift": {
+    "dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/AlbumVideoSource.d",
+    "object": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/AlbumVideoSource.swift.o",
+    "swiftmodule": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/AlbumVideoSource~partial.swiftmodule",
+    "swift-dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/AlbumVideoSource.swiftdeps"
+  },
   "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/Sources/YOLO/BasePredictor.swift": {
     "dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/BasePredictor.d",
     "object": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/BasePredictor.swift.o",
@@ -19,6 +25,12 @@
     "object": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/ByteTracker.swift.o",
     "swiftmodule": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/ByteTracker~partial.swiftmodule",
     "swift-dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/ByteTracker.swiftdeps"
+  },
+  "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/Sources/YOLO/CameraVideoSource.swift": {
+    "dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/CameraVideoSource.d",
+    "object": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/CameraVideoSource.swift.o",
+    "swiftmodule": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/CameraVideoSource~partial.swiftmodule",
+    "swift-dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/CameraVideoSource.swiftdeps"
   },
   "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/Sources/YOLO/Classifier.swift": {
     "dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/Classifier.d",
@@ -103,12 +115,6 @@
     "object": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/TrackingDetector.swift.o",
     "swiftmodule": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/TrackingDetector~partial.swiftmodule",
     "swift-dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/TrackingDetector.swiftdeps"
-  },
-  "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/Sources/YOLO/VideoCapture.swift": {
-    "dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/VideoCapture.d",
-    "object": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/VideoCapture.swift.o",
-    "swiftmodule": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/VideoCapture~partial.swiftmodule",
-    "swift-dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/VideoCapture.swiftdeps"
   },
   "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/Sources/YOLO/YOLO.swift": {
     "dependencies": "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/YOLO.d",
