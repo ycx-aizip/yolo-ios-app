@@ -108,6 +108,22 @@ protocol FrameSource: AnyObject {
     
     /// The source type identifier.
     var sourceType: FrameSourceType { get }
+    
+    /// Request permission to use this frame source, if required.
+    /// - Parameter completion: Called with the result of the permission request.
+    @MainActor
+    func requestPermission(completion: @escaping (Bool) -> Void)
+    
+    /// Updates the source for orientation changes
+    /// - Parameter orientation: The new device orientation
+    @MainActor
+    func updateForOrientationChange(orientation: UIDeviceOrientation)
+    
+    /// Shows UI for selecting content for this source, if applicable.
+    /// - Parameter viewController: The view controller to present the UI from.
+    /// - Parameter completion: Called when the selection is complete.
+    @MainActor
+    func showContentSelectionUI(from viewController: UIViewController, completion: @escaping (Bool) -> Void)
 }
 
 /// Enumeration of available frame source types.
@@ -243,5 +259,27 @@ extension FrameSource {
         }
         
         return UIImage(cgImage: cgImage)
+    }
+    
+    // Default implementations for the new methods
+    
+    /// Default implementation for requesting permissions - no permission needed
+    @MainActor
+    func requestPermission(completion: @escaping (Bool) -> Void) {
+        // By default, no permission is needed
+        completion(true)
+    }
+    
+    /// Default implementation for orientation change - no action needed
+    @MainActor
+    func updateForOrientationChange(orientation: UIDeviceOrientation) {
+        // By default, no action is needed
+    }
+    
+    /// Default implementation for showing content selection UI - no UI to show
+    @MainActor
+    func showContentSelectionUI(from viewController: UIViewController, completion: @escaping (Bool) -> Void) {
+        // By default, no content selection UI is available
+        completion(false)
     }
 } 

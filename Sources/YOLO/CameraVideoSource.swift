@@ -284,6 +284,88 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
     // No need to store the orientation in a variable
     self.previewLayer?.connection?.videoOrientation = connection.videoOrientation
   }
+  
+  // MARK: - Camera-specific FrameSource methods
+  
+  /// Implementation of the FrameSource protocol method to request camera permission
+  @MainActor
+  func requestPermission(completion: @escaping (Bool) -> Void) {
+    switch AVCaptureDevice.authorizationStatus(for: .video) {
+    case .authorized:
+      // Already authorized
+      completion(true)
+    case .notDetermined:
+      // Request permission
+      AVCaptureDevice.requestAccess(for: .video) { granted in
+        DispatchQueue.main.async {
+          completion(granted)
+        }
+      }
+    case .denied, .restricted:
+      // Permission denied
+      completion(false)
+    @unknown default:
+      completion(false)
+    }
+  }
+  
+  /// Implementation of the FrameSource protocol method to handle orientation changes
+  @MainActor
+  func updateForOrientationChange(orientation: UIDeviceOrientation) {
+    var videoOrientation: AVCaptureVideoOrientation = .portrait
+    
+    switch orientation {
+    case .portrait:
+      videoOrientation = .portrait
+    case .portraitUpsideDown:
+      videoOrientation = .portraitUpsideDown
+    case .landscapeLeft:
+      videoOrientation = .landscapeRight
+    case .landscapeRight:
+      videoOrientation = .landscapeLeft
+    default:
+      return
+    }
+    
+    updateVideoOrientation(orientation: videoOrientation)
+  }
+  
+  /// Switch between front and back cameras
+  @MainActor
+  func switchCamera() {
+    self.captureSession.beginConfiguration()
+    let currentInput = self.captureSession.inputs.first as? AVCaptureDeviceInput
+    self.captureSession.removeInput(currentInput!)
+    guard let currentPosition = currentInput?.device.position else { return }
+
+    let nextCameraPosition: AVCaptureDevice.Position = currentPosition == .back ? .front : .back
+
+    let newCameraDevice = bestCaptureDevice(position: nextCameraPosition)
+
+    guard let videoInput1 = try? AVCaptureDeviceInput(device: newCameraDevice) else {
+      return
+    }
+
+    self.captureSession.addInput(videoInput1)
+    
+    // Get current orientation
+    var orientation: AVCaptureVideoOrientation = .portrait
+    switch UIDevice.current.orientation {
+    case .portrait:
+      orientation = .portrait
+    case .portraitUpsideDown:
+      orientation = .portraitUpsideDown
+    case .landscapeRight:
+      orientation = .landscapeLeft
+    case .landscapeLeft:
+      orientation = .landscapeRight
+    default:
+      orientation = .portrait
+    }
+    
+    self.updateVideoOrientation(orientation: orientation)
+    self.captureSession.commitConfiguration()
+  }
 }
 
 extension CameraVideoSource: AVCaptureVideoDataOutputSampleBufferDelegate {

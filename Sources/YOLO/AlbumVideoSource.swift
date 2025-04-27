@@ -12,7 +12,12 @@
 
 import AVFoundation
 import CoreVideo
+import Photos
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 import Vision
 
 // Extension for Notification.Name to define custom notifications
@@ -223,7 +228,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     
     /// Configures video orientation and layout when device orientation changes
     @MainActor
-    func updateForOrientationChange() {
+    func updateForOrientationChange(orientation: UIDeviceOrientation) {
         // Update content rect based on new orientation
         updateVideoContentRect()
     }
@@ -301,6 +306,69 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         // Zoom not supported for video playback
     }
     
+    // MARK: - Video-specific FrameSource methods
+    
+    /// Implementation of the FrameSource protocol method to request photo library permission
+    @MainActor
+    func requestPermission(completion: @escaping (Bool) -> Void) {
+        let status = PHPhotoLibrary.authorizationStatus()
+        
+        switch status {
+        case .authorized, .limited:
+            // Already authorized
+            completion(true)
+        case .notDetermined:
+            // Request permission
+            PHPhotoLibrary.requestAuthorization { newStatus in
+                DispatchQueue.main.async {
+                    completion(newStatus == .authorized || newStatus == .limited)
+                }
+            }
+        case .denied, .restricted:
+            // Permission denied
+            completion(false)
+        @unknown default:
+            completion(false)
+        }
+    }
+    
+    /// Implementation of the FrameSource protocol method to show video picker
+    @MainActor
+    func showContentSelectionUI(from viewController: UIViewController, completion: @escaping (Bool) -> Void) {
+        // First check for permission
+        requestPermission { granted in
+            if !granted {
+                completion(false)
+                return
+            }
+            
+            // Configure and show picker
+            DispatchQueue.main.async {
+                let picker = UIImagePickerController()
+                picker.delegate = self
+                picker.sourceType = .photoLibrary
+                picker.mediaTypes = ["public.movie"]
+                picker.videoQuality = .typeHigh
+                picker.allowsEditing = false
+                
+                // Store completion handler
+                self.contentSelectionCompletion = completion
+                
+                viewController.present(picker, animated: true)
+            }
+        }
+    }
+    
+    /// Restart the video from the beginning
+    @MainActor
+    func restartVideo() {
+        stop()
+        if let player = player {
+            player.seek(to: CMTime.zero)
+            start()
+        }
+    }
+    
     // MARK: - ResultsListener & InferenceTimeListener Implementation
     
     func on(inferenceTime: Double, fpsRate: Double) {
@@ -319,6 +387,9 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     }
     
     // MARK: - Private Methods
+    
+    /// Completion handler for content selection UI
+    private var contentSelectionCompletion: ((Bool) -> Void)?
     
     @MainActor
     private func setupAssetReader(asset: AVAsset) {
@@ -624,5 +695,39 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         let height = normalizedRect.height * videoToScreenScale.y
         
         return CGRect(x: x, y: y, width: width, height: height)
+    }
+}
+
+// MARK: - UIImagePickerControllerDelegate
+extension AlbumVideoSource: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+    public func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+        picker.dismiss(animated: true)
+        
+        guard let mediaType = info[.mediaType] as? String,
+              mediaType == "public.movie",
+              let url = info[.mediaURL] as? URL else {
+            contentSelectionCompletion?(false)
+            contentSelectionCompletion = nil
+            return
+        }
+        
+        // Setup the video source with the selected URL
+        setVideoURL(url) { success in
+            self.contentSelectionCompletion?(success)
+            self.contentSelectionCompletion = nil
+            
+            if success {
+                // Start playback if setup was successful
+                self.start()
+            }
+        }
+    }
+    
+    public func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+        picker.dismiss(animated: true)
+        
+        // Call completion with false to indicate cancellation
+        contentSelectionCompletion?(false)
+        contentSelectionCompletion = nil
     }
 } 
