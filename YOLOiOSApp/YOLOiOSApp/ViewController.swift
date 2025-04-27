@@ -20,11 +20,11 @@ import UIKit
 import YOLO
 
 /// The main view controller for the YOLO iOS application, handling model selection and visualization.
-class ViewController: UIViewController {
+class ViewController: UIViewController, YOLOViewActionDelegate {
 
   @IBOutlet weak var yoloView: YOLOView!
   @IBOutlet var View0: UIView!
-  @IBOutlet var segmentedControl: UISegmentedControl!
+  @IBOutlet var segmentedControl: UISegmentedControl! // Will be hidden, but keeping the outlet for compatibility
   @IBOutlet weak var labelName: UILabel!
   @IBOutlet weak var labelFPS: UILabel!
   @IBOutlet weak var labelVersion: UILabel!
@@ -106,7 +106,9 @@ class ViewController: UIViewController {
   override func viewDidLoad() {
     super.viewDidLoad()
 
-    setupTaskSegmentedControl()
+    // Hide the segmented control as we'll use a toolbar button instead
+    segmentedControl.isHidden = true
+    
     loadModelsForAllTasks()
 
     // Always select Fish Count task (index 0 now)
@@ -125,14 +127,13 @@ class ViewController: UIViewController {
 
     setupTableView()
     
+    // Set up the YOLOView action delegate
+    yoloView.actionDelegate = self
+    
     // Setup logo tap gesture
     logoImage.isUserInteractionEnabled = true
     logoImage.addGestureRecognizer(
       UITapGestureRecognizer(target: self, action: #selector(logoButton)))
-    
-    // Add tap gesture recognizer to the segmented control
-    let tapGesture = UITapGestureRecognizer(target: self, action: #selector(segmentedControlTapped))
-    segmentedControl.addGestureRecognizer(tapGesture)
 
     downloadProgressView.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(downloadProgressView)
@@ -160,25 +161,6 @@ class ViewController: UIViewController {
         let percentage = Int(progress * 100)
         self.downloadProgressLabel.text = "Downloading \(percentage)%"
       }
-    }
-  }
-
-  private func setupTaskSegmentedControl() {
-    segmentedControl.removeAllSegments()
-    // Only show Fish Count task with a dropdown arrow
-    segmentedControl.insertSegment(withTitle: "Fish Count Models ▼", at: 0, animated: true)
-    segmentedControl.selectedSegmentIndex = 0
-    
-    // Style the segmented control to look like the image
-    if #available(iOS 13.0, *) {
-      segmentedControl.backgroundColor = UIColor.darkGray.withAlphaComponent(0.1)
-      segmentedControl.selectedSegmentTintColor = UIColor.darkGray.withAlphaComponent(0.1)
-      segmentedControl.setTitleTextAttributes([NSAttributedString.Key.foregroundColor: UIColor.white], for: .normal)
-      segmentedControl.setTitleTextAttributes([NSAttributedString.Key.foregroundColor: UIColor.white], for: .selected)
-      segmentedControl.setTitleTextAttributes([NSAttributedString.Key.font: UIFont.systemFont(ofSize: 18, weight: .medium)], for: .normal)
-    } else {
-      // Fallback for older iOS versions
-      segmentedControl.tintColor = UIColor.darkGray.withAlphaComponent(0.1)
     }
   }
 
@@ -507,14 +489,6 @@ class ViewController: UIViewController {
     selection.selectionChanged()
   }
 
-  @IBAction func indexChanged(_ sender: UISegmentedControl) {
-    // Since we only have one segment, this is redundant but kept for compatibility
-    selection.selectionChanged()
-    currentTask = "FishCount"
-    selectedIndexPath = nil
-    reloadModelEntriesAndLoadFirst(for: currentTask)
-  }
-
   @objc func logoButton() {
     selection.selectionChanged()
     if let link = URL(string: "https://www.ultralytics.com") {
@@ -602,58 +576,58 @@ class ViewController: UIViewController {
     )
   }
 
-  @objc func segmentedControlTapped() {
-    selection.selectionChanged()
-    
-    // First, update the segmented control title to show appropriate arrow
+  // YOLOViewActionDelegate implementation
+  func didTapModelsButton() {
+    // Show/hide the model selection table
     let isCurrentlyVisible = !modelTableView.isHidden
-    if isCurrentlyVisible {
-      segmentedControl.setTitle("Fish Count Models ▼", forSegmentAt: 0)
+    
+    // Before showing the dropdown, update its position based on current orientation
+    let screenWidth = view.bounds.width
+    let screenHeight = view.bounds.height
+    
+    if screenWidth > screenHeight {
+      // Landscape mode
+      let tableViewWidth = screenWidth * 0.3
+      let tableViewHeight = min(CGFloat(currentModels.count * 30), 300)
+      
+      // Position the table centered at the top of the screen
+      modelTableView.frame = CGRect(
+        x: (screenWidth - tableViewWidth) / 2,
+        y: 65, // Position below the status bar with some spacing
+        width: tableViewWidth,
+        height: tableViewHeight
+      )
     } else {
-      segmentedControl.setTitle("Fish Count Models ▲", forSegmentAt: 0)
+      // Portrait mode
+      let tableViewWidth = screenWidth * 0.6
+      let tableViewHeight = CGFloat(currentModels.count * 30)
       
-      // Before showing the dropdown, update its position based on current orientation
-      let screenWidth = view.bounds.width
-      let screenHeight = view.bounds.height
-      
-      if screenWidth > screenHeight {
-        // Landscape mode
-        let tableViewWidth = screenWidth * 0.3
-        let tableViewHeight = min(CGFloat(currentModels.count * 30), 300)
-        
-        // Center the table under the segmented control
-        modelTableView.frame = CGRect(
-          x: (screenWidth - tableViewWidth) / 2,
-          y: segmentedControl.frame.maxY + 20, // Position below segmented control with some spacing
-          width: tableViewWidth,
-          height: tableViewHeight
-        )
-      } else {
-        // Portrait mode
-        let tableViewWidth = screenWidth * 0.6
-        let tableViewHeight = CGFloat(currentModels.count * 30)
-        
-        // Position below segmented control
-        modelTableView.frame = CGRect(
-          x: (screenWidth - tableViewWidth) / 2,
-          y: segmentedControl.frame.maxY + 5,
-          width: tableViewWidth,
-          height: tableViewHeight
-        )
-      }
-      
-      // Update background view to match table size
-      tableViewBGView.frame = CGRect(
-        x: modelTableView.frame.minX - 1,
-        y: modelTableView.frame.minY - 1,
-        width: modelTableView.frame.width + 2,
-        height: modelTableView.frame.height + 2
+      // Position centered at the top of the screen
+      modelTableView.frame = CGRect(
+        x: (screenWidth - tableViewWidth) / 2,
+        y: 65, // Position below the status bar with some spacing
+        width: tableViewWidth,
+        height: tableViewHeight
       )
     }
+    
+    // Update background view to match table size
+    tableViewBGView.frame = CGRect(
+      x: modelTableView.frame.minX - 1,
+      y: modelTableView.frame.minY - 1,
+      width: modelTableView.frame.width + 2,
+      height: modelTableView.frame.height + 2
+    )
     
     // Toggle the visibility of the model selection dropdown
     modelTableView.isHidden = isCurrentlyVisible
     tableViewBGView.isHidden = isCurrentlyVisible
+  }
+
+  // Replace the segmentedControlTapped method with a stub since it's no longer needed
+  @objc func segmentedControlTapped() {
+    // This method is kept for compatibility but no longer used
+    // The functionality is now handled by didTapModelsButton
   }
 }
 
@@ -710,7 +684,6 @@ extension ViewController: UITableViewDataSource, UITableViewDelegate {
     // Hide the dropdown after selection
     modelTableView.isHidden = true
     tableViewBGView.isHidden = true
-    segmentedControl.setTitle("Fish Count Models ▼", forSegmentAt: 0)
   }
 
   func tableView(

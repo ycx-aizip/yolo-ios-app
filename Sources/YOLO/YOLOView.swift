@@ -15,6 +15,13 @@ import AVFoundation
 import UIKit
 import Vision
 
+/// Protocol for communicating user actions from YOLOView to its container
+@MainActor
+public protocol YOLOViewActionDelegate: AnyObject {
+  /// Called when user taps the models button
+  func didTapModelsButton()
+}
+
 /// A UIView component that provides real-time object detection, segmentation, and pose estimation capabilities.
 @MainActor
 public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
@@ -132,7 +139,13 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   // Add new properties for frame source switching
   public var switchSourceButton = UIButton()
   private var frameSourceType: FrameSourceType = .camera
-
+  
+  // Add new property for models selection button
+  public var modelsButton = UIButton()
+  
+  /// Action delegate to communicate with ViewController
+  public weak var actionDelegate: YOLOViewActionDelegate?
+  
   let selection = UISelectionFeedbackGenerator()
   private var overlayLayer = CALayer()
   private var maskLayer: CALayer?
@@ -1043,6 +1056,13 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     switchSourceButton.addTarget(self, action: #selector(switchSourceButtonTapped), for: .touchUpInside)
     toolbar.addSubview(switchSourceButton)
 
+    // Create models selection button with matching style
+    modelsButton.setImage(UIImage(systemName: "square.stack.3d.up", withConfiguration: config), for: .normal)
+    modelsButton.tintColor = .systemGray // Match other buttons' tint color
+    modelsButton.backgroundColor = .clear
+    modelsButton.addTarget(self, action: #selector(modelsButtonTapped), for: .touchUpInside)
+    toolbar.addSubview(modelsButton)
+
     self.addGestureRecognizer(UIPinchGestureRecognizer(target: self, action: #selector(pinch)))
   }
 
@@ -1245,6 +1265,14 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         width: buttonSize, 
         height: buttonSize
       )
+      
+      // Position models button after switch source button
+      modelsButton.frame = CGRect(
+        x: switchSourceButton.frame.maxX + 10, 
+        y: (toolBarHeight - buttonSize) / 2, 
+        width: buttonSize, 
+        height: buttonSize
+      )
     } else {
       toolbar.backgroundColor = .darkGray.withAlphaComponent(0.7)
       playButton.tintColor = .systemGray
@@ -1404,6 +1432,14 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       // Position switch source button in portrait mode
       switchSourceButton.frame = CGRect(
         x: switchCameraButton.frame.maxX, 
+        y: 0, 
+        width: buttonHeight, 
+        height: buttonHeight
+      )
+      
+      // Position models button after switch source button
+      modelsButton.frame = CGRect(
+        x: switchSourceButton.frame.maxX, 
         y: 0, 
         width: buttonHeight, 
         height: buttonHeight
@@ -1845,6 +1881,13 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       self.playButton.isEnabled = true
       self.pauseButton.isEnabled = false
     }
+  }
+
+  // Add a method to handle the models button tap
+  @objc func modelsButtonTapped() {
+    selection.selectionChanged()
+    // Notify the ViewController that the models button was tapped
+    actionDelegate?.didTapModelsButton()
   }
 }
 
