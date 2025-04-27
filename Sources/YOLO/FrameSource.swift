@@ -282,4 +282,11 @@ extension FrameSource {
         // By default, no content selection UI is available
         completion(false)
     }
+    
+    /// Default implementation of capturePhoto - doesn't capture anything
+    @MainActor
+    func capturePhoto(completion: @escaping @Sendable (UIImage?) -> Void) {
+        // Default implementation does nothing and returns nil
+        completion(nil)
+    }
 } 

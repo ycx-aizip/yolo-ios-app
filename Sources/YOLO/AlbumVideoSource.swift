@@ -273,32 +273,6 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         stopFrameExtraction()
     }
     
-    /// Captures a still image from the video.
-    ///
-    /// - Parameters:
-    ///   - completion: Callback with the captured image, or nil if capture failed.
-    func capturePhoto(completion: @escaping @Sendable (UIImage?) -> Void) {
-        // For video, we'll just grab the current frame
-        guard let videoOutput = videoOutput, let player = player else {
-            completion(nil)
-            return
-        }
-        
-        let currentTime = player.currentTime()
-        if let pixelBuffer = videoOutput.copyPixelBuffer(forItemTime: currentTime, itemTimeForDisplay: nil) {
-            // Convert to UIImage using original working method
-            let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-            let context = CIContext()
-            if let cgImage = context.createCGImage(ciImage, from: ciImage.extent) {
-                let image = UIImage(cgImage: cgImage)
-                completion(image)
-                return
-            }
-        }
-        
-        completion(nil)
-    }
-    
     /// Sets the zoom level for the video (not supported).
     ///
     /// - Parameter ratio: The zoom ratio to apply.

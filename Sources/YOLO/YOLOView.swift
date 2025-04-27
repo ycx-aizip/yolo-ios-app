@@ -145,8 +145,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   private let maximumZoom: CGFloat = 10.0
   private var lastZoomFactor: CGFloat = 1.0
 
-  public var capturedImage: UIImage?
-  @MainActor private var photoCaptureCompletion: ((UIImage?) -> Void)?
+  @MainActor private var longPressDetected = false
+  @MainActor private var isPinching = false
 
   public init(
     frame: CGRect,
@@ -1534,80 +1534,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   }
 
   public func capturePhoto(completion: @escaping (UIImage?) -> Void) {
-    // Store completion on the main actor
-    Task { @MainActor in
-      self.photoCaptureCompletion = completion
-      
-      // Capture photo from current source
-      handleCapturePhoto()
-    }
-  }
-  
-  @MainActor
-  private func handleCapturePhoto() {
-    currentFrameSource.capturePhoto { [weak self] image in
-      // We need to dispatch to the main actor to safely use self
-      guard let image = image else {
-        DispatchQueue.main.async {
-          self?.photoCaptureCompletion?(nil)
-          self?.photoCaptureCompletion = nil
-        }
-        return
-      }
-      
-      // Move to main thread for UI operations
-      DispatchQueue.main.async {
-        guard let self = self else { return }
-        self.processCapturedPhoto(image)
-      }
-    }
-  }
-  
-  @MainActor
-  private func processCapturedPhoto(_ image: UIImage) {
-    // Create and add the image view layer
-    let imageView = UIImageView(image: image)
-    imageView.contentMode = .scaleAspectFill
-    imageView.frame = self.frame
-    let imageLayer = imageView.layer
-    
-    // Determine the layer to place above based on the current source
-    let aboveLayer: CALayer?
-    if currentFrameSource === videoCapture {
-      aboveLayer = videoCapture.previewLayer
-    } else {
-      aboveLayer = nil
-    }
-    
-    self.layer.insertSublayer(imageLayer, above: aboveLayer)
-
-    // Add bounding boxes
-    var tempViews = [UIView]()
-    let boundingBoxInfos = makeBoundingBoxInfos(from: boundingBoxViews)
-    for info in boundingBoxInfos where !info.isHidden {
-      let boxView = createBoxView(from: info)
-      boxView.frame = info.rect
-      self.addSubview(boxView)
-      tempViews.append(boxView)
-    }
-    
-    // Capture the resulting view as an image
-    let bounds = UIScreen.main.bounds
-    UIGraphicsBeginImageContextWithOptions(bounds.size, true, 0.0)
-    self.drawHierarchy(in: bounds, afterScreenUpdates: true)
-    let img = UIGraphicsGetImageFromCurrentImageContext()
-    UIGraphicsEndImageContext()
-    
-    // Clean up the temporary views
-    imageLayer.removeFromSuperlayer()
-    for v in tempViews {
-      v.removeFromSuperview()
-    }
-    
-    // Call the completion with the captured image
-    let completion = self.photoCaptureCompletion
-    self.photoCaptureCompletion = nil
-    completion?(img)
+    // No-op implementation since photo capture is removed
+    completion(nil)
   }
 
   public func setInferenceFlag(ok: Bool) {
@@ -1870,60 +1798,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   }
 }
 
-// MARK: - AVCapturePhotoCaptureDelegate
+// Empty implementation to maintain compatibility
 extension YOLOView: AVCapturePhotoCaptureDelegate {
-  public nonisolated func photoOutput(
-    _ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?
-  ) {
-    if let error = error {
-      print("error occurred : \(error.localizedDescription)")
-      return
-    }
-    
-    guard let dataImage = photo.fileDataRepresentation() else {
-      print("AVCapturePhotoCaptureDelegate Error: No image data")
-      return
-    }
-    
-    let dataProvider = CGDataProvider(data: dataImage as CFData)
-    guard let cgImageRef = CGImage(
-        jpegDataProviderSource: dataProvider!, decode: nil, shouldInterpolate: true,
-        intent: .defaultIntent) else {
-      print("AVCapturePhotoCaptureDelegate Error: Cannot create CGImage")
-      return
-    }
-    
-    // Create the initial UIImage
-    let initialImage = UIImage(cgImage: cgImageRef, scale: 0.5, orientation: .right)
-    
-    // Process on the main actor
-    Task { @MainActor in
-      var isCameraFront = false
-      if let currentInput = self.videoCapture.captureSession.inputs.first as? AVCaptureDeviceInput,
-        currentInput.device.position == .front
-      {
-        isCameraFront = true
-      }
-      
-      var orientation: CGImagePropertyOrientation = isCameraFront ? .leftMirrored : .right
-      switch UIDevice.current.orientation {
-      case .landscapeLeft:
-        orientation = isCameraFront ? .downMirrored : .up
-      case .landscapeRight:
-        orientation = isCameraFront ? .upMirrored : .down
-      default:
-        break
-      }
-      
-      // Process the image with the correct orientation
-      var image = initialImage
-      if let orientedCIImage = CIImage(image: image)?.oriented(orientation),
-        let cgImage = CIContext().createCGImage(orientedCIImage, from: orientedCIImage.extent)
-      {
-        image = UIImage(cgImage: cgImage)
-      }
-      
-      self.processCapturedPhoto(image)
-    }
-  }
+  // Photo capture functionality has been removed
 }

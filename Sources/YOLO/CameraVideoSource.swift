@@ -54,9 +54,7 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
   let captureSession = AVCaptureSession()
   var videoInput: AVCaptureDeviceInput? = nil
   let videoOutput = AVCaptureVideoDataOutput()
-  var photoOutput = AVCapturePhotoOutput()
   let cameraQueue = DispatchQueue(label: "camera-queue")
-  var lastCapturedPhoto: UIImage? = nil
   var inferenceOK = true
   var longSide: CGFloat = 3
   var shortSide: CGFloat = 4
@@ -151,11 +149,6 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
     if captureSession.canAddOutput(videoOutput) {
       captureSession.addOutput(videoOutput)
     }
-    if captureSession.canAddOutput(photoOutput) {
-      captureSession.addOutput(photoOutput)
-      photoOutput.isHighResolutionCaptureEnabled = true
-      //            photoOutput.isLivePhotoCaptureEnabled = photoOutput.isLivePhotoCaptureSupported
-    }
 
     // We want the buffers to be in portrait orientation otherwise they are
     // rotated by 90 degrees. Need to set this _after_ addOutput()!
@@ -212,24 +205,6 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
     } catch {}
   }
   
-  // Implement the capturePhoto method required by FrameSource protocol
-  func capturePhoto(completion: @escaping @Sendable (UIImage?) -> Void) {
-    guard photoOutput.connection(with: .video) != nil else {
-      completion(nil)
-      return
-    }
-    
-    let settings = AVCapturePhotoSettings()
-    self.lastCapturedPhoto = nil
-    
-    photoOutput.capturePhoto(with: settings, delegate: self)
-    
-    // Wait a bit for photo capture to complete
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-      completion(self.lastCapturedPhoto)
-    }
-  }
-
   private func processFrameOnCameraQueue(sampleBuffer: CMSampleBuffer) {
     guard let predictor = predictor else {
       print("predictor is nil")
@@ -378,21 +353,6 @@ extension CameraVideoSource: AVCaptureVideoDataOutputSampleBufferDelegate {
     // Process the frame directly on the camera queue instead of dispatching to main thread
     // This avoids data races with the sample buffer
     processFrameOnCameraQueue(sampleBuffer: sampleBuffer)
-  }
-}
-
-extension CameraVideoSource: AVCapturePhotoCaptureDelegate {
-  @available(iOS 11.0, *)
-  func photoOutput(
-    _ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?
-  ) {
-    guard let data = photo.fileDataRepresentation(),
-      let image = UIImage(data: data)
-    else {
-      return
-    }
-
-    self.lastCapturedPhoto = image
   }
 }
 

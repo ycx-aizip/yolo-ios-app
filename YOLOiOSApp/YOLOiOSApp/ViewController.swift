@@ -15,7 +15,7 @@ import AVFoundation
 import AudioToolbox
 import CoreML
 import CoreMedia
-import ReplayKit
+// import ReplayKit
 import UIKit
 import YOLO
 
@@ -32,8 +32,6 @@ class ViewController: UIViewController {
   @IBOutlet weak var forcus: UIImageView!
   @IBOutlet weak var logoImage: UIImageView!
 
-  var shareButton = UIButton()
-  var recordButton = UIButton()
   let selection = UISelectionFeedbackGenerator()
   var firstLoad = true
 
@@ -126,7 +124,11 @@ class ViewController: UIViewController {
     tableViewBGView.isHidden = true
 
     setupTableView()
-    setupButtons()
+    
+    // Setup logo tap gesture
+    logoImage.isUserInteractionEnabled = true
+    logoImage.addGestureRecognizer(
+      UITapGestureRecognizer(target: self, action: #selector(logoButton)))
     
     // Add tap gesture recognizer to the segmented control
     let tapGesture = UITapGestureRecognizer(target: self, action: #selector(segmentedControlTapped))
@@ -552,24 +554,6 @@ class ViewController: UIViewController {
     )
   }
 
-  private func setupButtons() {
-    let config = UIImage.SymbolConfiguration(pointSize: 20, weight: .regular, scale: .default)
-    shareButton.setImage(
-      UIImage(systemName: "square.and.arrow.up", withConfiguration: config), for: .normal)
-    shareButton.addGestureRecognizer(
-      UITapGestureRecognizer(target: self, action: #selector(shareButtonTapped)))
-    view.addSubview(shareButton)
-
-    recordButton.setImage(UIImage(systemName: "video", withConfiguration: config), for: .normal)
-    recordButton.addGestureRecognizer(
-      UITapGestureRecognizer(target: self, action: #selector(recordScreen)))
-    view.addSubview(recordButton)
-
-    logoImage.isUserInteractionEnabled = true
-    logoImage.addGestureRecognizer(
-      UITapGestureRecognizer(target: self, action: #selector(logoButton)))
-  }
-
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
 
@@ -587,9 +571,6 @@ class ViewController: UIViewController {
     
     if view.bounds.width > view.bounds.height {
       // Landscape mode
-      shareButton.tintColor = .darkGray
-      recordButton.tintColor = .darkGray
-      
       // Calculate appropriate table dimensions
       let tableViewWidth = view.bounds.width * 0.3 // Wider table for visibility
       let tableViewHeight = min(CGFloat(currentModels.count * 30), 300) // Height based on models count with max limit
@@ -603,8 +584,6 @@ class ViewController: UIViewController {
       )
     } else {
       // Portrait mode (unchanged)
-      shareButton.tintColor = .systemGray
-      recordButton.tintColor = .systemGray
       let tableViewWidth = view.bounds.width * 0.6
       modelTableView.frame = CGRect(
         x: (view.bounds.width - tableViewWidth) / 2,
@@ -613,19 +592,6 @@ class ViewController: UIViewController {
         height: CGFloat(currentModels.count * 30)
       )
     }
-
-    shareButton.frame = CGRect(
-      x: view.bounds.maxX - 49.5,
-      y: view.bounds.maxY - 66,
-      width: 49.5,
-      height: 49.5
-    )
-    recordButton.frame = CGRect(
-      x: shareButton.frame.minX - 49.5,
-      y: view.bounds.maxY - 66,
-      width: 49.5,
-      height: 49.5
-    )
 
     // Update background view to match table size
     tableViewBGView.frame = CGRect(
@@ -636,58 +602,6 @@ class ViewController: UIViewController {
     )
   }
 
-  @objc func shareButtonTapped() {
-    selection.selectionChanged()
-    yoloView.capturePhoto { [weak self] captured in
-      guard let self = self else { return }
-      if let image = captured {
-        DispatchQueue.main.async {
-          let activityViewController = UIActivityViewController(
-            activityItems: [image], applicationActivities: nil
-          )
-          activityViewController.popoverPresentationController?.sourceView = self.View0
-          self.present(activityViewController, animated: true, completion: nil)
-        }
-      } else {
-        print("error capturing photo")
-      }
-    }
-  }
-
-  @objc func recordScreen() {
-    let recorder = RPScreenRecorder.shared()
-    recorder.isMicrophoneEnabled = true
-
-    if !recorder.isRecording {
-      AudioServicesPlaySystemSound(1117)
-      recordButton.tintColor = .red
-      recorder.startRecording { error in
-        if let error = error {
-          print("Screen recording start error: \(error)")
-        } else {
-          print("Started screen recording.")
-        }
-      }
-    } else {
-      AudioServicesPlaySystemSound(1118)
-      if view.bounds.width > view.bounds.height {
-        recordButton.tintColor = .darkGray
-      } else {
-        recordButton.tintColor = .systemGray
-      }
-      recorder.stopRecording { previewVC, error in
-        if let error = error {
-          print("Stop recording error: \(error)")
-        }
-        if let previewVC = previewVC {
-          previewVC.previewControllerDelegate = self
-          self.present(previewVC, animated: true, completion: nil)
-        }
-      }
-    }
-  }
-
-  // Handle taps on the segmented control
   @objc func segmentedControlTapped() {
     selection.selectionChanged()
     
@@ -808,11 +722,5 @@ extension ViewController: UITableViewDataSource, UITableViewDelegate {
       let insetRect = cell.bounds.insetBy(dx: 4, dy: 4)
       selectedBGView.frame = insetRect
     }
-  }
-}
-
-extension ViewController: RPPreviewViewControllerDelegate {
-  func previewControllerDidFinish(_ previewController: RPPreviewViewController) {
-    previewController.dismiss(animated: true)
   }
 }
