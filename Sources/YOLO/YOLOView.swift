@@ -1037,7 +1037,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     toolbar.addSubview(switchCameraButton)
 
     // Create switch source button with matching style
-    switchSourceButton.setImage(UIImage(systemName: "photo.on.rectangle", withConfiguration: config), for: .normal)
+    switchSourceButton.setImage(UIImage(systemName: "rectangle.on.rectangle", withConfiguration: config), for: .normal)
     switchSourceButton.tintColor = .systemGray // Match other buttons' tint color
     switchSourceButton.backgroundColor = .clear // Remove background color to match other buttons
     switchSourceButton.addTarget(self, action: #selector(switchSourceButtonTapped), for: .touchUpInside)
@@ -1780,12 +1780,62 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   }
 
   @objc func switchSourceButtonTapped() {
-    // Toggle between camera and video source
-    if frameSourceType == .camera {
-      switchToFrameSource(.videoFile)
-    } else {
-      switchToFrameSource(.camera)
+    // Find the current view controller to present the alert
+    var topViewController = UIApplication.shared.windows.first?.rootViewController
+    while let presentedViewController = topViewController?.presentedViewController {
+      topViewController = presentedViewController
     }
+    
+    guard let viewController = topViewController else { return }
+    
+    // Create an alert controller for source selection
+    let alert = UIAlertController(title: "Select Frame Source", message: nil, preferredStyle: .actionSheet)
+    
+    // Add action for each source type
+    // Camera source
+    let cameraAction = UIAlertAction(title: "Camera", style: .default) { [weak self] _ in
+      guard let self = self else { return }
+      if self.frameSourceType != .camera {
+        self.switchToFrameSource(.camera)
+      }
+    }
+    // Add checkmark to current source
+    if frameSourceType == .camera {
+      cameraAction.setValue(true, forKey: "checked")
+    }
+    alert.addAction(cameraAction)
+    
+    // Video file source - renamed to "Album"
+    let albumAction = UIAlertAction(title: "Album", style: .default) { [weak self] _ in
+      guard let self = self else { return }
+      if self.frameSourceType != .videoFile {
+        self.switchToFrameSource(.videoFile)
+      }
+    }
+    // Add checkmark to current source
+    if frameSourceType == .videoFile {
+      albumAction.setValue(true, forKey: "checked")
+    }
+    alert.addAction(albumAction)
+    
+    // Add placeholder for DJI OSMO
+    let djiOsmoAction = UIAlertAction(title: "DJI OSMO", style: .default) { _ in
+      // This will be implemented in the future
+    }
+    djiOsmoAction.isEnabled = false
+    alert.addAction(djiOsmoAction)
+    
+    // Cancel action
+    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+    
+    // For iPad support
+    if let popoverController = alert.popoverPresentationController {
+      popoverController.sourceView = switchSourceButton
+      popoverController.sourceRect = switchSourceButton.bounds
+    }
+    
+    // Present the alert
+    viewController.present(alert, animated: true, completion: nil)
   }
 
   @objc func handleVideoPlaybackEnd(_ notification: Notification) {
