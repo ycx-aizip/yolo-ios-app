@@ -9,16 +9,17 @@ import Foundation
 import UIKit
 import Vision
 
-/// Direction for counting fish
-public enum CountingDirection {
-    case topToBottom
-    case bottomToTop
-}
-
 /// Direction of fish movement
+/// These represent the actual movement direction of the fish:
+/// - up: Fish moving upward (used with CountingDirection.bottomToTop)
+/// - down: Fish moving downward (used with CountingDirection.topToBottom)
+/// - left: Fish moving leftward (used with CountingDirection.rightToLeft)
+/// - right: Fish moving rightward (used with CountingDirection.leftToRight)
 private enum Direction {
     case up
     case down
+    case left
+    case right
 }
 
 /**
@@ -46,7 +47,9 @@ class TrackingDetector: ObjectDetector {
     /// Total count of objects that have crossed the threshold(s)
     private var totalCount: Int = 0
     
-    /// Thresholds used for counting (normalized y-coordinates, 0.0-1.0)
+    /// Thresholds used for counting (normalized coordinates, 0.0-1.0)
+    /// For vertical directions (topToBottom, bottomToTop), these are y-coordinates
+    /// For horizontal directions (leftToRight, rightToLeft), these are x-coordinates
     private var thresholds: [CGFloat] = [0.3, 0.5]
     
     /// Map of track IDs to counting status
@@ -112,6 +115,9 @@ class TrackingDetector: ObjectDetector {
     @MainActor
     func setCountingDirection(_ direction: CountingDirection) {
         self.countingDirection = direction
+        
+        // Update the expected movement direction in STrack
+        STrack.expectedMovementDirection = direction
     }
     
     /**
@@ -194,6 +200,9 @@ class TrackingDetector: ObjectDetector {
      */
     @MainActor
     private func updateCounting() {
+        // Get the expected direction of movement for the current counting direction
+        let expectedDirection = expectedMovementDirection(for: countingDirection)
+        
         // Process all tracks each frame
         for track in trackedObjects {
             let trackId = track.trackId
@@ -209,33 +218,116 @@ class TrackingDetector: ObjectDetector {
             // Store current position for next frame
             previousPositions[trackId] = currentPos
             
+            // Calculate movement direction
+            let dx = currentPos.x - lastPosition.x
+            let dy = currentPos.y - lastPosition.y
+            
+            // Determine actual movement direction
+            let actualDirection: Direction
+            if abs(dx) > abs(dy) {
+                // Horizontal movement is dominant
+                actualDirection = dx > 0 ? .right : .left
+            } else {
+                // Vertical movement is dominant
+                actualDirection = dy > 0 ? .down : .up
+            }
+            
+            // Store the track's movement direction
+            crossingDirections[trackId] = actualDirection
+            
             // Get previous and current coordinates
             let center_y = currentPos.y
             let last_y = lastPosition.y
+            let center_x = currentPos.x
+            let last_x = lastPosition.x
             
             // Get counted state for this track
             let alreadyCounted = countedTracks[trackId, default: false]
             
-            // MATCH PYTHON IMPLEMENTATION EXACTLY
-            // Note: Python implementation only has top-to-bottom counting
-            
-            // Increment count: Check for threshold crossing from top to bottom
-            if !alreadyCounted {
-                for threshold in thresholds {
-                    if last_y < threshold && center_y >= threshold {
-                        countObject(trackId: trackId)
-                        break // Count only once per threshold crossing event
+            // Only check appropriate thresholds based on the current counting direction
+            switch countingDirection {
+            case .topToBottom:
+                // Increment count: Check for threshold crossing from top to bottom
+                if !alreadyCounted {
+                    for threshold in thresholds {
+                        if last_y < threshold && center_y >= threshold {
+                            countObject(trackId: trackId)
+                            break // Count only once per threshold crossing event
+                        }
                     }
                 }
-            }
-            
-            // Decrement count: Check for reverse crossing from bottom to top (only first threshold)
-            if let firstThreshold = thresholds.first,
-               last_y > firstThreshold && center_y <= firstThreshold && alreadyCounted {
-                totalCount = max(0, totalCount - 1)
-                countedTracks[trackId] = false
-                if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
-                    trackedObjects[trackIndex].counted = false
+                
+                // Decrement count: Check for reverse crossing from bottom to top (only first threshold)
+                if let firstThreshold = thresholds.first,
+                   last_y > firstThreshold && center_y <= firstThreshold && alreadyCounted {
+                    totalCount = max(0, totalCount - 1)
+                    countedTracks[trackId] = false
+                    if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
+                        trackedObjects[trackIndex].counted = false
+                    }
+                }
+                
+            case .bottomToTop:
+                // Increment count: Check for threshold crossing from bottom to top
+                if !alreadyCounted {
+                    for threshold in thresholds {
+                        if last_y > threshold && center_y <= threshold {
+                            countObject(trackId: trackId)
+                            break // Count only once per threshold crossing event
+                        }
+                    }
+                }
+                
+                // Decrement count: Check for reverse crossing (only first threshold)
+                if let firstThreshold = thresholds.first,
+                   last_y < firstThreshold && center_y >= firstThreshold && alreadyCounted {
+                    totalCount = max(0, totalCount - 1)
+                    countedTracks[trackId] = false
+                    if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
+                        trackedObjects[trackIndex].counted = false
+                    }
+                }
+                
+            case .leftToRight:
+                // Increment count: Check for threshold crossing from left to right
+                if !alreadyCounted {
+                    for threshold in thresholds {
+                        if last_x < threshold && center_x >= threshold {
+                            countObject(trackId: trackId)
+                            break // Count only once per threshold crossing event
+                        }
+                    }
+                }
+                
+                // Decrement count: Check for reverse crossing (only first threshold)
+                if let firstThreshold = thresholds.first,
+                   last_x > firstThreshold && center_x <= firstThreshold && alreadyCounted {
+                    totalCount = max(0, totalCount - 1)
+                    countedTracks[trackId] = false
+                    if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
+                        trackedObjects[trackIndex].counted = false
+                    }
+                }
+                
+            case .rightToLeft:
+                // Increment count: Check for threshold crossing from right to left
+                if !alreadyCounted {
+                    for threshold in thresholds {
+                        if last_x > threshold && center_x <= threshold {
+                            countObject(trackId: trackId)
+                            break // Count only once per threshold crossing event
+                        }
+                    }
+                }
+                
+                // Decrement count: Check for reverse crossing (only first threshold)
+                if let firstThreshold = thresholds.first,
+                   last_x < firstThreshold && center_x >= firstThreshold && alreadyCounted {
+                    totalCount = max(0, totalCount - 1)
+                    countedTracks[trackId] = false
+                    if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
+                        trackedObjects[trackIndex].counted = false
+                    }
                 }
             }
         }
@@ -374,5 +466,19 @@ class TrackingDetector: ObjectDetector {
     @MainActor
     func isObjectCounted(box: Box) -> Bool {
         return getTrackingStatus(for: box).isCounted
+    }
+    
+    /// Helper method to get the expected movement direction based on counting direction
+    private func expectedMovementDirection(for countingDirection: CountingDirection) -> Direction {
+        switch countingDirection {
+        case .topToBottom:
+            return .down
+        case .bottomToTop:
+            return .up
+        case .leftToRight:
+            return .right
+        case .rightToLeft:
+            return .left
+        }
     }
 }

@@ -9,6 +9,8 @@
 import Foundation
 import UIKit
 
+// CountingDirection needs to be defined in the same module (YOLO) to be accessible
+
 /**
  * TrackState
  *
@@ -51,6 +53,10 @@ public class STrack {
     /// Counter for generating unique track IDs (always increasing, never reused)
     @MainActor
     private static var count: Int = 0
+    
+    /// Static property to determine the expected movement direction (defaults to top-to-bottom)
+    @MainActor
+    public static var expectedMovementDirection: CountingDirection = .topToBottom
     
     // MARK: - Instance properties
     
@@ -100,7 +106,7 @@ public class STrack {
     private var kalmanFilter: KalmanFilter?
     
     /// Add a new property to store movement direction consistency
-    public var movementConsistency: Float = 0.0 // Higher values = more consistent top-to-bottom movement
+    public var movementConsistency: Float = 0.0 // Higher values = more consistent movement in expected direction
     
     /// Add a new property to track frame count with expected movement
     public var framesWithExpectedMovement: Int = 0
@@ -181,9 +187,28 @@ public class STrack {
         let dx = newTrack.position.x - position.x
         let dy = newTrack.position.y - position.y
         
-        // Check if movement follows expected top-to-bottom pattern
-        let isMovingDown = dy > 0
-        let isExpectedMovement = isMovingDown && abs(dx) < 0.2 // Moving down with limited horizontal movement
+        // Check if movement follows expected pattern based on direction
+        var isExpectedMovement = false
+        
+        // Determine if movement matches the expected direction
+        switch STrack.expectedMovementDirection {
+        case .topToBottom:
+            // Expect movement from top to bottom (downward)
+            let isMovingDown = dy > 0
+            isExpectedMovement = isMovingDown && abs(dx) < 0.2 // Moving down with limited horizontal movement
+        case .bottomToTop:
+            // Expect movement from bottom to top (upward)
+            let isMovingUp = dy < 0
+            isExpectedMovement = isMovingUp && abs(dx) < 0.2 // Moving up with limited horizontal movement
+        case .leftToRight:
+            // Expect movement from left to right
+            let isMovingRight = dx > 0
+            isExpectedMovement = isMovingRight && abs(dy) < 0.2 // Moving right with limited vertical movement
+        case .rightToLeft:
+            // Expect movement from right to left
+            let isMovingLeft = dx < 0
+            isExpectedMovement = isMovingLeft && abs(dy) < 0.2 // Moving left with limited vertical movement
+        }
         
         // Update movement consistency metrics
         if isExpectedMovement {
@@ -240,9 +265,28 @@ public class STrack {
         let dx = newPosition.x - position.x
         let dy = newPosition.y - position.y
         
-        // Check if movement follows expected top-to-bottom pattern
-        let isMovingDown = dy > 0
-        let isExpectedMovement = isMovingDown && abs(dx) < 0.2 // Moving down with limited horizontal movement
+        // Check if movement follows expected pattern based on direction
+        var isExpectedMovement = false
+        
+        // Determine if movement matches the expected direction
+        switch STrack.expectedMovementDirection {
+        case .topToBottom:
+            // Expect movement from top to bottom (downward)
+            let isMovingDown = dy > 0
+            isExpectedMovement = isMovingDown && abs(dx) < 0.2 // Moving down with limited horizontal movement
+        case .bottomToTop:
+            // Expect movement from bottom to top (upward)
+            let isMovingUp = dy < 0
+            isExpectedMovement = isMovingUp && abs(dx) < 0.2 // Moving up with limited horizontal movement
+        case .leftToRight:
+            // Expect movement from left to right
+            let isMovingRight = dx > 0
+            isExpectedMovement = isMovingRight && abs(dy) < 0.2 // Moving right with limited vertical movement
+        case .rightToLeft:
+            // Expect movement from right to left
+            let isMovingLeft = dx < 0
+            isExpectedMovement = isMovingLeft && abs(dy) < 0.2 // Moving left with limited vertical movement
+        }
         
         // Update movement consistency metrics
         if isExpectedMovement {
