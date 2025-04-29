@@ -143,6 +143,10 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   // Add new property for models selection button
   public var modelsButton = UIButton()
   
+  // Add properties for direction selection button
+  public var directionButton = UIButton()
+  private var countingDirection: CountingDirection = .topToBottom
+  
   /// Action delegate to communicate with ViewController
   public weak var actionDelegate: YOLOViewActionDelegate?
   
@@ -1062,6 +1066,13 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     modelsButton.backgroundColor = .clear
     modelsButton.addTarget(self, action: #selector(modelsButtonTapped), for: .touchUpInside)
     toolbar.addSubview(modelsButton)
+    
+    // Create direction selection button with matching style
+    directionButton.setImage(UIImage(systemName: "arrow.triangle.2.circlepath", withConfiguration: config), for: .normal)
+    directionButton.tintColor = .systemGray
+    directionButton.backgroundColor = .clear
+    directionButton.addTarget(self, action: #selector(directionButtonTapped), for: .touchUpInside)
+    toolbar.addSubview(directionButton)
 
     self.addGestureRecognizer(UIPinchGestureRecognizer(target: self, action: #selector(pinch)))
   }
@@ -1079,6 +1090,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       playButton.tintColor = .darkGray
       pauseButton.tintColor = .darkGray
       switchCameraButton.tintColor = .darkGray
+      switchSourceButton.tintColor = .darkGray
+      modelsButton.tintColor = .darkGray
+      directionButton.tintColor = .darkGray
 
       let width = bounds.width
       let height = bounds.height
@@ -1238,41 +1252,22 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         height: toolBarHeight
       )
       
-      let buttonSize: CGFloat = 40
-      playButton.frame = CGRect(
-        x: 10, 
-        y: (toolBarHeight - buttonSize) / 2, 
-        width: buttonSize, 
-        height: buttonSize
-      )
-      pauseButton.frame = CGRect(
-        x: playButton.frame.maxX + 10, 
-        y: (toolBarHeight - buttonSize) / 2, 
-        width: buttonSize, 
-        height: buttonSize
-      )
-      switchCameraButton.frame = CGRect(
-        x: pauseButton.frame.maxX + 10, 
-        y: (toolBarHeight - buttonSize) / 2, 
-        width: buttonSize, 
-        height: buttonSize
-      )
-
-      // Position switch source button in landscape mode
-      switchSourceButton.frame = CGRect(
-        x: switchCameraButton.frame.maxX + 10, 
-        y: (toolBarHeight - buttonSize) / 2, 
-        width: buttonSize, 
-        height: buttonSize
-      )
+      // For landscape, adjust toolbar button spacing 
+      let buttonWidth: CGFloat = 50
+      let spacing = (width - 6 * buttonWidth) / 7 // 6 buttons
       
-      // Position models button after switch source button
+      playButton.frame = CGRect(
+        x: spacing, y: 0, width: buttonWidth, height: toolBarHeight)
+      pauseButton.frame = CGRect(
+        x: 2 * spacing + buttonWidth, y: 0, width: buttonWidth, height: toolBarHeight)
+      switchCameraButton.frame = CGRect(
+        x: 3 * spacing + 2 * buttonWidth, y: 0, width: buttonWidth, height: toolBarHeight)
+      switchSourceButton.frame = CGRect(
+        x: 4 * spacing + 3 * buttonWidth, y: 0, width: buttonWidth, height: toolBarHeight)
       modelsButton.frame = CGRect(
-        x: switchSourceButton.frame.maxX + 10, 
-        y: (toolBarHeight - buttonSize) / 2, 
-        width: buttonSize, 
-        height: buttonSize
-      )
+        x: 5 * spacing + 4 * buttonWidth, y: 0, width: buttonWidth, height: toolBarHeight)
+      directionButton.frame = CGRect(
+        x: 6 * spacing + 5 * buttonWidth, y: 0, width: buttonWidth, height: toolBarHeight)
     } else {
       toolbar.backgroundColor = .darkGray.withAlphaComponent(0.7)
       playButton.tintColor = .systemGray
@@ -1440,6 +1435,14 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       // Position models button after switch source button
       modelsButton.frame = CGRect(
         x: switchSourceButton.frame.maxX, 
+        y: 0, 
+        width: buttonHeight, 
+        height: buttonHeight
+      )
+
+      // Position direction button after models button
+      directionButton.frame = CGRect(
+        x: modelsButton.frame.maxX, 
         y: 0, 
         width: buttonHeight, 
         height: buttonHeight
@@ -1613,19 +1616,66 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   private func updateThresholdLayer(_ layer: CAShapeLayer?, position: CGFloat) {
     guard let layer = layer else { return }
     
-    // Position is a value between 0 and 1 representing the vertical position
+    // Position is a value between 0 and 1 representing the position along the relevant axis
     let path = UIBezierPath()
     
-    // Calculate the y-position (vertical placement) based on the threshold value
-    let height = self.bounds.height
-    let yPosition = height * position
-    
-    // Draw a horizontal line across the width of the view
-    path.move(to: CGPoint(x: 0, y: yPosition))
-    path.addLine(to: CGPoint(x: self.bounds.width, y: yPosition))
+    // Calculate the line position based on the current counting direction
+    switch countingDirection {
+    case .topToBottom:
+      // For top to bottom, normal order
+      let height = self.bounds.height
+      let yPosition = height * position
+      
+      // Draw a horizontal line across the width of the view
+      path.move(to: CGPoint(x: 0, y: yPosition))
+      path.addLine(to: CGPoint(x: self.bounds.width, y: yPosition))
+      
+    case .bottomToTop:
+      // For bottom to top, flip the position (1 - position)
+      let height = self.bounds.height
+      let yPosition = height * (1 - position)
+      
+      // Draw a horizontal line across the width of the view
+      path.move(to: CGPoint(x: 0, y: yPosition))
+      path.addLine(to: CGPoint(x: self.bounds.width, y: yPosition))
+      
+    case .leftToRight:
+      // For left to right, normal order
+      let width = self.bounds.width
+      let xPosition = width * position
+      
+      // Draw a vertical line across the height of the view
+      path.move(to: CGPoint(x: xPosition, y: 0))
+      path.addLine(to: CGPoint(x: xPosition, y: self.bounds.height))
+      
+    case .rightToLeft:
+      // For right to left, flip the position (1 - position)
+      let width = self.bounds.width
+      let xPosition = width * (1 - position)
+      
+      // Draw a vertical line across the height of the view
+      path.move(to: CGPoint(x: xPosition, y: 0))
+      path.addLine(to: CGPoint(x: xPosition, y: self.bounds.height))
+    }
     
     layer.path = path.cgPath
     layer.isHidden = false
+  }
+  
+  // Update threshold lines for the current direction
+  private func updateThresholdLinesForDirection(_ direction: CountingDirection) {
+    // Update the slider labels consistently (always use "Threshold 1" and "Threshold 2")
+    labelThreshold1.text = "Threshold 1: " + String(format: "%.2f", threshold1Slider.value)
+    labelThreshold2.text = "Threshold 2: " + String(format: "%.2f", threshold2Slider.value)
+    
+    // Update the threshold lines with the current values
+    updateThresholdLayer(threshold1Layer, position: threshold1)
+    updateThresholdLayer(threshold2Layer, position: threshold2)
+    
+    // Update tracking detector thresholds
+    if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
+      trackingDetector.setThresholds([threshold1, threshold2])
+    }
   }
   
   // Threshold 1 slider changed
@@ -1888,6 +1938,98 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     selection.selectionChanged()
     // Notify the ViewController that the models button was tapped
     actionDelegate?.didTapModelsButton()
+  }
+
+  // Add method to handle direction button tap
+  @objc func directionButtonTapped() {
+    selection.selectionChanged()
+    
+    // Find the current view controller to present the alert
+    var topViewController = UIApplication.shared.windows.first?.rootViewController
+    while let presentedViewController = topViewController?.presentedViewController {
+        topViewController = presentedViewController
+    }
+    
+    guard let viewController = topViewController else { return }
+    
+    // Create an alert controller for direction selection
+    let alert = UIAlertController(title: "Select Counting Direction", message: nil, preferredStyle: .actionSheet)
+    
+    // Add action for each direction
+    // Top to Bottom
+    let topToBottomAction = UIAlertAction(title: "Top to Bottom", style: .default) { [weak self] _ in
+        guard let self = self else { return }
+        if self.countingDirection != .topToBottom {
+            self.switchCountingDirection(.topToBottom)
+        }
+    }
+    // Add checkmark to current direction
+    if countingDirection == .topToBottom {
+        topToBottomAction.setValue(true, forKey: "checked")
+    }
+    alert.addAction(topToBottomAction)
+    
+    // Bottom to Top
+    let bottomToTopAction = UIAlertAction(title: "Bottom to Top", style: .default) { [weak self] _ in
+        guard let self = self else { return }
+        if self.countingDirection != .bottomToTop {
+            self.switchCountingDirection(.bottomToTop)
+        }
+    }
+    if countingDirection == .bottomToTop {
+        bottomToTopAction.setValue(true, forKey: "checked")
+    }
+    alert.addAction(bottomToTopAction)
+    
+    // Left to Right
+    let leftToRightAction = UIAlertAction(title: "Left to Right", style: .default) { [weak self] _ in
+        guard let self = self else { return }
+        if self.countingDirection != .leftToRight {
+            self.switchCountingDirection(.leftToRight)
+        }
+    }
+    if countingDirection == .leftToRight {
+        leftToRightAction.setValue(true, forKey: "checked")
+    }
+    alert.addAction(leftToRightAction)
+    
+    // Right to Left
+    let rightToLeftAction = UIAlertAction(title: "Right to Left", style: .default) { [weak self] _ in
+        guard let self = self else { return }
+        if self.countingDirection != .rightToLeft {
+            self.switchCountingDirection(.rightToLeft)
+        }
+    }
+    if countingDirection == .rightToLeft {
+        rightToLeftAction.setValue(true, forKey: "checked")
+    }
+    alert.addAction(rightToLeftAction)
+    
+    // Cancel action
+    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+    
+    // For iPad support
+    if let popoverController = alert.popoverPresentationController {
+        popoverController.sourceView = directionButton
+        popoverController.sourceRect = directionButton.bounds
+    }
+    
+    // Present the alert
+    viewController.present(alert, animated: true, completion: nil)
+  }
+
+  // Add method to switch counting direction
+  private func switchCountingDirection(_ direction: CountingDirection) {
+    // Store the new direction
+    countingDirection = direction
+    
+    // Update the tracking detector's direction
+    if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
+        trackingDetector.setCountingDirection(direction)
+    }
+    
+    // Re-draw the threshold lines for the new direction
+    updateThresholdLinesForDirection(direction)
   }
 }
 
