@@ -1623,12 +1623,12 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     switch countingDirection {
     case .topToBottom:
       // For top to bottom, normal order
-      let height = self.bounds.height
-      let yPosition = height * position
-      
-      // Draw a horizontal line across the width of the view
-      path.move(to: CGPoint(x: 0, y: yPosition))
-      path.addLine(to: CGPoint(x: self.bounds.width, y: yPosition))
+    let height = self.bounds.height
+    let yPosition = height * position
+    
+    // Draw a horizontal line across the width of the view
+    path.move(to: CGPoint(x: 0, y: yPosition))
+    path.addLine(to: CGPoint(x: self.bounds.width, y: yPosition))
       
     case .bottomToTop:
       // For bottom to top, flip the position (1 - position)

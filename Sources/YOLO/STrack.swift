@@ -73,7 +73,7 @@ public class STrack {
     public var counted: Bool = false
     
     /// Time-to-live counter for the track (decremented when object not detected)
-    public var ttl: Int = 15 // Increased for fish with expected movement patterns
+    public var ttl: Int
     
     /// The most recent detection box associated with this track
     public var lastDetection: Box?
@@ -127,6 +127,7 @@ public class STrack {
         self.lastDetection = detection
         self.score = score
         self.cls = cls
+        self.ttl = TrackingParameters.defaultTTL
     }
     
     /// Backward compatibility initializer
@@ -195,29 +196,29 @@ public class STrack {
         case .topToBottom:
             // Expect movement from top to bottom (downward)
             let isMovingDown = dy > 0
-            isExpectedMovement = isMovingDown && abs(dx) < 0.2 // Moving down with limited horizontal movement
+            isExpectedMovement = isMovingDown && abs(dx) < TrackingParameters.maxHorizontalDeviation
         case .bottomToTop:
             // Expect movement from bottom to top (upward)
             let isMovingUp = dy < 0
-            isExpectedMovement = isMovingUp && abs(dx) < 0.2 // Moving up with limited horizontal movement
+            isExpectedMovement = isMovingUp && abs(dx) < TrackingParameters.maxHorizontalDeviation
         case .leftToRight:
             // Expect movement from left to right
             let isMovingRight = dx > 0
-            isExpectedMovement = isMovingRight && abs(dy) < 0.2 // Moving right with limited vertical movement
+            isExpectedMovement = isMovingRight && abs(dy) < TrackingParameters.maxVerticalDeviation
         case .rightToLeft:
             // Expect movement from right to left
             let isMovingLeft = dx < 0
-            isExpectedMovement = isMovingLeft && abs(dy) < 0.2 // Moving left with limited vertical movement
+            isExpectedMovement = isMovingLeft && abs(dy) < TrackingParameters.maxVerticalDeviation
         }
         
         // Update movement consistency metrics
         if isExpectedMovement {
             framesWithExpectedMovement += 1
             // Increase consistency (with damping)
-            movementConsistency = min(1.0, movementConsistency + 0.15)
+            movementConsistency = min(1.0, movementConsistency + Float(TrackingParameters.reactivationConsistencyIncreaseRate))
         } else {
             // Decrease consistency more aggressively for reactivation with unexpected movement
-            movementConsistency = max(0.0, movementConsistency - 0.2)
+            movementConsistency = max(0.0, movementConsistency - Float(TrackingParameters.reactivationConsistencyDecreaseRate))
         }
         
         // Update Kalman filter with new detection
@@ -239,11 +240,11 @@ public class STrack {
         // Set adaptive TTL based on movement consistency for reactivated tracks
         // More conservative TTL for reactivated tracks to prevent incorrect associations
         if movementConsistency > 0.7 && framesWithExpectedMovement > 5 {
-            self.ttl = 15  // Lower than update() to be conservative with reactivation
+            self.ttl = TrackingParameters.reactivationHighTTL
         } else if movementConsistency > 0.4 {
-            self.ttl = 12
+            self.ttl = TrackingParameters.reactivationMediumTTL
         } else {
-            self.ttl = 8   // Even lower for reactivated tracks with inconsistent movement
+            self.ttl = TrackingParameters.reactivationLowTTL
         }
     }
     
@@ -273,29 +274,29 @@ public class STrack {
         case .topToBottom:
             // Expect movement from top to bottom (downward)
             let isMovingDown = dy > 0
-            isExpectedMovement = isMovingDown && abs(dx) < 0.2 // Moving down with limited horizontal movement
+            isExpectedMovement = isMovingDown && abs(dx) < TrackingParameters.maxHorizontalDeviation
         case .bottomToTop:
             // Expect movement from bottom to top (upward)
             let isMovingUp = dy < 0
-            isExpectedMovement = isMovingUp && abs(dx) < 0.2 // Moving up with limited horizontal movement
+            isExpectedMovement = isMovingUp && abs(dx) < TrackingParameters.maxHorizontalDeviation
         case .leftToRight:
             // Expect movement from left to right
             let isMovingRight = dx > 0
-            isExpectedMovement = isMovingRight && abs(dy) < 0.2 // Moving right with limited vertical movement
+            isExpectedMovement = isMovingRight && abs(dy) < TrackingParameters.maxVerticalDeviation
         case .rightToLeft:
             // Expect movement from right to left
             let isMovingLeft = dx < 0
-            isExpectedMovement = isMovingLeft && abs(dy) < 0.2 // Moving left with limited vertical movement
+            isExpectedMovement = isMovingLeft && abs(dy) < TrackingParameters.maxVerticalDeviation
         }
         
         // Update movement consistency metrics
         if isExpectedMovement {
             framesWithExpectedMovement += 1
             // Increase consistency (with damping to avoid immediate high values)
-            movementConsistency = min(1.0, movementConsistency + 0.2)
+            movementConsistency = min(1.0, movementConsistency + Float(TrackingParameters.consistencyIncreaseRate))
         } else {
             // Decrease consistency for unexpected movement
-            movementConsistency = max(0.0, movementConsistency - 0.1)
+            movementConsistency = max(0.0, movementConsistency - Float(TrackingParameters.consistencyDecreaseRate))
         }
         
         // Update position
@@ -315,21 +316,22 @@ public class STrack {
         self.endFrame = frameId
         
         // Set adaptive TTL based on movement consistency and track history
-        // Fish with consistent downward movement get higher TTL values
+        // Fish with consistent expected movement get higher TTL values
         if movementConsistency > 0.7 && framesWithExpectedMovement > 5 {
             // Fish with very consistent movements get highest TTL
-            self.ttl = 20
+            self.ttl = TrackingParameters.highConsistencyTTL
         } else if movementConsistency > 0.4 {
             // Fish with moderately consistent movements get medium TTL
-            self.ttl = 15
+            self.ttl = TrackingParameters.mediumConsistencyTTL
         } else {
             // Fish with erratic movements get lower TTL
-            self.ttl = 10
+            self.ttl = TrackingParameters.lowConsistencyTTL
         }
     }
     
     /// Decreases the time-to-live counter for this track.
     /// - Returns: true if the track is still alive, false if it should be considered lost.
+    @MainActor
     public func decreaseTTL() -> Bool {
         ttl -= 1
         return ttl > 0
@@ -391,6 +393,7 @@ public class STrack {
     }
     
     /// Releases any resources held by the track when it's no longer needed
+    @MainActor
     public func cleanup() {
         // Release all references that might contribute to memory retention
         lastDetection = nil

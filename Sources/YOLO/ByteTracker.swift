@@ -45,19 +45,16 @@ public class ByteTracker {
     /// Shared Kalman filter for track state estimation
     private let kalmanFilter = KalmanFilter()
     
-
-    /// Active tracks and lost tracks matching
-    /// Matching threshold for high confidence detections - DECREASED to make matching easier for fast-moving fish
-    private let highThreshold: Float = 0.3  // Decreased from 0.5 to make first-stage matching more reliable
+    /// Track history for biasing matching towards prior associations
+    private var trackMatchHistory: [Int: Set<Int>] = [:] // Track ID -> Set of previously matched detection IDs
     
-    /// Matching threshold for low confidence detections - INCREASED to avoid false matches
-    private let lowThreshold: Float = 0.25  // Increased from 0.15 to maintain separation between distinct tracks
+    // Potential tracks
+    /// Buffer for potential new tracks - stores potential tracks before assigning real IDs
+    /// Key: temporary ID, Value: (position, detection, confidence, class, framesObserved, lastUpdatedFrame)
+    private var potentialTracks: [Int: (position: (x: CGFloat, y: CGFloat), detection: Box, score: Float, cls: String, frames: Int, lastFrame: Int)] = [:]
     
-    /// Max time to keep a track in lost state - REDUCED to quickly discard tracks that have left the frame
-    private let maxTimeLost: Int = 15  // Reduced from 30 to prevent ID reuse from fish that have left the frame
-    
-    /// Maximum frames a potential track can be unmatched before removal
-    private let maxUnmatchedFrames: Int = 15  // Reduced from 30 to prevent long-standing unused potentials
+    /// Counter for temporary IDs
+    private var tempIdCounter: Int = 0
     
     /// Estimated camera motion between frames
     private var lastFrameDetectionCenters: [(x: CGFloat, y: CGFloat)] = []
@@ -68,24 +65,6 @@ public class ByteTracker {
     private let maxLostTracks: Int = 50
     private let maxRemovedTracks: Int = 50
     private let maxPotentialTracks: Int = 50
-    
-    /// Track history for biasing matching towards prior associations
-    private var trackMatchHistory: [Int: Set<Int>] = [:] // Track ID -> Set of previously matched detection IDs
-    
-    // Potential tracks
-    /// Buffer for potential new tracks - stores potential tracks before assigning real IDs
-    /// Key: temporary ID, Value: (position, detection, confidence, class, framesObserved, lastUpdatedFrame)
-    private var potentialTracks: [Int: (position: (x: CGFloat, y: CGFloat), detection: Box, score: Float, cls: String, frames: Int, lastFrame: Int)] = [:]
-    
-    /// Required frames to consider a potential track as real (to avoid spurious tracks)
-    /// REDUCED to make it easier to establish tracks
-    private let requiredFramesForTrack: Int = 1 // Reduced for faster track establishment
-    
-    /// Counter for temporary IDs
-    private var tempIdCounter: Int = 0
-    
-    /// Maximum matching distance for potential tracks - INCREASED for fast-moving fish
-    private let maxMatchingDistance: CGFloat = 0.6  // Higher value to better match fast-moving fish
     
     // MARK: - Initialization
     
@@ -229,12 +208,12 @@ public class ByteTracker {
         // Delete lost tracks that have been lost for too long
         let lostTracksCopyFiltered = lostTracksCopy.filter { track in
             let timeLost = frameId - track.endFrame
-            return timeLost < maxTimeLost
+            return timeLost < TrackingParameters.maxTimeLost
         }
         
         for track in lostTracksCopy {
             let timeLost = frameId - track.endFrame
-            if timeLost >= maxTimeLost {
+            if timeLost >= TrackingParameters.maxTimeLost {
                 track.markRemoved()
                 track.cleanup() // Release references
                 // We don't need to store removed tracks since they'll never be reactivated
@@ -254,7 +233,7 @@ public class ByteTracker {
                 if let actualDetection = detection.lastDetection, detection.score >= 0.35 { // Reduced threshold from 0.4
                     // Check if this detection matches any existing potential track
                     var matchedPotentialId: Int? = nil
-                    var closestDistance: CGFloat = maxMatchingDistance
+                    var closestDistance: CGFloat = TrackingParameters.maxMatchingDistance
                     
                     for (tempId, potentialTrack) in potentialTracks {
                         // Compensate for camera motion when calculating distance
@@ -283,7 +262,7 @@ public class ByteTracker {
                         )
                         
                         // If track has been observed for enough frames, create a real track
-                        if newFrameCount >= requiredFramesForTrack {
+                        if newFrameCount >= TrackingParameters.requiredFramesForTrack {
                             // Create new track with real ID
                             let newTrack = STrack(
                                 trackId: STrack.nextId(),
@@ -321,7 +300,7 @@ public class ByteTracker {
         // Clean up potential tracks that haven't been updated recently
         let keysToRemove = potentialTracks.keys.filter { key in
             // Remove potential tracks that haven't been updated in several frames
-            return frameId - potentialTracks[key]!.lastFrame > maxUnmatchedFrames
+            return frameId - potentialTracks[key]!.lastFrame > TrackingParameters.maxUnmatchedFrames
         }
         
         for key in keysToRemove {
@@ -690,7 +669,7 @@ public class ByteTracker {
             }
         }
         
-        // 2. Add directional bias for fish swimming from top to bottom
+        // 2. Add directional bias for fish swimming in the expected direction
         for i in 0..<tracks.count {
             let track = tracks[i]
             // If we have Kalman filter mean data with velocity components
@@ -707,11 +686,26 @@ public class ByteTracker {
                     let dx = detection.position.x - track.position.x
                     let dy = detection.position.y - track.position.y
                     
-                    // For fish moving top-to-bottom, favor downward motion
-                    let isMovingDown = dy > 0 && vy > 0
+                    // Check if movement aligns with expected direction based on counting direction
+                    var isExpectedMovement = false
                     
-                    // If the fish is moving down (as expected in the tunnel), bias matching
-                    if isMovingDown {
+                    switch STrack.expectedMovementDirection {
+                    case .topToBottom:
+                        // Expected movement is downward
+                        isExpectedMovement = dy > 0 && vy > 0
+                    case .bottomToTop:
+                        // Expected movement is upward
+                        isExpectedMovement = dy < 0 && vy < 0
+                    case .leftToRight:
+                        // Expected movement is rightward
+                        isExpectedMovement = dx > 0 && vx > 0
+                    case .rightToLeft:
+                        // Expected movement is leftward
+                        isExpectedMovement = dx < 0 && vx < 0
+                    }
+                    
+                    // If the fish is moving in the expected direction, bias matching
+                    if isExpectedMovement {
                         // More aggressive bias for expected movement
                         let distReduction: Float = 0.25
                         dists[i][j] = max(0.05, dists[i][j] - distReduction)
@@ -757,7 +751,7 @@ public class ByteTracker {
         
         // Run linear assignment with the distance matrix
         let (matchedTrackIndices, matchedDetIndices, unmatchedTrackIndices, unmatchedDetIndices) =
-            MatchingUtils.linearAssignment(costMatrix: dists, threshold: highThreshold)
+            MatchingUtils.linearAssignment(costMatrix: dists, threshold: TrackingParameters.highMatchThreshold)
         
         // Convert to tuples of (track_idx, det_idx)
         var matches: [(Int, Int)] = []
@@ -792,7 +786,7 @@ public class ByteTracker {
         // Calculate position distance matrix
         var dists = MatchingUtils.positionDistance(tracks: filteredTracks, detections: detections)
         
-        // Add directional bias for fish swimming from top to bottom
+        // Add directional bias for movement in the expected direction
         for i in 0..<filteredTracks.count {
             let track = filteredTracks[i]
             // If we have mean data from Kalman filter
@@ -809,17 +803,32 @@ public class ByteTracker {
                     let dx = detection.position.x - track.position.x
                     let dy = detection.position.y - track.position.y
                     
-                    // If movement aligns with velocity (especially downward for fish),
+                    // Check if movement aligns with expected direction based on counting direction
+                    var isExpectedMovement = false
+                    
+                    switch STrack.expectedMovementDirection {
+                    case .topToBottom:
+                        // Expected movement is downward
+                        isExpectedMovement = dy > 0 && vy > 0
+                    case .bottomToTop:
+                        // Expected movement is upward
+                        isExpectedMovement = dy < 0 && vy < 0
+                    case .leftToRight:
+                        // Expected movement is rightward
+                        isExpectedMovement = dx > 0 && vx > 0
+                    case .rightToLeft:
+                        // Expected movement is leftward
+                        isExpectedMovement = dx < 0 && vx < 0
+                    }
+                    
+                    // If movement aligns with velocity (especially in expected direction),
                     // reduce the distance to make matching more likely
                     let velocityAlignment = (dx * vx + dy * vy) / 
                         (sqrt(dx*dx + dy*dy) * sqrt(vx*vx + vy*vy) + 0.0001)
                     
-                    // Favor downward movement (y is positive downward)
-                    let isMovingDown = dy > 0 && vy > 0
-                    
-                    if velocityAlignment > 0 || isMovingDown {
-                        // Reduce distance based on alignment and downward movement
-                        let reductionFactor: Float = isMovingDown ? 0.4 : 0.2
+                    if velocityAlignment > 0 || isExpectedMovement {
+                        // Reduce distance based on alignment and expected movement
+                        let reductionFactor: Float = isExpectedMovement ? 0.4 : 0.2
                         dists[i][j] = max(0.1, dists[i][j] - reductionFactor)
                     }
                 }
@@ -828,7 +837,7 @@ public class ByteTracker {
         
         // Run linear assignment with the distance matrix
         let (matchedTrackIndices, matchedDetIndices, _, unmatchedDetIndices) =
-            MatchingUtils.linearAssignment(costMatrix: dists, threshold: lowThreshold)
+            MatchingUtils.linearAssignment(costMatrix: dists, threshold: TrackingParameters.lowMatchThreshold)
         
         // Convert to tuples of (track_idx, det_idx), mapping back to original indices
         var matches: [(Int, Int)] = []

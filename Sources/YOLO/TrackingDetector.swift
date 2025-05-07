@@ -118,6 +118,9 @@ class TrackingDetector: ObjectDetector {
         
         // Update the expected movement direction in STrack
         STrack.expectedMovementDirection = direction
+        
+        // Update tracking parameters based on the new direction
+        TrackingParameters.updateParametersForCountingDirection(direction)
     }
     
     /**
@@ -401,7 +404,7 @@ class TrackingDetector: ObjectDetector {
         
         // Find tracks that match this box
         var bestMatch: STrack? = nil
-        var minDistance: CGFloat = 0.3 // Increased from 0.2 to be more lenient with camera movement
+        var minDistance: CGFloat = TrackingParameters.minMatchDistance
         
         // First try to match by IOU (Intersection over Union)
         for track in trackedObjects {
@@ -424,10 +427,10 @@ class TrackingDetector: ObjectDetector {
             let boxBArea = boxB.width * boxB.height
             let unionArea = boxAArea + boxBArea - interArea
             
-            let iou = unionArea > 0 ? interArea / unionArea : 0
+            let iou = unionArea > 0 ? Float(interArea / unionArea) : 0.0
             
             // For high IoU, immediately select this track
-            if iou > 0.4 { // Lowered from 0.5 to be more lenient
+            if iou > Float(TrackingParameters.iouMatchThreshold) {
                 return (trackId: track.trackId, isCounted: countedTracks[track.trackId] ?? false)
             }
             
