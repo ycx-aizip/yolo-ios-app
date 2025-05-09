@@ -106,6 +106,10 @@ class ViewController: UIViewController, YOLOViewActionDelegate {
   override func viewDidLoad() {
     super.viewDidLoad()
 
+    // Test OpenCV integration
+    let isWorking = OpenCVTester.testOpenCVIntegration()
+    print("OpenCV integration test: \(isWorking)")
+    
     // Hide the segmented control as we'll use a toolbar button instead
     segmentedControl.isHidden = true
     
