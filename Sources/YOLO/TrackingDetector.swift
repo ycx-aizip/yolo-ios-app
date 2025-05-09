@@ -156,6 +156,15 @@ class TrackingDetector: ObjectDetector {
     /// Enable or disable auto-calibration
     @MainActor
     func setAutoCalibration(enabled: Bool) {
+        // If we're disabling calibration that was previously enabled, make sure we clean up properly
+        if !enabled && isAutoCalibrationEnabled {
+            // Clear out any partial calibration data
+            calibrationFrameBuffer.removeAll(keepingCapacity: true)
+            currentPixelBuffer = nil
+            isCalibrated = false
+        }
+        
+        // Set the new state
         isAutoCalibrationEnabled = enabled
         
         if enabled {
@@ -213,6 +222,12 @@ class TrackingDetector: ObjectDetector {
         
         // Clear any previous counting state to ensure new thresholds are used
         countedTracks.removeAll(keepingCapacity: true)
+        crossingDirections.removeAll(keepingCapacity: true)
+        previousPositions.removeAll(keepingCapacity: true)
+        historyPositions.removeAll(keepingCapacity: true)
+        
+        // Reset current pixel buffer reference to avoid processing stale data
+        currentPixelBuffer = nil
         
         // Notify completion via callback
         onCalibrationComplete?(thresholds)

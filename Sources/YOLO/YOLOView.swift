@@ -1583,6 +1583,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   @objc func playTapped() {
     selection.selectionChanged()
     
+    // Ensure we're in normal inference mode when resuming playback
+    currentFrameSource.inferenceOK = true
+    
     if frameSourceType == .videoFile, let albumSource = albumVideoSource {
       // For video source, handle special case of restarting
       if !self.pauseButton.isEnabled {
@@ -1601,7 +1604,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       }
     } else {
       // Camera source - standard behavior
-    self.videoCapture.start()
+      self.videoCapture.start()
     }
     
     playButton.isEnabled = false
@@ -1793,6 +1796,11 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       // Not currently calibrating, so start calibration
       isCalibrating = true
       
+      // Clear all bounding boxes to avoid lingering boxes during calibration
+      boundingBoxViews.forEach { box in
+        box.hide()
+      }
+      
       // Show initial progress percentage
       let progressText = NSAttributedString(
         string: "0%",
@@ -1868,6 +1876,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             autoAttributedText.append(NSAttributedString(string: "TO", attributes: toAttributes))
             
             self.autoCalibrationButton.setAttributedTitle(autoAttributedText, for: .normal)
+            
+            // IMPORTANT: Resume normal inference
+            self.currentFrameSource.inferenceOK = true
           }
         }
         
@@ -1898,6 +1909,26 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     // Clear any existing layers that might show outdated content
     resetLayers()
     
+    // Reset calibration state if in progress
+    if isCalibrating {
+      isCalibrating = false
+      
+      // Restore the AUTO button text
+      let autoAttributedText = NSMutableAttributedString()
+      let auAttributes: [NSAttributedString.Key: Any] = [
+        .foregroundColor: UIColor.red.withAlphaComponent(0.5),
+        .font: UIFont.systemFont(ofSize: 14, weight: .bold)
+      ]
+      let toAttributes: [NSAttributedString.Key: Any] = [
+        .foregroundColor: UIColor.yellow.withAlphaComponent(0.5),
+        .font: UIFont.systemFont(ofSize: 14, weight: .bold)
+      ]
+      autoAttributedText.append(NSAttributedString(string: "AU", attributes: auAttributes))
+      autoAttributedText.append(NSAttributedString(string: "TO", attributes: toAttributes))
+      
+      autoCalibrationButton.setAttributedTitle(autoAttributedText, for: .normal)
+    }
+    
     switch sourceType {
     case .camera:
       // Make sure camera permissions are granted
@@ -1923,6 +1954,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         // Use camera as current frame source
         self.currentFrameSource = self.videoCapture
         self.frameSourceType = .camera
+        
+        // Ensure inferenceOK is set to true for the new source
+        self.currentFrameSource.inferenceOK = true
         
         // Start camera capture
         self.start(position: .back)
@@ -1993,6 +2027,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         // Set as current frame source
         self.currentFrameSource = self.albumVideoSource!
         self.frameSourceType = .videoFile
+        
+        // Ensure inferenceOK is set to true for the new source
+        self.currentFrameSource.inferenceOK = true
       }
       
     default:

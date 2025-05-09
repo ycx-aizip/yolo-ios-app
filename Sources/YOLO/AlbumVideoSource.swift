@@ -453,6 +453,9 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
                 
                 // Already on main actor, can call directly
                 trackingDetector.processFrame(pixelBuffer)
+                
+                // Skip regular inference during calibration
+                return
             }
             // Only perform normal inference if inferenceOK is true
             else if inferenceOK, let sampleBuffer = createSampleBufferFrom(image: frame) {
@@ -496,6 +499,9 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
                 if !inferenceOK, let trackingDetector = predictor as? TrackingDetector {
                     // Already on main actor, can call directly
                     trackingDetector.processFrame(pixelBuffer)
+                    
+                    // Skip regular inference during calibration
+                    return
                 }
                 // Only perform normal inference if inferenceOK is true
                 else if inferenceOK {

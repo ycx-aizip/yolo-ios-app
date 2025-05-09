@@ -264,11 +264,11 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
           }
         }
         
-        // Skip regular inference
+        // Skip regular inference during calibration
         return
       }
       
-      // Only run regular inference if inferenceOK is true (not calibrating)
+      // Only run regular inference when inferenceOK is true and we're not calibrating
       if inferenceOK {
         // Process with predictor - this happens on camera queue
         predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
