@@ -81,6 +81,10 @@ protocol FrameSource: AnyObject {
     /// The short side dimension of the frames produced by this source.
     var shortSide: CGFloat { get }
     
+    /// Flag indicating if inference should be performed on frames
+    /// When false, frames can be directed to calibration pipeline instead
+    var inferenceOK: Bool { get set }
+    
     /// Begins frame acquisition from the source.
     nonisolated func start()
     

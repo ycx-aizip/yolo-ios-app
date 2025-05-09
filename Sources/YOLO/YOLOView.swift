@@ -1729,25 +1729,27 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   
   // Threshold 1 slider changed
   @objc func threshold1Changed(_ sender: UISlider) {
-    threshold1 = CGFloat(sender.value)
-    updateThresholdLayer(threshold1Layer, position: threshold1)
-    labelThreshold1.text = "Threshold 1: " + String(format: "%.2f", sender.value)
+    let value = CGFloat(sender.value)
+    threshold1 = value
+    labelThreshold1.text = "Threshold 1: " + String(format: "%.2f", value)
+    updateThresholdLayer(threshold1Layer, position: value)
     
-    // Update tracking detector threshold if we're in fish count mode
-    if task == .fishCount, let trackingDetector = videoCapture.predictor as? TrackingDetector {
-      trackingDetector.setThresholds([threshold1, threshold2])
+    // Update the thresholds in the tracking detector
+    if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
+      trackingDetector.setThresholds([value, threshold2])
     }
   }
   
   // Threshold 2 slider changed
   @objc func threshold2Changed(_ sender: UISlider) {
-    threshold2 = CGFloat(sender.value)
-    updateThresholdLayer(threshold2Layer, position: threshold2)
-    labelThreshold2.text = "Threshold 2: " + String(format: "%.2f", sender.value)
+    let value = CGFloat(sender.value)
+    threshold2 = value
+    labelThreshold2.text = "Threshold 2: " + String(format: "%.2f", value)
+    updateThresholdLayer(threshold2Layer, position: value)
     
-    // Update tracking detector threshold if we're in fish count mode
-    if task == .fishCount, let trackingDetector = videoCapture.predictor as? TrackingDetector {
-      trackingDetector.setThresholds([threshold1, threshold2])
+    // Update the thresholds in the tracking detector
+    if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
+      trackingDetector.setThresholds([threshold1, value])
     }
   }
 
@@ -1762,9 +1764,18 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   // Toggle auto calibration
   @objc func toggleAutoCalibration() {
     if isCalibrating {
-      // Cancel calibration - restore split-colored "AUTO" text
+      // If currently calibrating, cancel it
+      if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
+        trackingDetector.setAutoCalibration(enabled: false)
+      }
+      
+      // Resume video processing by setting inferenceOK to true
+      currentFrameSource.inferenceOK = true
+      
+      // Reset calibration state flag
       isCalibrating = false
       
+      // Restore the AUTO split-color button text
       let autoAttributedText = NSMutableAttributedString()
       let auAttributes: [NSAttributedString.Key: Any] = [
         .foregroundColor: UIColor.red.withAlphaComponent(0.5),
@@ -1778,24 +1789,94 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       autoAttributedText.append(NSAttributedString(string: "TO", attributes: toAttributes))
       
       autoCalibrationButton.setAttributedTitle(autoAttributedText, for: .normal)
-      
-      // Resume video processing here when implemented
     } else {
-      // Start calibration - show ellipsis
+      // Not currently calibrating, so start calibration
       isCalibrating = true
       
-      // For "..." we'll use a blend of red and yellow
-      let dotsAttributedText = NSAttributedString(
-        string: "...",
+      // Show initial progress percentage
+      let progressText = NSAttributedString(
+        string: "0%",
         attributes: [
           .foregroundColor: UIColor.white.withAlphaComponent(0.5),
           .font: UIFont.systemFont(ofSize: 14, weight: .bold)
         ]
       )
       
-      autoCalibrationButton.setAttributedTitle(dotsAttributedText, for: .normal)
+      autoCalibrationButton.setAttributedTitle(progressText, for: .normal)
       
-      // Stop video processing here when implemented
+      // Set up callbacks for calibration progress and completion
+      if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
+        // Set up progress callback
+        trackingDetector.onCalibrationProgress = { [weak self] progress, total in
+          guard let self = self else { return }
+          
+          // Calculate percentage
+          let percentage = Int(Double(progress) / Double(total) * 100.0)
+          
+          // Update button text with progress percentage
+          DispatchQueue.main.async {
+            let progressText = NSAttributedString(
+              string: "\(percentage)%",
+              attributes: [
+                .foregroundColor: UIColor.white.withAlphaComponent(0.5),
+                .font: UIFont.systemFont(ofSize: 14, weight: .bold)
+              ]
+            )
+            
+            self.autoCalibrationButton.setAttributedTitle(progressText, for: .normal)
+          }
+        }
+        
+        // Set up completion callback
+        trackingDetector.onCalibrationComplete = { [weak self] thresholds in
+          guard let self = self else { return }
+          
+          // Update UI on the main thread
+          DispatchQueue.main.async {
+            // Update threshold sliders with new values
+            if thresholds.count >= 2 {
+              self.threshold1Slider.value = Float(thresholds[0])
+              self.threshold2Slider.value = Float(thresholds[1])
+              
+              // Update threshold labels
+              self.labelThreshold1.text = "Threshold 1: " + String(format: "%.2f", thresholds[0])
+              self.labelThreshold2.text = "Threshold 2: " + String(format: "%.2f", thresholds[1])
+              
+              // Update threshold lines
+              self.updateThresholdLayer(self.threshold1Layer, position: thresholds[0])
+              self.updateThresholdLayer(self.threshold2Layer, position: thresholds[1])
+              
+              // Store the new threshold values
+              self.threshold1 = thresholds[0]
+              self.threshold2 = thresholds[1]
+            }
+            
+            // Reset calibration state
+            self.isCalibrating = false
+            
+            // Restore the AUTO button text
+            let autoAttributedText = NSMutableAttributedString()
+            let auAttributes: [NSAttributedString.Key: Any] = [
+              .foregroundColor: UIColor.red.withAlphaComponent(0.5),
+              .font: UIFont.systemFont(ofSize: 14, weight: .bold)
+            ]
+            let toAttributes: [NSAttributedString.Key: Any] = [
+              .foregroundColor: UIColor.yellow.withAlphaComponent(0.5),
+              .font: UIFont.systemFont(ofSize: 14, weight: .bold)
+            ]
+            autoAttributedText.append(NSAttributedString(string: "AU", attributes: auAttributes))
+            autoAttributedText.append(NSAttributedString(string: "TO", attributes: toAttributes))
+            
+            self.autoCalibrationButton.setAttributedTitle(autoAttributedText, for: .normal)
+          }
+        }
+        
+        // Start auto-calibration
+        trackingDetector.setAutoCalibration(enabled: true)
+        
+        // Pause normal inference during calibration
+        currentFrameSource.inferenceOK = false
+      }
     }
   }
 

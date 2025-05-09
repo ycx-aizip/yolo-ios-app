@@ -240,8 +240,39 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
         }
       }
       
-      // Process with predictor - this happens on camera queue
-      predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
+      // Check if we should process for calibration
+      let shouldProcessForCalibration = !inferenceOK && predictor is TrackingDetector
+      
+      if shouldProcessForCalibration {
+        // Create a UIImage from the pixel buffer to safely pass across threads
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        let context = CIContext()
+        
+        if let cgImage = context.createCGImage(ciImage, from: ciImage.extent) {
+          let image = UIImage(cgImage: cgImage)
+          
+          // Process on main thread for auto-calibration
+          DispatchQueue.main.async { [weak self] in
+            guard let self = self,
+                  let trackingDetector = self.predictor as? TrackingDetector else { return }
+                  
+            // Convert UIImage back to CVPixelBuffer
+            if let pixelBufferForCalibration = self.createStandardPixelBuffer(from: image, forSourceType: self.sourceType) {
+              // Process the frame for calibration
+              trackingDetector.processFrame(pixelBufferForCalibration)
+            }
+          }
+        }
+        
+        // Skip regular inference
+        return
+      }
+      
+      // Only run regular inference if inferenceOK is true (not calibrating)
+      if inferenceOK {
+        // Process with predictor - this happens on camera queue
+        predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
+      }
     }
   }
 
@@ -348,10 +379,8 @@ extension CameraVideoSource: AVCaptureVideoDataOutputSampleBufferDelegate {
     _ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
     from connection: AVCaptureConnection
   ) {
-    guard inferenceOK else { return }
-    
-    // Process the frame directly on the camera queue instead of dispatching to main thread
-    // This avoids data races with the sample buffer
+    // Always process frames, regardless of inferenceOK state
+    // inferenceOK will control whether to run normal inference or calibration
     processFrameOnCameraQueue(sampleBuffer: sampleBuffer)
   }
 }

@@ -89,6 +89,9 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     /// Flag indicating if processing is active.
     private var isProcessing: Bool = false
     
+    /// Flag indicating if inference should be performed on frames
+    var inferenceOK: Bool = true
+    
     /// The preview layer for displaying the source's visual output.
     private var _previewLayer: AVPlayerLayer?
     var previewLayer: AVCaptureVideoPreviewLayer? {
@@ -109,6 +112,8 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     
     override init() {
         super.init()
+        // Explicitly set inferenceOK to true to prevent automatic calibration
+        inferenceOK = true
     }
     
     deinit {
@@ -439,10 +444,18 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         
         // Try to get frame from asset reader first (more efficient)
         if let frame = getNextFrameFromAssetReader() {
+            // Always pass the frame to the delegate for display
             processFrame(frame)
             
-            // Create sample buffer from UIImage to process with predictor
-            if let sampleBuffer = createSampleBufferFrom(image: frame) {
+            // Check if we need to handle calibration
+            if !inferenceOK, let trackingDetector = predictor as? TrackingDetector,
+               let pixelBuffer = createStandardPixelBuffer(from: frame, forSourceType: .videoFile) {
+                
+                // Already on main actor, can call directly
+                trackingDetector.processFrame(pixelBuffer)
+            }
+            // Only perform normal inference if inferenceOK is true
+            else if inferenceOK, let sampleBuffer = createSampleBufferFrom(image: frame) {
                 // Process with predictor - using self as the results and inference time listener
                 predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
             }
@@ -468,35 +481,31 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
                 frameSizeCaptured = true
             }
             
-            // Convert CVPixelBuffer to UIImage using original working method
+            // Convert CVPixelBuffer to UIImage for display
             let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
             let context = CIContext()
             if let cgImage = context.createCGImage(ciImage, from: ciImage.extent) {
                 let image = UIImage(cgImage: cgImage)
                 
-                // Capture necessary values before dispatching to main thread
-                let capturedImage = image
-                let capturedTime = currentTime
-                let capturedDeltaTime = deltaTime
-                
-                // Pass the frame to delegate on the main thread
+                // Pass the frame to delegate for display
                 Task { @MainActor in
-                    self.delegate?.frameSource(self, didOutputImage: capturedImage)
+                    self.delegate?.frameSource(self, didOutputImage: image)
                 }
                 
-                // Create sample buffer from pixelBuffer to process with predictor
-                // Use the pixel buffer directly for prediction
-                let sampleBuffer = createSampleBufferFrom(pixelBuffer: pixelBuffer)
-                if let sampleBuffer = sampleBuffer {
-                    predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
+                // Check if we need to handle calibration
+                if !inferenceOK, let trackingDetector = predictor as? TrackingDetector {
+                    // Already on main actor, can call directly
+                    trackingDetector.processFrame(pixelBuffer)
                 }
-                
-                // Track and report performance metrics only if we didn't succeed with prediction
-                // (otherwise the InferenceTimeListener will handle it)
-                if sampleBuffer == nil {
-                    Task { @MainActor in
-                        let processingTime = CACurrentMediaTime() - capturedTime
-                        updatePerformanceMetrics(processingTime: processingTime, frameTime: capturedDeltaTime)
+                // Only perform normal inference if inferenceOK is true
+                else if inferenceOK {
+                    // Create sample buffer for inference
+                    if let sampleBuffer = createSampleBufferFrom(pixelBuffer: pixelBuffer) {
+                        predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
+                    } else {
+                        // Track and report performance metrics only if we didn't succeed with prediction
+                        let processingTime = CACurrentMediaTime() - currentTime
+                        updatePerformanceMetrics(processingTime: processingTime, frameTime: deltaTime)
                     }
                 }
             }
@@ -508,9 +517,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
             stopMainActorIsolated()
             
             // Notify that playback has completed via a notification
-            Task { @MainActor in
-                NotificationCenter.default.post(name: .videoPlaybackDidEnd, object: self)
-            }
+            NotificationCenter.default.post(name: .videoPlaybackDidEnd, object: self)
         }
     }
     

@@ -73,6 +73,31 @@ class TrackingDetector: ObjectDetector {
     /// Frame counter for less frequent cleanup
     private var frameCount: Int = 0
     
+    // MARK: - Auto-calibration properties
+    
+    /// Flag indicating if auto-calibration is enabled
+    private var isAutoCalibrationEnabled: Bool = false
+    
+    /// Flag indicating if calibration has been completed
+    private var isCalibrated: Bool = false
+    
+    /// Buffer to store frames during calibration
+    private var calibrationFrameBuffer: [CVPixelBuffer] = []
+    
+    /// Number of frames to collect for calibration (approx. 5 seconds at 30fps)
+    private var calibrationFrameCount: Int = CalibrationUtils.defaultCalibrationFrameCount
+    
+    /// Reference to the current frame being processed
+    private var currentPixelBuffer: CVPixelBuffer?
+    
+    /// Callback for reporting calibration progress
+    var onCalibrationProgress: ((Int, Int) -> Void)?
+    
+    /// Callback for reporting calibration completion with new thresholds
+    var onCalibrationComplete: (([CGFloat]) -> Void)?
+    
+    // MARK: - Threshold management
+    
     /// Sets the thresholds for counting
     @MainActor
     func setThresholds(_ values: [CGFloat]) {
@@ -121,6 +146,76 @@ class TrackingDetector: ObjectDetector {
         
         // Update tracking parameters based on the new direction
         TrackingParameters.updateParametersForCountingDirection(direction)
+        
+        // Reset calibration state when changing direction
+        resetCalibration()
+    }
+    
+    // MARK: - Auto-calibration methods
+    
+    /// Enable or disable auto-calibration
+    @MainActor
+    func setAutoCalibration(enabled: Bool) {
+        isAutoCalibrationEnabled = enabled
+        
+        if enabled {
+            // Reset calibration state when enabling
+            resetCalibration()
+        }
+    }
+    
+    /// Reset calibration state
+    @MainActor
+    private func resetCalibration() {
+        isCalibrated = false
+        calibrationFrameBuffer.removeAll(keepingCapacity: true)
+    }
+    
+    /// Add a frame to the calibration buffer
+    @MainActor
+    private func addFrameToCalibrationBuffer(_ pixelBuffer: CVPixelBuffer) {
+        // Skip if we already have enough frames or calibration is completed
+        if calibrationFrameBuffer.count >= calibrationFrameCount || isCalibrated {
+            return
+        }
+        
+        // Add the frame to the buffer
+        calibrationFrameBuffer.append(pixelBuffer)
+        
+        // Report progress via callback
+        let progress = calibrationFrameBuffer.count
+        onCalibrationProgress?(progress, calibrationFrameCount)
+        
+        // Perform calibration if we have collected enough frames
+        if calibrationFrameBuffer.count >= calibrationFrameCount {
+            performCalibration()
+        }
+    }
+    
+    /// Perform calibration calculation on collected frames
+    @MainActor
+    private func performCalibration() {
+        // Calculate new thresholds from collected frames
+        let (threshold1, threshold2) = CalibrationUtils.calculateThresholds(
+            from: calibrationFrameBuffer,
+            direction: countingDirection
+        )
+        
+        // Set the new thresholds
+        thresholds = [threshold1, threshold2]
+        
+        // Mark calibration as completed
+        isCalibrated = true
+        isAutoCalibrationEnabled = false
+        
+        // Clear buffer to free memory
+        calibrationFrameBuffer.removeAll(keepingCapacity: true)
+        
+        // Clear any previous counting state to ensure new thresholds are used
+        countedTracks.removeAll(keepingCapacity: true)
+        
+        // Notify completion via callback
+        onCalibrationComplete?(thresholds)
     }
     
     /**
@@ -132,7 +227,22 @@ class TrackingDetector: ObjectDetector {
      * - Updates tracking state and performs counting logic
      */
     override func processObservations(for request: VNRequest, error: Error?) {
+        // Save the current pixel buffer for potential calibration use
+        let capturedPixelBuffer = currentPixelBuffer
+        
+        // Process results if available
         if let results = request.results as? [VNRecognizedObjectObservation] {
+            // First check if we're in calibration mode
+            if isAutoCalibrationEnabled, let pixelBuffer = capturedPixelBuffer {
+                // Add the frame to calibration buffer on the main actor
+                Task { @MainActor in
+                    self.addFrameToCalibrationBuffer(pixelBuffer)
+                }
+                
+                // Skip normal detection processing during calibration
+                return
+            }
+            
             var boxes: [Box] = []
             var detectionBoxes: [Box] = []
             var scores: [Float] = []
@@ -192,6 +302,22 @@ class TrackingDetector: ObjectDetector {
         }
     }
     
+    /// Process a frame for either calibration or normal inference
+    @MainActor
+    func processFrame(_ pixelBuffer: CVPixelBuffer) {
+        // Store the pixel buffer for use in processObservations
+        currentPixelBuffer = pixelBuffer
+        
+        // If in calibration mode, process directly here
+        if isAutoCalibrationEnabled {
+            addFrameToCalibrationBuffer(pixelBuffer)
+            return
+        }
+        
+        // For normal processing, the existing Vision pipeline will be used,
+        // which will call processObservations
+    }
+    
     /**
      * updateCounting
      *
@@ -203,6 +329,11 @@ class TrackingDetector: ObjectDetector {
      */
     @MainActor
     private func updateCounting() {
+        // Skip if in calibration mode
+        if isAutoCalibrationEnabled {
+            return
+        }
+        
         // Get the expected direction of movement for the current counting direction
         let expectedDirection = expectedMovementDirection(for: countingDirection)
         
