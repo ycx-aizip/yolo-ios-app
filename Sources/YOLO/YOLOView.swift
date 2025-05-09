@@ -122,6 +122,10 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   public var threshold1: CGFloat = 0.3 // Add threshold1 property with default value
   public var threshold2: CGFloat = 0.5 // Add threshold2 property with default value
   
+  // Auto calibration button
+  public var autoCalibrationButton = UIButton()
+  public var isCalibrating = false
+  
   // Fish Count display and reset
   public var labelFishCount = UILabel()
   public var resetButton = UIButton()
@@ -957,7 +961,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     self.addSubview(sliderConf)
 
     labelSliderIoU.text = "IoU: 0.5"
-    labelSliderIoU.textAlignment = .left
+    labelSliderIoU.textAlignment = .right
     labelSliderIoU.textColor = .white
     labelSliderIoU.font = UIFont.systemFont(ofSize: 16, weight: .medium)
     self.addSubview(labelSliderIoU)
@@ -992,7 +996,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     let threshold2Value = String(format: "%.2f", 0.5)
     labelThreshold2.text = "Threshold 2: " + threshold2Value
-    labelThreshold2.textAlignment = .left
+    labelThreshold2.textAlignment = .right
     labelThreshold2.textColor = UIColor.yellow
     labelThreshold2.font = UIFont.systemFont(ofSize: 16, weight: .medium)
     self.addSubview(labelThreshold2)
@@ -1004,6 +1008,27 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     threshold2Slider.maximumTrackTintColor = UIColor.lightGray
     threshold2Slider.addTarget(self, action: #selector(threshold2Changed), for: .valueChanged)
     self.addSubview(threshold2Slider)
+
+    // Initialize auto-calibration button
+    // Use attributed string for split-colored text
+    let autoAttributedText = NSMutableAttributedString()
+    let auAttributes: [NSAttributedString.Key: Any] = [
+      .foregroundColor: UIColor.red.withAlphaComponent(0.5),
+      .font: UIFont.systemFont(ofSize: 14, weight: .bold)
+    ]
+    let toAttributes: [NSAttributedString.Key: Any] = [
+      .foregroundColor: UIColor.yellow.withAlphaComponent(0.5),
+      .font: UIFont.systemFont(ofSize: 14, weight: .bold)
+    ]
+    autoAttributedText.append(NSAttributedString(string: "AU", attributes: auAttributes))
+    autoAttributedText.append(NSAttributedString(string: "TO", attributes: toAttributes))
+    
+    autoCalibrationButton.setAttributedTitle(autoAttributedText, for: .normal)
+    autoCalibrationButton.backgroundColor = UIColor.darkGray.withAlphaComponent(0.1)
+    autoCalibrationButton.layer.cornerRadius = 12
+    autoCalibrationButton.layer.masksToBounds = true
+    autoCalibrationButton.addTarget(self, action: #selector(toggleAutoCalibration), for: .touchUpInside)
+    self.addSubview(autoCalibrationButton)
 
     // Initialize Fish Count display and Reset button
     labelFishCount.text = "Fish Count: 0"
@@ -1163,6 +1188,16 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         height: sliderHeight
       )
       
+      // AUTO button (positioned at the same height as threshold labels) - LANDSCAPE
+      let autoButtonWidthLandscape = width * 0.08
+      let autoButtonHeightLandscape: CGFloat = 24
+      autoCalibrationButton.frame = CGRect(
+        x: width * 0.5 - autoButtonWidthLandscape / 2,
+        y: secondRowY,
+        width: autoButtonWidthLandscape,
+        height: autoButtonHeightLandscape
+      )
+      
       // Right side - Threshold 2 (second row right)
       labelThreshold2.frame = CGRect(
         x: width - width * 0.05 - sliderWidth,
@@ -1170,6 +1205,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         width: sliderWidth,
         height: sliderLabelHeight
       )
+      labelThreshold2.textAlignment = .right
       
       threshold2Slider.frame = CGRect(
         x: width - width * 0.05 - sliderWidth,
@@ -1195,13 +1231,14 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         height: sliderHeight
       )
       
-      // Right side - IoU (third row right)
+      // Right side - IoU (third row right, properly right-aligned)
       labelSliderIoU.frame = CGRect(
         x: width - width * 0.05 - sliderWidth,
         y: thirdRowY,
         width: sliderWidth,
         height: sliderLabelHeight
       )
+      labelSliderIoU.textAlignment = .right
       
       sliderIoU.frame = CGRect(
         x: width - width * 0.05 - sliderWidth,
@@ -1322,9 +1359,10 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       labelSliderIoU.frame = CGRect(
         x: width * 0.55,
         y: sliderY - sliderLabelHeight - 5,
-        width: sliderWidth * 0.5,
+        width: sliderWidth,
         height: sliderLabelHeight
       )
+      labelSliderIoU.textAlignment = .right
       
       sliderIoU.frame = CGRect(
         x: width * 0.55,
@@ -1371,12 +1409,23 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         height: sliderHeight
       )
       
+      // AUTO button (positioned at the same height as threshold labels) - PORTRAIT
+      let autoButtonWidthPortrait = width * 0.18
+      let autoButtonHeightPortrait: CGFloat = 24
+      autoCalibrationButton.frame = CGRect(
+        x: (width - autoButtonWidthPortrait) / 2,
+        y: thresholdY - sliderLabelHeight,
+        width: autoButtonWidthPortrait,
+        height: autoButtonHeightPortrait
+      )
+      
       labelThreshold2.frame = CGRect(
         x: width * 0.55,
         y: thresholdY - sliderLabelHeight - 5,
         width: sliderWidth,
         height: sliderLabelHeight
       )
+      labelThreshold2.textAlignment = .right
       
       threshold2Slider.frame = CGRect(
         x: width * 0.55,
@@ -1710,6 +1759,46 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     }
   }
 
+  // Toggle auto calibration
+  @objc func toggleAutoCalibration() {
+    if isCalibrating {
+      // Cancel calibration - restore split-colored "AUTO" text
+      isCalibrating = false
+      
+      let autoAttributedText = NSMutableAttributedString()
+      let auAttributes: [NSAttributedString.Key: Any] = [
+        .foregroundColor: UIColor.red.withAlphaComponent(0.5),
+        .font: UIFont.systemFont(ofSize: 14, weight: .bold)
+      ]
+      let toAttributes: [NSAttributedString.Key: Any] = [
+        .foregroundColor: UIColor.yellow.withAlphaComponent(0.5),
+        .font: UIFont.systemFont(ofSize: 14, weight: .bold)
+      ]
+      autoAttributedText.append(NSAttributedString(string: "AU", attributes: auAttributes))
+      autoAttributedText.append(NSAttributedString(string: "TO", attributes: toAttributes))
+      
+      autoCalibrationButton.setAttributedTitle(autoAttributedText, for: .normal)
+      
+      // Resume video processing here when implemented
+    } else {
+      // Start calibration - show ellipsis
+      isCalibrating = true
+      
+      // For "..." we'll use a blend of red and yellow
+      let dotsAttributedText = NSAttributedString(
+        string: "...",
+        attributes: [
+          .foregroundColor: UIColor.white.withAlphaComponent(0.5),
+          .font: UIFont.systemFont(ofSize: 14, weight: .bold)
+        ]
+      )
+      
+      autoCalibrationButton.setAttributedTitle(dotsAttributedText, for: .normal)
+      
+      // Stop video processing here when implemented
+    }
+  }
+
   // Method to switch between frame sources
   public func switchToFrameSource(_ sourceType: FrameSourceType) {
     // Already using this source type
@@ -1905,7 +1994,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     alert.addAction(albumAction)
     
     // Add placeholder for DJI OSMO
-    let djiOsmoAction = UIAlertAction(title: "DJI OSMO", style: .default) { _ in
+    let djiOsmoAction = UIAlertAction(title: "Webcam", style: .default) { _ in
       // This will be implemented in the future
     }
     djiOsmoAction.isEnabled = false
