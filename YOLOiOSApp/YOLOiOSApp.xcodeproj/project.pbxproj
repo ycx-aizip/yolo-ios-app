@@ -18,23 +18,23 @@
 		73D95D192D45DAA50050E640 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 73D95D182D45DAA50050E640 /* ZIPFoundation */; };
 		73D95D1B2D45DB800050E640 /* RemoteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73D95D1A2D45DB800050E640 /* RemoteModels.swift */; };
 		E1374EDD2DA62A7400DD5959 /* softbanklogo.png in Resources */ = {isa = PBXBuildFile; fileRef = E1374EDC2DA62A7400DD5959 /* softbanklogo.png */; };
-		E16438472DCE85E600D3B7C0 /* OpenCVBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = E16438452DCE85E600D3B7C0 /* OpenCVBridge.mm */; };
-		E16438482DCE85E600D3B7C0 /* OpenCVTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16438462DCE85E600D3B7C0 /* OpenCVTester.swift */; };
+		E1639E532DCF7CB80028276C /* OpenCVTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1639E522DCF7CB80028276C /* OpenCVTester.swift */; };
+		E1639E542DCF7CB80028276C /* OpenCVBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = E1639E512DCF7CB80028276C /* OpenCVBridge.mm */; };
 		E185A6212D9D260400E074A2 /* FishCountModels in Resources */ = {isa = PBXBuildFile; fileRef = E185A6202D9D25F600E074A2 /* FishCountModels */; };
-		E1B05AC32DCEC46B00AE2BCC /* opencv2.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E10E38132DCEC1A000F70415 /* opencv2.framework */; };
-		E1B05AC42DCEC46B00AE2BCC /* opencv2.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E10E38132DCEC1A000F70415 /* opencv2.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		E1E621DC2DCF7F790072DCB5 /* opencv2.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1E621DB2DCF7F790072DCB5 /* opencv2.framework */; };
+		E1E621DD2DCF7F790072DCB5 /* opencv2.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E1E621DB2DCF7F790072DCB5 /* opencv2.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E1FF1D5A2DA3B44D0002F90D /* aiziplogo.png in Resources */ = {isa = PBXBuildFile; fileRef = E1FF1D592DA3B44D0002F90D /* aiziplogo.png */; };
 		E1FF1D5C2DA3B45A0002F90D /* fish_counting_logo.png in Resources */ = {isa = PBXBuildFile; fileRef = E1FF1D5B2DA3B45A0002F90D /* fish_counting_logo.png */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		E1B05AC52DCEC46B00AE2BCC /* Embed Frameworks */ = {
+		E1E621DE2DCF7F790072DCB5 /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				E1B05AC42DCEC46B00AE2BCC /* opencv2.framework in Embed Frameworks */,
+				E1E621DD2DCF7F790072DCB5 /* opencv2.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -52,12 +52,12 @@
 		73D95D152D45DA510050E640 /* ModelDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownloadManager.swift; sourceTree = "<group>"; };
 		73D95D1A2D45DB800050E640 /* RemoteModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteModels.swift; sourceTree = "<group>"; };
 		7BCB411721C3096100BFC4D0 /* YOLOiOSApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = YOLOiOSApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		E10E38132DCEC1A000F70415 /* opencv2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = opencv2.framework; path = Packages/ios/opencv2.framework; sourceTree = "<group>"; };
 		E1374EDC2DA62A7400DD5959 /* softbanklogo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = softbanklogo.png; sourceTree = "<group>"; };
-		E16438442DCE85E600D3B7C0 /* OpenCVBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OpenCVBridge.h; sourceTree = "<group>"; };
-		E16438452DCE85E600D3B7C0 /* OpenCVBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = OpenCVBridge.mm; sourceTree = "<group>"; };
-		E16438462DCE85E600D3B7C0 /* OpenCVTester.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCVTester.swift; sourceTree = "<group>"; };
+		E1639E502DCF7CB80028276C /* OpenCVBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OpenCVBridge.h; sourceTree = "<group>"; };
+		E1639E512DCF7CB80028276C /* OpenCVBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = OpenCVBridge.mm; sourceTree = "<group>"; };
+		E1639E522DCF7CB80028276C /* OpenCVTester.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCVTester.swift; sourceTree = "<group>"; };
 		E185A6202D9D25F600E074A2 /* FishCountModels */ = {isa = PBXFileReference; lastKnownFileType = folder; path = FishCountModels; sourceTree = "<group>"; };
+		E1E621DB2DCF7F790072DCB5 /* opencv2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = opencv2.framework; path = Packages/ios/opencv2.framework; sourceTree = "<group>"; };
 		E1FF1D592DA3B44D0002F90D /* aiziplogo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = aiziplogo.png; sourceTree = "<group>"; };
 		E1FF1D5B2DA3B45A0002F90D /* fish_counting_logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = fish_counting_logo.png; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -67,7 +67,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E1B05AC32DCEC46B00AE2BCC /* opencv2.framework in Frameworks */,
+				E1E621DC2DCF7F790072DCB5 /* opencv2.framework in Frameworks */,
 				73220ED32D373C2E00A94B92 /* YOLO in Frameworks */,
 				73D95D192D45DAA50050E640 /* ZIPFoundation in Frameworks */,
 			);
@@ -98,9 +98,9 @@
 		7BCB410E21C3096100BFC4D0 = {
 			isa = PBXGroup;
 			children = (
-				E16438442DCE85E600D3B7C0 /* OpenCVBridge.h */,
-				E16438452DCE85E600D3B7C0 /* OpenCVBridge.mm */,
-				E16438462DCE85E600D3B7C0 /* OpenCVTester.swift */,
+				E1639E502DCF7CB80028276C /* OpenCVBridge.h */,
+				E1639E512DCF7CB80028276C /* OpenCVBridge.mm */,
+				E1639E522DCF7CB80028276C /* OpenCVTester.swift */,
 				E185A6202D9D25F600E074A2 /* FishCountModels */,
 				636EFC9B21E62DD300DE43BC /* YOLOiOSApp */,
 				E1FDF3BE2DCE7A3100DCD998 /* Frameworks */,
@@ -119,7 +119,7 @@
 		E1FDF3BE2DCE7A3100DCD998 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				E10E38132DCEC1A000F70415 /* opencv2.framework */,
+				E1E621DB2DCF7F790072DCB5 /* opencv2.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -135,7 +135,7 @@
 				7BCB411321C3096100BFC4D0 /* Sources */,
 				7BCB411421C3096100BFC4D0 /* Frameworks */,
 				7BCB411521C3096100BFC4D0 /* Resources */,
-				E1B05AC52DCEC46B00AE2BCC /* Embed Frameworks */,
+				E1E621DE2DCF7F790072DCB5 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -230,9 +230,9 @@
 			files = (
 				73D95D162D45DA510050E640 /* ModelDownloadManager.swift in Sources */,
 				73D95D1B2D45DB800050E640 /* RemoteModels.swift in Sources */,
-				E16438472DCE85E600D3B7C0 /* OpenCVBridge.mm in Sources */,
-				E16438482DCE85E600D3B7C0 /* OpenCVTester.swift in Sources */,
 				636EFCB321E62DD300DE43BC /* AppDelegate.swift in Sources */,
+				E1639E532DCF7CB80028276C /* OpenCVTester.swift in Sources */,
+				E1639E542DCF7CB80028276C /* OpenCVBridge.mm in Sources */,
 				636EFCAA21E62DD300DE43BC /* ViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -366,6 +366,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 4MATMK348L;
@@ -386,6 +387,7 @@
 				OTHER_LDFLAGS = "-lc++";
 				PRODUCT_BUNDLE_IDENTIFIER = com.aizip.fishcount;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
@@ -403,6 +405,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 4MATMK348L;
@@ -423,6 +426,7 @@
 				OTHER_LDFLAGS = "-lc++";
 				PRODUCT_BUNDLE_IDENTIFIER = com.aizip.fishcount;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
