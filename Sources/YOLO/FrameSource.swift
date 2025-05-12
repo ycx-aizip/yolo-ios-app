@@ -38,7 +38,7 @@ typealias FrameProcessor = Predictor
 /// Standard settings and utilities for frame sources
 enum FrameSourceSettings {
     /// Standard pixel format to use for video file sources (used in AlbumVideoSource)
-    static let videoSourcePixelFormat = kCVPixelFormatType_32ARGB
+    static let videoSourcePixelFormat = kCVPixelFormatType_32BGRA
     
     /// Standard pixel format to use for camera sources (used in CameraVideoSource)
     static let cameraSourcePixelFormat = kCVPixelFormatType_32BGRA
@@ -55,7 +55,7 @@ enum FrameSourceSettings {
     - Alpha: Premultiplied alpha
     
     For Video File Sources:
-    - Pixel Format: 32-bit ARGB (kCVPixelFormatType_32ARGB)
+    - Pixel Format: 32-bit BGRA (kCVPixelFormatType_32BGRA)
     - Orientation: Device orientation corrected (right-side up)
     - Color Space: Device RGB color space
     - Alpha: Premultiplied alpha

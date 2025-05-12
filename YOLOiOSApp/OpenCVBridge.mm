@@ -33,6 +33,9 @@
     size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
     OSType pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer);
     
+    // Debug log the pixel format
+    NSLog(@"Processing pixel buffer with format: %d (width: %zu, height: %zu)", pixelFormat, width, height);
+    
     cv::Mat mat;
     
     if (pixelFormat == kCVPixelFormatType_32BGRA) {
@@ -43,6 +46,15 @@
     } else if (pixelFormat == kCVPixelFormatType_24RGB) {
         cv::Mat rgb((int)height, (int)width, CV_8UC3, baseAddress, bytesPerRow);
         cv::cvtColor(rgb, mat, cv::COLOR_RGB2BGR);
+    } else if (pixelFormat == kCVPixelFormatType_32ARGB) {
+        // Handle 32-bit ARGB format (which is likely format 32)
+        cv::Mat argb((int)height, (int)width, CV_8UC4, baseAddress, bytesPerRow);
+        cv::cvtColor(argb, mat, cv::COLOR_BGRA2RGBA);  // Convert ARGB to format OpenCV can work with
+    } else if (pixelFormat == 32) {
+        // Direct support for format 32 if it's different from kCVPixelFormatType_32ARGB
+        NSLog(@"Using direct support for pixel format 32");
+        cv::Mat argb((int)height, (int)width, CV_8UC4, baseAddress, bytesPerRow);
+        cv::cvtColor(argb, mat, cv::COLOR_BGRA2RGBA);
     } else {
         NSLog(@"Unsupported CVPixelBuffer format: %d", pixelFormat);
         mat = cv::Mat();
