@@ -2178,24 +2178,32 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         // Timeout handling
         let timeoutTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
             if connectionResult == nil {
-                connectionResult = .failure(NSError(
+                // Create timeout error
+                let timeoutError = NSError(
                     domain: "GoProSource",
-                    code: 4,
-                    userInfo: [NSLocalizedDescriptionKey: "Connection timed out"]
-                ))
+                    code: NSURLErrorTimedOut,
+                    userInfo: [NSLocalizedDescriptionKey: "Connection timed out. Please verify you are connected to the GoPro WiFi network."]
+                )
+                connectionResult = .failure(timeoutError)
                 taskGroup.leave()
             }
         }
         
         // Check GoPro connection
         goProSource.checkConnection { result in
-            connectionResult = result
-            timeoutTimer.invalidate()
-            taskGroup.leave()
+            // Only process result if we haven't timed out
+            if connectionResult == nil {
+                connectionResult = result
+                timeoutTimer.invalidate()
+                taskGroup.leave()
+            }
         }
         
         // After completion (success or failure)
         taskGroup.notify(queue: .main) {
+            // Always invalidate timer
+            timeoutTimer.invalidate()
+            
             loadingAlert.dismiss(animated: true) {
                 // Handle any unexpected errors gracefully
                 guard let result = connectionResult else {
@@ -2230,18 +2238,11 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
                 case .failure(let error):
                     print("GoPro: Connection failed - \(error.localizedDescription)")
                     
-                    // Extract the message from the error
-                    let errorMessage: String
-                    if let nsError = error as NSError? {
-                        // Use the localized description from the error if available
-                        errorMessage = nsError.localizedDescription
-                    } else {
-                        // Default message
-                        errorMessage = "Could not connect to GoPro. Please verify you are connected to the GoPro WiFi network."
-                    }
-                    
-                    // Show the error with retry option
-                    self.showConnectionError(viewController: viewController, message: errorMessage)
+                    // Show error with retry option
+                    self.showConnectionError(
+                        viewController: viewController,
+                        message: error.localizedDescription
+                    )
                 }
             }
         }
