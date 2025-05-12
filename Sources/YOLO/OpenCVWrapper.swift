@@ -400,8 +400,9 @@ import ObjectiveC  // For Objective-C runtime functions
             return nil
         }
         
-        // Calculate kernel size as 5% of the projection length or at least 5
-        let kernelSize = max(5, Int(Double(projectionValues.count) * 0.05))
+        // Calculate kernel size as max(5, height//20) or max(5, width//20) depending on direction
+        let dimension = isVerticalDirection ? Int(image.size.height) : Int(image.size.width)
+        let kernelSize = max(5, dimension / 20)
         
         // Smooth the projection
         guard let smoothedProjection = smoothArray(projectionValues, kernelSize: kernelSize) else {
@@ -414,7 +415,8 @@ import ObjectiveC  // For Objective-C runtime functions
             Int(Double(image.size.height) * 0.25) : 
             Int(Double(image.size.width) * 0.25)
         
-        guard let peaks = findPeaksInArray(smoothedProjection, minDistance: minPeakDistance, prominence: 100.0) else {
+        // Pass 0 for prominence parameter to match Python implementation (no explicit prominence specified)
+        guard let peaks = findPeaksInArray(smoothedProjection, minDistance: minPeakDistance, prominence: 0.0) else {
             print("Failed to find peaks")
             return nil
         }

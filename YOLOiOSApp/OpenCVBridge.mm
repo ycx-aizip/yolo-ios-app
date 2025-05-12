@@ -41,8 +41,8 @@
     // Create a CGContextRef from the pixel buffer data
     CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
     CGContextRef context = CGBitmapContextCreate(baseAddress, width, height, 8,
-                                               bytesPerRow, colorSpace,
-                                               kCGBitmapByteOrder32Little | kCGImageAlphaPremultipliedFirst);
+                                                bytesPerRow, colorSpace,
+                                                kCGBitmapByteOrder32Little | kCGImageAlphaPremultipliedFirst);
     
     // Create a CGImage from the context
     CGImageRef quartzImage = CGBitmapContextCreateImage(context);
@@ -267,7 +267,7 @@
     // Convert UIImage to cv::Mat
     cv::Mat inputMat = [self cvMatFromUIImage:image];
     
-    // Apply Gaussian blur
+    // Apply Gaussian blur with sigma=0 to match Python
     cv::Mat blurredMat;
     cv::GaussianBlur(inputMat, blurredMat, cv::Size(kernelSize, kernelSize), 0);
     
@@ -329,9 +329,9 @@
         grayMat = inputMat;
     }
     
-    // Apply Canny edge detection
+    // Apply Canny edge detection with default aperture size=3 to match Python
     cv::Mat edgesMat;
-    cv::Canny(grayMat, edgesMat, threshold1, threshold2);
+    cv::Canny(grayMat, edgesMat, threshold1, threshold2, 3);
     
     // Create grayscale image with proper format
     CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceGray();
@@ -469,7 +469,7 @@
         float next = [array[i+1] floatValue];
         
         // Check if this point is a local maximum
-        if (current > prev && current > next && current > prominence) {
+        if (current > prev && current > next) {
             // Check if it's far enough from existing peaks
             BOOL isFarEnough = YES;
             for (NSNumber *existingPeak in peaks) {

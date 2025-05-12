@@ -19,8 +19,8 @@ public enum CountingDirection {
 
 /// Calibration utilities for auto threshold detection
 public class CalibrationUtils {
-    /// Default frame count for calibration (approximately 5 seconds at 30fps)
-    public static let defaultCalibrationFrameCount = 90  // Reduced from 150 to prevent memory issues
+    /// Default frame count for calibration (10 seconds at 30fps)
+    public static let defaultCalibrationFrameCount = 30  // 10 seconds at 30fps to match Python version
     
     /// Test function to verify OpenCV access from the YOLO package
     /// This comprehensive test checks:
@@ -92,25 +92,12 @@ public class CalibrationUtils {
         var threshold1Values: [CGFloat] = []
         var threshold2Values: [CGFloat] = []
         
-        // Memory optimization: Only process a subset of frames
-        // Take frames at regular intervals to ensure good coverage
-        let framesToProcess = min(15, frames.count)  // Process at most 15 frames
-        let interval = max(1, frames.count / framesToProcess)
+        // Process all frames without skipping to match Python implementation
+        print("Processing all \(frames.count) frames for calibration without skipping")
         
-        // Create a temporary array of frames to process
-        var selectedFrames: [CVPixelBuffer] = []
-        for i in 0..<frames.count where i % interval == 0 {
-            selectedFrames.append(frames[i])
-            if selectedFrames.count >= framesToProcess {
-                break
-            }
-        }
-        
-        print("Memory optimization: Processing \(selectedFrames.count) out of \(frames.count) frames")
-        
-        // Process each selected frame individually
-        for (index, frame) in selectedFrames.enumerated() {
-            print("Processing calibration frame \(index)/\(selectedFrames.count)")
+        // Process each frame individually
+        for (index, frame) in frames.enumerated() {
+            print("Processing calibration frame \(index+1)/\(frames.count)")
             
             // Process the frame through OpenCV
             if let thresholdArray = OpenCVWrapper.processCalibrationFrame(frame, isVerticalDirection: isVerticalDirection),
@@ -127,9 +114,6 @@ public class CalibrationUtils {
                 // This ensures temporary objects are released
             }
         }
-        
-        // Clear reference to selectedFrames to help with memory management
-        selectedFrames.removeAll()
         
         // Return default values if we couldn't get any valid results
         if threshold1Values.isEmpty || threshold2Values.isEmpty {
