@@ -2123,16 +2123,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     let goProAction = UIAlertAction(title: "GoPro Hero", style: .default) { [weak self] _ in
       guard let self = self, let viewController = topViewController else { return }
       
-      // Show connection instructions alert
-      let connectionAlert = UIAlertController(
-        title: "GoPro Connection Required",
-        message: "Please connect to GoPro WiFi via GoPro Quik",
-        preferredStyle: .alert
-      )
-      
-      connectionAlert.addAction(UIAlertAction(title: "OK", style: .default))
-      
-      viewController.present(connectionAlert, animated: true)
+      // Show connection instructions alert with Back and Next buttons
+      self.showGoProConnectionPrompt(viewController: viewController)
     }
     
     alert.addAction(goProAction)
@@ -2148,6 +2140,134 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     // Present the alert
     viewController.present(alert, animated: true, completion: nil)
+  }
+
+  // New method to show GoPro connection prompt with Back and Next buttons
+  private func showGoProConnectionPrompt(viewController: UIViewController) {
+    // Create alert with instruction text
+    let connectionAlert = UIAlertController(
+        title: "GoPro Connection Required",
+        message: "Please connect to GoPro WiFi via GoPro Quik",
+        preferredStyle: .alert
+    )
+    
+    // Add Back button (cancel)
+    connectionAlert.addAction(UIAlertAction(title: "Back", style: .cancel))
+    
+    // Add Next button to check connection
+    connectionAlert.addAction(UIAlertAction(title: "Next", style: .default) { [weak self] _ in
+        guard let self = self else { return }
+        
+        // Show activity indicator
+        let loadingAlert = UIAlertController(
+            title: "Checking Connection",
+            message: "Connecting to GoPro...",
+            preferredStyle: .alert
+        )
+        viewController.present(loadingAlert, animated: true)
+        
+        // Create GoPro source instance to check connection
+        let goProSource = GoProSource()
+        
+        // Set timeout for the request
+        let taskGroup = DispatchGroup()
+        taskGroup.enter()
+        
+        var connectionResult: Result<GoProWebcamVersion, Error>?
+        
+        // Timeout handling
+        let timeoutTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
+            if connectionResult == nil {
+                connectionResult = .failure(NSError(
+                    domain: "GoProSource",
+                    code: 4,
+                    userInfo: [NSLocalizedDescriptionKey: "Connection timed out"]
+                ))
+                taskGroup.leave()
+            }
+        }
+        
+        // Check GoPro connection
+        goProSource.checkConnection { result in
+            connectionResult = result
+            timeoutTimer.invalidate()
+            taskGroup.leave()
+        }
+        
+        // After completion (success or failure)
+        taskGroup.notify(queue: .main) {
+            loadingAlert.dismiss(animated: true) {
+                // Handle any unexpected errors gracefully
+                guard let result = connectionResult else {
+                    // This should never happen, but just in case
+                    self.showConnectionError(
+                        viewController: viewController,
+                        message: "An unexpected error occurred. Please try again."
+                    )
+                    return
+                }
+                
+                switch result {
+                case .success(_):
+                    print("GoPro: Showing connection success dialog")
+                    // Connection successful - show enable webcam prompt
+                    let successAlert = UIAlertController(
+                        title: "GoPro Connected",
+                        message: "Connection to GoPro was successful. Enable Webcam mode?",
+                        preferredStyle: .alert
+                    )
+                    
+                    // Add Cancel button
+                    successAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+                    
+                    // Add Enable button for next steps (will implement later)
+                    successAlert.addAction(UIAlertAction(title: "Enable", style: .default) { _ in
+                        // Will implement webcam enabling in the next step
+                    })
+                    
+                    viewController.present(successAlert, animated: true)
+                    
+                case .failure(let error):
+                    print("GoPro: Connection failed - \(error.localizedDescription)")
+                    
+                    // Extract the message from the error
+                    let errorMessage: String
+                    if let nsError = error as NSError? {
+                        // Use the localized description from the error if available
+                        errorMessage = nsError.localizedDescription
+                    } else {
+                        // Default message
+                        errorMessage = "Could not connect to GoPro. Please verify you are connected to the GoPro WiFi network."
+                    }
+                    
+                    // Show the error with retry option
+                    self.showConnectionError(viewController: viewController, message: errorMessage)
+                }
+            }
+        }
+    })
+    
+    viewController.present(connectionAlert, animated: true)
+  }
+
+  // Helper method to show connection errors with consistent UI
+  private func showConnectionError(viewController: UIViewController, message: String) {
+    let failureAlert = UIAlertController(
+        title: "Connection Failed",
+        message: message,
+        preferredStyle: .alert
+    )
+    
+    // Add Try Again button
+    failureAlert.addAction(UIAlertAction(title: "Try Again", style: .default) { [weak self] _ in
+        guard let self = self else { return }
+        self.showGoProConnectionPrompt(viewController: viewController)
+    })
+    
+    // Add Cancel button
+    failureAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+    
+    viewController.present(failureAlert, animated: true)
   }
 
   @objc func handleVideoPlaybackEnd(_ notification: Notification) {
