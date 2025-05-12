@@ -146,4 +146,118 @@ class GoProSource: NSObject {
         
         task.resume()
     }
+    
+    /// Enter webcam preview mode
+    /// - Parameter completion: Callback with result (success/failure)
+    func enterWebcamPreview(completion: @escaping (Result<Void, Error>) -> Void) {
+        print("GoPro: Entering webcam preview mode")
+        let urlString = "http://\(goProIP):\(goProPort)\(previewEndpoint)"
+        
+        guard let url = URL(string: urlString) else {
+            print("GoPro: Invalid preview URL format")
+            completion(.failure(NSError(domain: "GoProSource", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid preview URL"])))
+            return
+        }
+        
+        // Create a URL request with a timeout
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5.0 // 5 second timeout
+        
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            // Handle network error
+            if let error = error {
+                print("GoPro: Preview network error: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    completion(.failure(error))
+                }
+                return
+            }
+            
+            // Check HTTP response
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("GoPro: Invalid HTTP response for preview")
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "GoProSource", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response"])))
+                }
+                return
+            }
+            
+            print("GoPro: Preview HTTP Status Code: \(httpResponse.statusCode)")
+            
+            // Check status code
+            guard httpResponse.statusCode == 200 else {
+                print("GoPro: Preview HTTP error status code: \(httpResponse.statusCode)")
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "GoProSource", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "HTTP error: \(httpResponse.statusCode)"])))
+                }
+                return
+            }
+            
+            // Success - empty response is expected
+            print("GoPro: Preview mode enabled successfully")
+            DispatchQueue.main.async {
+                completion(.success(()))
+            }
+        }
+        
+        task.resume()
+    }
+    
+    /// Start webcam streaming
+    /// - Parameter completion: Callback with result (success/failure)
+    func startWebcam(completion: @escaping (Result<Void, Error>) -> Void) {
+        print("GoPro: Starting webcam stream")
+        // Construct URL with query parameters
+        let queryParams = "res=12&fov=0&port=8556&protocol=RTSP"
+        let urlString = "http://\(goProIP):\(goProPort)\(startEndpoint)?\(queryParams)"
+        
+        guard let url = URL(string: urlString) else {
+            print("GoPro: Invalid start URL format")
+            completion(.failure(NSError(domain: "GoProSource", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid start URL"])))
+            return
+        }
+        
+        // Create a URL request with a timeout
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5.0 // 5 second timeout
+        
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            // Handle network error
+            if let error = error {
+                print("GoPro: Start webcam network error: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    completion(.failure(error))
+                }
+                return
+            }
+            
+            // Check HTTP response
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("GoPro: Invalid HTTP response for start")
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "GoProSource", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response"])))
+                }
+                return
+            }
+            
+            print("GoPro: Start HTTP Status Code: \(httpResponse.statusCode)")
+            
+            // Check status code
+            guard httpResponse.statusCode == 200 else {
+                print("GoPro: Start HTTP error status code: \(httpResponse.statusCode)")
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "GoProSource", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "HTTP error: \(httpResponse.statusCode)"])))
+                }
+                return
+            }
+            
+            // Success - empty response is expected
+            print("GoPro: Webcam started successfully")
+            DispatchQueue.main.async {
+                completion(.success(()))
+            }
+        }
+        
+        task.resume()
+    }
 }

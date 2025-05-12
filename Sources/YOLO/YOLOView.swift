@@ -2228,9 +2228,69 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
                     // Add Cancel button
                     successAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
                     
-                    // Add Enable button for next steps (will implement later)
-                    successAlert.addAction(UIAlertAction(title: "Enable", style: .default) { _ in
-                        // Will implement webcam enabling in the next step
+                    // Add Enable button for webcam initialization
+                    successAlert.addAction(UIAlertAction(title: "Enable", style: .default) { [weak self] _ in
+                        guard let self = self else { return }
+                        
+                        // Show loading indicator during initialization
+                        let loadingAlert = UIAlertController(
+                            title: "Initializing Webcam",
+                            message: "Setting up GoPro webcam mode...",
+                            preferredStyle: .alert
+                        )
+                        viewController.present(loadingAlert, animated: true)
+                        
+                        // Create GoPro source for initialization
+                        let goProSource = GoProSource()
+                        
+                        // Step 1: Enter preview mode
+                        goProSource.enterWebcamPreview { result in
+                            switch result {
+                            case .success:
+                                // Step 2: Start webcam
+                                goProSource.startWebcam { startResult in
+                                    // Dismiss loading indicator
+                                    loadingAlert.dismiss(animated: true) {
+                                        switch startResult {
+                                        case .success:
+                                            // Show success dialog with stream option
+                                            let startedAlert = UIAlertController(
+                                                title: "Webcam Started",
+                                                message: "GoPro webcam is ready. Start streaming?",
+                                                preferredStyle: .alert
+                                            )
+                                            
+                                            // Add Cancel button
+                                            startedAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+                                            
+                                            // Add Stream button (will implement streaming later)
+                                            startedAlert.addAction(UIAlertAction(title: "Stream", style: .default) { _ in
+                                                // Will implement RTSP streaming in next step
+                                                print("GoPro: Ready to start RTSP streaming")
+                                            })
+                                            
+                                            viewController.present(startedAlert, animated: true)
+                                            
+                                        case .failure(let error):
+                                            // Show error with retry option
+                                            self.showConnectionError(
+                                                viewController: viewController,
+                                                message: "Failed to start webcam: \(error.localizedDescription)"
+                                            )
+                                        }
+                                    }
+                                }
+                                
+                            case .failure(let error):
+                                // Dismiss loading indicator and show error
+                                loadingAlert.dismiss(animated: true) {
+                                    self.showConnectionError(
+                                        viewController: viewController,
+                                        message: "Failed to enter preview mode: \(error.localizedDescription)"
+                                    )
+                                }
+                            }
+                        }
                     })
                     
                     viewController.present(successAlert, animated: true)
