@@ -13,12 +13,9 @@
 import AVFoundation
 import CoreVideo
 import Photos
-#if canImport(UIKit)
 import UIKit
-#elseif canImport(AppKit)
-import AppKit
-#endif
 import Vision
+import CoreMedia
 
 // Extension for Notification.Name to define custom notifications
 extension Notification.Name {
@@ -107,6 +104,11 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     var sourceType: FrameSourceType {
         return .videoFile
     }
+    
+    /// Video playback state tracking
+    private var isRunning = false
+    private var isProcessingFrame = false
+    private var shouldForceStop = false
     
     // MARK: - Initialization
     
@@ -506,8 +508,13 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
                 // Only perform normal inference if inferenceOK is true
                 else if inferenceOK {
                     // Create sample buffer for inference
-                    if let sampleBuffer = createSampleBufferFrom(pixelBuffer: pixelBuffer) {
-                        predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
+                    let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+                    let context = CIContext()
+                    if let cgImage = context.createCGImage(ciImage, from: ciImage.extent) {
+                        let image = UIImage(cgImage: cgImage)
+                        if let sampleBuffer = createSampleBufferFrom(image: image) {
+                            predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
+                        }
                     } else {
                         // Track and report performance metrics only if we didn't succeed with prediction
                         let processingTime = CACurrentMediaTime() - currentTime
@@ -609,60 +616,105 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         // Revert to original working implementation
         guard let cgImage = image.cgImage else { return nil }
         
+        // Create a CVPixelBuffer to hold the image data
+        var pixelBuffer: CVPixelBuffer?
         let width = cgImage.width
         let height = cgImage.height
+        let attrs = [
+            kCVPixelBufferCGImageCompatibilityKey: kCFBooleanTrue!,
+            kCVPixelBufferCGBitmapContextCompatibilityKey: kCFBooleanTrue!
+        ] as CFDictionary
         
-        var pixelBuffer: CVPixelBuffer?
-        let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, nil, &pixelBuffer)
+        CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, attrs, &pixelBuffer)
         
-        guard status == kCVReturnSuccess, let pixelBuffer = pixelBuffer else { return nil }
+        guard let pixel = pixelBuffer else { return nil }
         
-        CVPixelBufferLockBaseAddress(pixelBuffer, [])
-        let data = CVPixelBufferGetBaseAddress(pixelBuffer)
+        CVPixelBufferLockBaseAddress(pixel, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixel, .readOnly) }
         
+        // Get the pixel data pointer
+        let baseAddress = CVPixelBufferGetBaseAddress(pixel)
+        
+        // Setup a graphics context
         let context = CGContext(
-            data: data,
+            data: baseAddress,
             width: width,
             height: height,
             bitsPerComponent: 8,
-            bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer),
+            bytesPerRow: CVPixelBufferGetBytesPerRow(pixel),
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
         )
         
+        // Draw the image into the context
         context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
         
-        CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
+        // Now create the sample buffer from the pixel buffer
+        var formatDesc: CMFormatDescription?
+        CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixel, formatDescriptionOut: &formatDesc)
         
-        return createSampleBufferFrom(pixelBuffer: pixelBuffer)
-    }
-    
-    // Helper method to create CMSampleBuffer from CVPixelBuffer
-    private func createSampleBufferFrom(pixelBuffer: CVPixelBuffer) -> CMSampleBuffer? {
-        // Revert to original working implementation
+        guard let format = formatDesc else { return nil }
+        
         var sampleBuffer: CMSampleBuffer?
-        
         var timingInfo = CMSampleTimingInfo()
         timingInfo.duration = CMTime.invalid
+        timingInfo.presentationTimeStamp = CMTime.zero
         timingInfo.decodeTimeStamp = CMTime.invalid
-        timingInfo.presentationTimeStamp = CMTime(value: Int64(CACurrentMediaTime() * 1000), timescale: 1000)
         
-        var formatDescription: CMFormatDescription?
-        CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, 
-                                                   imageBuffer: pixelBuffer,
-                                                   formatDescriptionOut: &formatDescription)
-        
-        guard let formatDescription = formatDescription else { return nil }
-        
-        CMSampleBufferCreateReadyWithImageBuffer(
+        CMSampleBufferCreateForImageBuffer(
             allocator: kCFAllocatorDefault,
-            imageBuffer: pixelBuffer,
-            formatDescription: formatDescription,
+            imageBuffer: pixel,
+            dataReady: true,
+            makeDataReadyCallback: nil,
+            refcon: nil,
+            formatDescription: format,
             sampleTiming: &timingInfo,
             sampleBufferOut: &sampleBuffer
         )
         
         return sampleBuffer
+    }
+    
+    /// Create a standard pixel buffer for use with the tracking detector
+    private func createStandardPixelBuffer(from image: UIImage, forSourceType sourceType: FrameSourceType) -> CVPixelBuffer? {
+        guard let cgImage = image.cgImage else { return nil }
+        
+        let width = cgImage.width
+        let height = cgImage.height
+        
+        let attrs = [
+            kCVPixelBufferCGImageCompatibilityKey: kCFBooleanTrue!,
+            kCVPixelBufferCGBitmapContextCompatibilityKey: kCFBooleanTrue!
+        ] as CFDictionary
+        
+        var pixelBuffer: CVPixelBuffer?
+        CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            kCVPixelFormatType_32BGRA,
+            attrs,
+            &pixelBuffer
+        )
+        
+        guard let pixel = pixelBuffer else { return nil }
+        
+        CVPixelBufferLockBaseAddress(pixel, CVPixelBufferLockFlags(rawValue: 0))
+        defer { CVPixelBufferUnlockBaseAddress(pixel, CVPixelBufferLockFlags(rawValue: 0)) }
+        
+        let context = CGContext(
+            data: CVPixelBufferGetBaseAddress(pixel),
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: CVPixelBufferGetBytesPerRow(pixel),
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
+        )
+        
+        context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        
+        return pixel
     }
     
     /// Converts normalized video coordinates to screen coordinates based on content rect
@@ -682,6 +734,73 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         let height = normalizedRect.height * videoToScreenScale.y
         
         return CGRect(x: x, y: y, width: width, height: height)
+    }
+    
+    @MainActor
+    private func processVideo() {
+        guard let currentFrame = getNextFrameFromAssetReader() else {
+            return
+        }
+        
+        // Note the current time before processing
+        let startTime = CACurrentMediaTime()
+        
+        // Process flag to prevent reentrance
+        var isCurrentlyProcessing = false
+        
+        // Avoid multiple simultaneous video processing operations
+        if !isCurrentlyProcessing {
+            isCurrentlyProcessing = true
+            
+            // Pause normal inference if in calibration mode
+            if !inferenceOK, let trackingDetector = predictor as? TrackingDetector,
+               let pixelBuffer = createStandardPixelBuffer(from: currentFrame, forSourceType: .videoFile) {
+                
+                // Clear any existing bounding boxes
+                DispatchQueue.main.async { [weak self] in
+                    // Explicitly call onClearBoxes to ensure all boxes are cleared 
+                    self?.videoCaptureDelegate?.onClearBoxes()
+                    
+                    // Additionally, if this is the first frame in calibration,
+                    // make sure to clear any lingering boxes in the UI
+                    if trackingDetector.getCalibrationFrameCount() == 0 {
+                        self?.videoCaptureDelegate?.onClearBoxes()
+                    }
+                }
+                
+                // Process frame for calibration
+                trackingDetector.processFrame(pixelBuffer)
+                
+                // Very important: Skip further processing to ensure no boxes are shown during calibration
+                isCurrentlyProcessing = false
+                return
+            } 
+            // Only perform normal inference if inferenceOK is true
+            else if inferenceOK, let sampleBuffer = createSampleBufferFrom(image: currentFrame) {
+                // Process with predictor - using self as the results and inference time listener
+                predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
+            }
+            
+            // Display the frame regardless of inference state
+            processFrame(currentFrame)
+            
+            // Calculate processing time and update metrics
+            let endTime = CACurrentMediaTime()
+            let processingTime = endTime - startTime
+            let frameTime = processingTime  // For recorded video, frame time equals processing time
+            
+            updatePerformanceMetrics(processingTime: processingTime, frameTime: frameTime)
+            
+            isCurrentlyProcessing = false
+            
+            // Schedule the next frame - use a proper delay for smoother playback
+            let targetFrameTime: Double = 1.0 / 30.0  // Target 30 fps
+            let nextFrameDelay = max(0.001, targetFrameTime - processingTime)  // Ensure positive delay
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + nextFrameDelay) { [weak self] in
+                self?.processVideo()
+            }
+        }
     }
 }
 

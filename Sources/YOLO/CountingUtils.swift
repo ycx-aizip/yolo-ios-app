@@ -76,7 +76,7 @@ public class CalibrationUtils {
         from frames: [CVPixelBuffer],
         direction: CountingDirection
     ) -> (threshold1: CGFloat, threshold2: CGFloat) {
-        print("Warning: Using legacy buffered calibration with \(frames.count) frames. This method is now deprecated in favor of streaming calibration.")
+        // print("Warning: Using legacy buffered calibration with \(frames.count) frames. This method is now deprecated in favor of streaming calibration.")
         
         // Return default values if no frames are provided
         if frames.isEmpty {
@@ -86,18 +86,18 @@ public class CalibrationUtils {
         
         // Determine if we're using vertical or horizontal direction
         let isVerticalDirection = direction == .topToBottom || direction == .bottomToTop
-        print("Calibration direction: \(isVerticalDirection ? "vertical" : "horizontal")")
+        // print("Calibration direction: \(isVerticalDirection ? "vertical" : "horizontal")")
         
         // Accumulate results from each frame
         var threshold1Values: [CGFloat] = []
         var threshold2Values: [CGFloat] = []
         
         // Process all frames without skipping to match Python implementation
-        print("Processing all \(frames.count) frames for calibration without skipping")
+        // print("Processing all \(frames.count) frames for calibration without skipping")
         
         // Process each frame individually
         for (index, frame) in frames.enumerated() {
-            print("Processing calibration frame \(index+1)/\(frames.count)")
+            // print("Processing calibration frame \(index+1)/\(frames.count)")
             
             // Process the frame through OpenCV
             if let thresholdArray = OpenCVWrapper.processCalibrationFrame(frame, isVerticalDirection: isVerticalDirection),

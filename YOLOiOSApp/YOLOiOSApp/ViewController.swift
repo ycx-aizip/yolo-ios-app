@@ -166,6 +166,9 @@ class ViewController: UIViewController, YOLOViewActionDelegate {
         self.downloadProgressLabel.text = "Downloading \(percentage)%"
       }
     }
+    
+    // Ensure YOLOView toolbar has consistent transparency
+    yoloView.toolbar.backgroundColor = .clear
   }
 
   private func loadModelsForAllTasks() {

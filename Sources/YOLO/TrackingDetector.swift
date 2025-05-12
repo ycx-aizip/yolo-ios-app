@@ -176,8 +176,24 @@ class TrackingDetector: ObjectDetector {
             calibrationFrameCount = 0
             edgeAccumulator = nil
             
-            print("Starting streaming auto-calibration process")
+            // Clear all tracked objects to ensure clean start for calibration
+            trackedObjects.removeAll(keepingCapacity: true)
+            countedTracks.removeAll(keepingCapacity: true)
+            crossingDirections.removeAll(keepingCapacity: true)
+            previousPositions.removeAll(keepingCapacity: true)
+            historyPositions.removeAll(keepingCapacity: true)
+            
+            // Reset the ByteTracker to clear any existing tracks
+            byteTracker.reset()
+            
+            // print("Starting streaming auto-calibration process")
         }
+    }
+    
+    /// Get the current calibration frame count
+    @MainActor
+    func getCalibrationFrameCount() -> Int {
+        return calibrationFrameCount
     }
     
     /// Reset calibration state

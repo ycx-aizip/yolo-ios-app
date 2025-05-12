@@ -32,47 +32,57 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   }
 
   func onPredict(result: YOLOResult) {
-    // Use the standard showBoxes method for all tasks including fish counting
-    showBoxes(predictions: result)
-    onDetection?(result)
+    // Skip showing boxes if we're in calibration mode
+    if !isCalibrating {
+      // Use the standard showBoxes method for all tasks including fish counting
+      showBoxes(predictions: result)
+      onDetection?(result)
 
-    if task == .segment {
-      DispatchQueue.main.async {
-        if let maskImage = result.masks?.combinedMask {
-          guard let maskLayer = self.maskLayer else { return }
-          maskLayer.isHidden = false
-          maskLayer.frame = self.overlayLayer.bounds
-          maskLayer.contents = maskImage
-          self.videoCapture.predictor.isUpdating = false
-        } else {
-          self.videoCapture.predictor.isUpdating = false
+      if task == .segment {
+        DispatchQueue.main.async {
+          if let maskImage = result.masks?.combinedMask {
+            guard let maskLayer = self.maskLayer else { return }
+            maskLayer.isHidden = false
+            maskLayer.frame = self.overlayLayer.bounds
+            maskLayer.contents = maskImage
+            self.videoCapture.predictor.isUpdating = false
+          } else {
+            self.videoCapture.predictor.isUpdating = false
+          }
         }
-      }
-    } else if task == .classify {
-      self.overlayYOLOClassificationsCALayer(on: self, result: result)
-    } else if task == .pose {
-      self.removeAllSubLayers(parentLayer: poseLayer)
-      var keypointList = [[(x: Float, y: Float)]]()
-      var confsList = [[Float]]()
+      } else if task == .classify {
+        self.overlayYOLOClassificationsCALayer(on: self, result: result)
+      } else if task == .pose {
+        self.removeAllSubLayers(parentLayer: poseLayer)
+        var keypointList = [[(x: Float, y: Float)]]()
+        var confsList = [[Float]]()
 
-      for keypoint in result.keypointsList {
-        keypointList.append(keypoint.xyn)
-        confsList.append(keypoint.conf)
+        for keypoint in result.keypointsList {
+          keypointList.append(keypoint.xyn)
+          confsList.append(keypoint.conf)
+        }
+        guard let poseLayer = poseLayer else { return }
+        drawKeypoints(
+          keypointsList: keypointList, confsList: confsList, boundingBoxes: result.boxes,
+          on: poseLayer, imageViewSize: overlayLayer.frame.size, originalImageSize: result.orig_shape)
+      } else if task == .obb {
+        guard let obbLayer = self.obbLayer else { return }
+        let obbDetections = result.obb
+        self.obbRenderer.drawObbDetectionsWithReuse(
+          obbDetections: obbDetections,
+          on: obbLayer,
+          imageViewSize: self.overlayLayer.frame.size,
+          originalImageSize: result.orig_shape,
+          lineWidth: 3
+        )
       }
-      guard let poseLayer = poseLayer else { return }
-      drawKeypoints(
-        keypointsList: keypointList, confsList: confsList, boundingBoxes: result.boxes,
-        on: poseLayer, imageViewSize: overlayLayer.frame.size, originalImageSize: result.orig_shape)
-    } else if task == .obb {
-      guard let obbLayer = self.obbLayer else { return }
-      let obbDetections = result.obb
-      self.obbRenderer.drawObbDetectionsWithReuse(
-        obbDetections: obbDetections,
-        on: obbLayer,
-        imageViewSize: self.overlayLayer.frame.size,
-        originalImageSize: result.orig_shape,
-        lineWidth: 3
-      )
+    }
+  }
+  
+  func onClearBoxes() {
+    // Clear all bounding boxes when requested
+    boundingBoxViews.forEach { box in
+      box.hide()
     }
   }
 
@@ -1057,48 +1067,52 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     labelZoom.isHidden = true
     self.addSubview(labelZoom)
 
-    let config = UIImage.SymbolConfiguration(pointSize: 20, weight: .regular, scale: .default)
+    let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular, scale: .default)
 
+    // Set up toolbar with consistent styling
+    toolbar.backgroundColor = .clear
+    toolbar.layer.cornerRadius = 10
+    
+    // Setup play button with consistent styling
     playButton.setImage(UIImage(systemName: "play.fill", withConfiguration: config), for: .normal)
-    playButton.tintColor = .systemGray
-    pauseButton.setImage(UIImage(systemName: "pause.fill", withConfiguration: config), for: .normal)
-    pauseButton.tintColor = .systemGray
-    switchCameraButton = UIButton()
-    switchCameraButton.setImage(
-      UIImage(systemName: "camera.rotate", withConfiguration: config), for: .normal)
-    switchCameraButton.tintColor = .systemGray
+    playButton.tintColor = .white
+    playButton.backgroundColor = .clear
     playButton.isEnabled = false
-    pauseButton.isEnabled = true
     playButton.addTarget(self, action: #selector(playTapped), for: .touchUpInside)
+    
+    // Setup pause button with consistent styling
+    pauseButton.setImage(UIImage(systemName: "pause.fill", withConfiguration: config), for: .normal)
+    pauseButton.tintColor = .white
+    pauseButton.backgroundColor = .clear
+    pauseButton.isEnabled = true
     pauseButton.addTarget(self, action: #selector(pauseTapped), for: .touchUpInside)
-    switchCameraButton.addTarget(self, action: #selector(switchCameraTapped), for: .touchUpInside)
-    toolbar.backgroundColor = .darkGray.withAlphaComponent(0.7)
+    
+    // Create switch source button with consistent styling
+    switchSourceButton.setImage(UIImage(systemName: "rectangle.on.rectangle", withConfiguration: config), for: .normal)
+    switchSourceButton.tintColor = .white
+    switchSourceButton.backgroundColor = .clear
+    switchSourceButton.addTarget(self, action: #selector(switchSourceButtonTapped), for: .touchUpInside)
+    
+    // Create models button with consistent styling
+    modelsButton.setImage(UIImage(systemName: "square.stack.3d.up", withConfiguration: config), for: .normal)
+    modelsButton.tintColor = .white
+    modelsButton.backgroundColor = .clear
+    modelsButton.addTarget(self, action: #selector(modelsButtonTapped), for: .touchUpInside)
+    
+    // Create direction button with consistent styling
+    directionButton.setImage(UIImage(systemName: "arrow.triangle.2.circlepath", withConfiguration: config), for: .normal)
+    directionButton.tintColor = .white
+    directionButton.backgroundColor = .clear
+    directionButton.addTarget(self, action: #selector(directionButtonTapped), for: .touchUpInside)
+    
+    // Add buttons to toolbar
     self.addSubview(toolbar)
     toolbar.addSubview(playButton)
     toolbar.addSubview(pauseButton)
-    toolbar.addSubview(switchCameraButton)
-
-    // Create switch source button with matching style
-    switchSourceButton.setImage(UIImage(systemName: "rectangle.on.rectangle", withConfiguration: config), for: .normal)
-    switchSourceButton.tintColor = .systemGray // Match other buttons' tint color
-    switchSourceButton.backgroundColor = .clear // Remove background color to match other buttons
-    switchSourceButton.addTarget(self, action: #selector(switchSourceButtonTapped), for: .touchUpInside)
     toolbar.addSubview(switchSourceButton)
-
-    // Create models selection button with matching style
-    modelsButton.setImage(UIImage(systemName: "square.stack.3d.up", withConfiguration: config), for: .normal)
-    modelsButton.tintColor = .systemGray // Match other buttons' tint color
-    modelsButton.backgroundColor = .clear
-    modelsButton.addTarget(self, action: #selector(modelsButtonTapped), for: .touchUpInside)
     toolbar.addSubview(modelsButton)
-    
-    // Create direction selection button with matching style
-    directionButton.setImage(UIImage(systemName: "arrow.triangle.2.circlepath", withConfiguration: config), for: .normal)
-    directionButton.tintColor = .systemGray
-    directionButton.backgroundColor = .clear
-    directionButton.addTarget(self, action: #selector(directionButtonTapped), for: .touchUpInside)
     toolbar.addSubview(directionButton)
-
+    
     self.addGestureRecognizer(UIPinchGestureRecognizer(target: self, action: #selector(pinch)))
   }
 
@@ -1111,14 +1125,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     setupThresholdLayers()
     
     if isLandscape {
-      toolbar.backgroundColor = .clear
-      playButton.tintColor = .darkGray
-      pauseButton.tintColor = .darkGray
-      switchCameraButton.tintColor = .darkGray
-      switchSourceButton.tintColor = .darkGray
-      modelsButton.tintColor = .darkGray
-      directionButton.tintColor = .darkGray
-
+      // Toolbar background should be completely transparent
+      // toolbar.backgroundColor = .black.withAlphaComponent(0.4)
+      
       let width = bounds.width
       let height = bounds.height
 
@@ -1291,26 +1300,22 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       
       // For landscape, adjust toolbar button spacing 
       let buttonWidth: CGFloat = 50
-      let spacing = (width - 6 * buttonWidth) / 7 // 6 buttons
+      let spacing = (width - 5 * buttonWidth) / 6 // 5 buttons (removed switchCameraButton)
       
       playButton.frame = CGRect(
         x: spacing, y: 0, width: buttonWidth, height: toolBarHeight)
       pauseButton.frame = CGRect(
         x: 2 * spacing + buttonWidth, y: 0, width: buttonWidth, height: toolBarHeight)
-      switchCameraButton.frame = CGRect(
-        x: 3 * spacing + 2 * buttonWidth, y: 0, width: buttonWidth, height: toolBarHeight)
       switchSourceButton.frame = CGRect(
-        x: 4 * spacing + 3 * buttonWidth, y: 0, width: buttonWidth, height: toolBarHeight)
+        x: 3 * spacing + 2 * buttonWidth, y: 0, width: buttonWidth, height: toolBarHeight)
       modelsButton.frame = CGRect(
-        x: 5 * spacing + 4 * buttonWidth, y: 0, width: buttonWidth, height: toolBarHeight)
+        x: 4 * spacing + 3 * buttonWidth, y: 0, width: buttonWidth, height: toolBarHeight)
       directionButton.frame = CGRect(
-        x: 6 * spacing + 5 * buttonWidth, y: 0, width: buttonWidth, height: toolBarHeight)
+        x: 5 * spacing + 4 * buttonWidth, y: 0, width: buttonWidth, height: toolBarHeight)
     } else {
-      toolbar.backgroundColor = .darkGray.withAlphaComponent(0.7)
-      playButton.tintColor = .systemGray
-      pauseButton.tintColor = .systemGray
-      switchCameraButton.tintColor = .systemGray
-
+      // Toolbar background should be completely transparent
+      // toolbar.backgroundColor = .black.withAlphaComponent(0.4)
+      
       let width = bounds.width
       let height = bounds.height
 
@@ -1470,12 +1475,12 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       playButton.frame = CGRect(x: 0, y: 0, width: buttonHeight, height: buttonHeight)
       pauseButton.frame = CGRect(
         x: playButton.frame.maxX, y: 0, width: buttonHeight, height: buttonHeight)
-      switchCameraButton.frame = CGRect(
-        x: pauseButton.frame.maxX, y: 0, width: buttonHeight, height: buttonHeight)
+      // switchCameraButton.frame = CGRect(
+      //   x: pauseButton.frame.maxX, y: 0, width: buttonHeight, height: buttonHeight)
 
-      // Position switch source button in portrait mode
+      // Position switch source button directly after pause button
       switchSourceButton.frame = CGRect(
-        x: switchCameraButton.frame.maxX, 
+        x: pauseButton.frame.maxX, 
         y: 0, 
         width: buttonHeight, 
         height: buttonHeight
@@ -1616,12 +1621,6 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     currentFrameSource.stop()
     playButton.isEnabled = true
     pauseButton.isEnabled = false
-  }
-
-  @objc func switchCameraTapped() {
-    if let cameraSource = videoCapture as? CameraVideoSource {
-      cameraSource.switchCamera()
-    }
   }
 
   public func capturePhoto(completion: @escaping (UIImage?) -> Void) {
@@ -1797,8 +1796,17 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       isCalibrating = true
       
       // Clear all bounding boxes to avoid lingering boxes during calibration
+      // This ensures the bound box views are hidden in the UI
       boundingBoxViews.forEach { box in
         box.hide()
+      }
+      
+      // Explicitly call onClearBoxes on the video capture delegate to ensure boxes are cleared
+      // This ensures that sources respond to the clearing request
+      if let cameraSource = currentFrameSource as? CameraVideoSource {
+          cameraSource.videoCaptureDelegate?.onClearBoxes()
+      } else if let albumSource = currentFrameSource as? AlbumVideoSource {
+          albumSource.videoCaptureDelegate?.onClearBoxes()
       }
       
       // Show initial progress percentage

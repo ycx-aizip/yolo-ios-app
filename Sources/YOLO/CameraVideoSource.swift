@@ -21,6 +21,7 @@ import Vision
 protocol VideoCaptureDelegate: AnyObject {
   func onPredict(result: YOLOResult)
   func onInferenceTime(speed: Double, fps: Double)
+  func onClearBoxes()
 }
 
 func bestCaptureDevice(position: AVCaptureDevice.Position) -> AVCaptureDevice {
@@ -255,6 +256,11 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
           DispatchQueue.main.async { [weak self] in
             guard let self = self,
                   let trackingDetector = self.predictor as? TrackingDetector else { return }
+            
+            // Clear boxes when starting calibration (first frame)
+            if trackingDetector.getCalibrationFrameCount() == 0 {
+              self.videoCaptureDelegate?.onClearBoxes()
+            }
                   
             // Convert UIImage back to CVPixelBuffer
             if let pixelBufferForCalibration = self.createStandardPixelBuffer(from: image, forSourceType: self.sourceType) {
@@ -397,5 +403,47 @@ extension CameraVideoSource: ResultsListener, InferenceTimeListener {
     DispatchQueue.main.async {
       self.videoCaptureDelegate?.onPredict(result: result)
     }
+  }
+  
+  /// Create a standard pixel buffer for use with the tracking detector
+  private func createStandardPixelBuffer(from image: UIImage, forSourceType sourceType: FrameSourceType) -> CVPixelBuffer? {
+    guard let cgImage = image.cgImage else { return nil }
+    
+    let width = cgImage.width
+    let height = cgImage.height
+    
+    let attrs = [
+        kCVPixelBufferCGImageCompatibilityKey: kCFBooleanTrue!,
+        kCVPixelBufferCGBitmapContextCompatibilityKey: kCFBooleanTrue!
+    ] as CFDictionary
+    
+    var pixelBuffer: CVPixelBuffer?
+    CVPixelBufferCreate(
+        kCFAllocatorDefault,
+        width,
+        height,
+        kCVPixelFormatType_32BGRA,
+        attrs,
+        &pixelBuffer
+    )
+    
+    guard let pixel = pixelBuffer else { return nil }
+    
+    CVPixelBufferLockBaseAddress(pixel, CVPixelBufferLockFlags(rawValue: 0))
+    defer { CVPixelBufferUnlockBaseAddress(pixel, CVPixelBufferLockFlags(rawValue: 0)) }
+    
+    let context = CGContext(
+        data: CVPixelBufferGetBaseAddress(pixel),
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: CVPixelBufferGetBytesPerRow(pixel),
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
+    )
+    
+    context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+    
+    return pixel
   }
 }
