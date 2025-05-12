@@ -2119,12 +2119,23 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     }
     alert.addAction(albumAction)
     
-    // Add placeholder for DJI OSMO
-    let djiOsmoAction = UIAlertAction(title: "Webcam", style: .default) { _ in
-      // This will be implemented in the future
+    // GoPro Hero action (now enabled)
+    let goProAction = UIAlertAction(title: "GoPro Hero", style: .default) { [weak self] _ in
+      guard let self = self, let viewController = topViewController else { return }
+      
+      // Show connection instructions alert
+      let connectionAlert = UIAlertController(
+        title: "GoPro Connection Required",
+        message: "Please connect to GoPro WiFi via GoPro Quik",
+        preferredStyle: .alert
+      )
+      
+      connectionAlert.addAction(UIAlertAction(title: "OK", style: .default))
+      
+      viewController.present(connectionAlert, animated: true)
     }
-    djiOsmoAction.isEnabled = false
-    alert.addAction(djiOsmoAction)
+    
+    alert.addAction(goProAction)
     
     // Cancel action
     alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
