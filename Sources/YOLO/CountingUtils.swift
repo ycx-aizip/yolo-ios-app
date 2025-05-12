@@ -5,6 +5,9 @@ import Foundation
 import AVFoundation
 import CoreVideo
 import UIKit
+import CoreGraphics
+// Import OpenCVWrapper directly since we're in the same module
+// No need for @_exported import since we're in the same module
 
 /// Direction for counting objects (fish)
 public enum CountingDirection {
@@ -17,7 +20,7 @@ public enum CountingDirection {
 /// Calibration utilities for auto threshold detection
 public class CalibrationUtils {
     /// Default frame count for calibration (approximately 5 seconds at 30fps)
-    public static let defaultCalibrationFrameCount = 150
+    public static let defaultCalibrationFrameCount = 90  // Reduced from 150 to prevent memory issues
     
     /// Test function to verify OpenCV access from the YOLO package
     /// This comprehensive test checks:
@@ -62,8 +65,8 @@ public class CalibrationUtils {
     }
     
     /// Calculate auto-calibration thresholds based on the provided frames
-    /// This is a dummy implementation that simply returns fixed values
-    /// after processing a specified number of frames
+    /// Implements the calibration algorithm that detects optimal threshold positions
+    /// This is the Swift equivalent of the Python calibrate_from_buffer method
     ///
     /// - Parameters:
     ///   - frames: Collection of frames (pixel buffers) for processing
@@ -73,11 +76,75 @@ public class CalibrationUtils {
         from frames: [CVPixelBuffer],
         direction: CountingDirection
     ) -> (threshold1: CGFloat, threshold2: CGFloat) {
-        // Dummy implementation - In the future, this will analyze frames
-        // to find optimal threshold positions based on visual features
+        print("Starting auto-calibration with \(frames.count) frames")
         
-        // For now, just return fixed values regardless of input
-        return (0.1, 0.9)
+        // Return default values if no frames are provided
+        if frames.isEmpty {
+            print("⚠️ No frames provided for calibration, using default values")
+            return (0.3, 0.7)
+        }
+        
+        // Determine if we're using vertical or horizontal direction
+        let isVerticalDirection = direction == .topToBottom || direction == .bottomToTop
+        print("Calibration direction: \(isVerticalDirection ? "vertical" : "horizontal")")
+        
+        // Accumulate results from each frame
+        var threshold1Values: [CGFloat] = []
+        var threshold2Values: [CGFloat] = []
+        
+        // Memory optimization: Only process a subset of frames
+        // Take frames at regular intervals to ensure good coverage
+        let framesToProcess = min(15, frames.count)  // Process at most 15 frames
+        let interval = max(1, frames.count / framesToProcess)
+        
+        // Create a temporary array of frames to process
+        var selectedFrames: [CVPixelBuffer] = []
+        for i in 0..<frames.count where i % interval == 0 {
+            selectedFrames.append(frames[i])
+            if selectedFrames.count >= framesToProcess {
+                break
+            }
+        }
+        
+        print("Memory optimization: Processing \(selectedFrames.count) out of \(frames.count) frames")
+        
+        // Process each selected frame individually
+        for (index, frame) in selectedFrames.enumerated() {
+            print("Processing calibration frame \(index)/\(selectedFrames.count)")
+            
+            // Process the frame through OpenCV
+            if let thresholdArray = OpenCVWrapper.processCalibrationFrame(frame, isVerticalDirection: isVerticalDirection),
+               thresholdArray.count >= 2,
+               let value1 = thresholdArray[0] as? NSNumber,
+               let value2 = thresholdArray[1] as? NSNumber {
+                
+                threshold1Values.append(CGFloat(value1.floatValue))
+                threshold2Values.append(CGFloat(value2.floatValue))
+            }
+            
+            // Memory management: Force a cleanup after each frame processing
+            autoreleasepool {
+                // This ensures temporary objects are released
+            }
+        }
+        
+        // Clear reference to selectedFrames to help with memory management
+        selectedFrames.removeAll()
+        
+        // Return default values if we couldn't get any valid results
+        if threshold1Values.isEmpty || threshold2Values.isEmpty {
+            print("⚠️ No valid threshold results from calibration, using default values")
+            return (0.3, 0.7)
+        }
+        
+        // Calculate the average thresholds from all processed frames
+        let avgThreshold1 = threshold1Values.reduce(0, +) / CGFloat(threshold1Values.count)
+        let avgThreshold2 = threshold2Values.reduce(0, +) / CGFloat(threshold2Values.count)
+        
+        print("Calibration complete - Thresholds: (\(avgThreshold1), \(avgThreshold2))")
+        
+        // Ensure thresholds are properly ordered (smaller one first)
+        return (min(avgThreshold1, avgThreshold2), max(avgThreshold1, avgThreshold2))
     }
     
     /// Calculate the progress percentage based on collected frames

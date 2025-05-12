@@ -175,8 +175,8 @@ class TrackingDetector: ObjectDetector {
             resetCalibration()
             
             // Mark that we should test OpenCV with the next frame
-            shouldTestOpenCVOnNextFrame = true
-            print("Will test OpenCV integration when next frame arrives")
+            // shouldTestOpenCVOnNextFrame = true
+            // print("Will test OpenCV integration when next frame arrives")
         }
     }
     
@@ -343,11 +343,11 @@ class TrackingDetector: ObjectDetector {
         // Store the pixel buffer for use in processObservations
         currentPixelBuffer = pixelBuffer
         
-        // Test OpenCV if needed with this frame
-        if shouldTestOpenCVOnNextFrame {
-            testOpenCVIntegration()
-            shouldTestOpenCVOnNextFrame = false
-        }
+        // // Test OpenCV if needed with this frame
+        // if shouldTestOpenCVOnNextFrame {
+        //     testOpenCVIntegration()
+        //     shouldTestOpenCVOnNextFrame = false
+        // }
         
         // If in calibration mode, process directly here
         if isAutoCalibrationEnabled {
