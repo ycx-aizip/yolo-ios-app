@@ -96,6 +96,9 @@ class TrackingDetector: ObjectDetector {
     /// Callback for reporting calibration completion with new thresholds
     var onCalibrationComplete: (([CGFloat]) -> Void)?
     
+    /// Flag to indicate we should test OpenCV on the next available frame
+    private var shouldTestOpenCVOnNextFrame: Bool = false
+    
     // MARK: - Threshold management
     
     /// Sets the thresholds for counting
@@ -170,6 +173,23 @@ class TrackingDetector: ObjectDetector {
         if enabled {
             // Reset calibration state when enabling
             resetCalibration()
+            
+            // Mark that we should test OpenCV with the next frame
+            shouldTestOpenCVOnNextFrame = true
+            print("Will test OpenCV integration when next frame arrives")
+        }
+    }
+    
+    /// Test OpenCV integration during calibration
+    @MainActor
+    private func testOpenCVIntegration() {
+        // Check if we have a frame to test with
+        if let pixelBuffer = currentPixelBuffer {
+            // Test OpenCV access using CalibrationUtils
+            let success = CalibrationUtils.testOpenCVAccess(frame: pixelBuffer)
+            print("OpenCV integration test during calibration: \(success ? "Successful" : "Failed")")
+        } else {
+            print("No frame available for OpenCV test")
         }
     }
     
@@ -322,6 +342,12 @@ class TrackingDetector: ObjectDetector {
     func processFrame(_ pixelBuffer: CVPixelBuffer) {
         // Store the pixel buffer for use in processObservations
         currentPixelBuffer = pixelBuffer
+        
+        // Test OpenCV if needed with this frame
+        if shouldTestOpenCVOnNextFrame {
+            testOpenCVIntegration()
+            shouldTestOpenCVOnNextFrame = false
+        }
         
         // If in calibration mode, process directly here
         if isAutoCalibrationEnabled {

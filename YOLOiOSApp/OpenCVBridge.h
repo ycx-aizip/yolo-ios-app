@@ -12,6 +12,13 @@
 // Test method to verify OpenCV integration
 + (BOOL)isOpenCVWorking;
 
+// Get OpenCV version string
++ (NSString *)getOpenCVVersion;
+
+// Convert between CVPixelBuffer and UIImage
++ (UIImage *)UIImageFromCVPixelBuffer:(CVPixelBufferRef)pixelBuffer;
++ (CVPixelBufferRef)CVPixelBufferFromUIImage:(UIImage *)image;
+
 @end
 
 #endif /* OpenCVBridge_h */ 

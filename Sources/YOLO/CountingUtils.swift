@@ -19,6 +19,48 @@ public class CalibrationUtils {
     /// Default frame count for calibration (approximately 5 seconds at 30fps)
     public static let defaultCalibrationFrameCount = 150
     
+    /// Test function to verify OpenCV access from the YOLO package
+    /// This comprehensive test checks:
+    /// 1. If OpenCV is properly integrated and working
+    /// 2. If the version can be retrieved
+    /// 3. If frame conversion works correctly
+    /// 
+    /// - Parameter frame: A sample frame to test with
+    /// - Returns: true if all OpenCV tests passed
+    public static func testOpenCVAccess(frame: CVPixelBuffer?) -> Bool {
+        guard let frame = frame else {
+            print("❌ No frame provided for OpenCV test")
+            return false
+        }
+        
+        print("Starting OpenCV integration tests...")
+        print("Frame dimensions: \(CVPixelBufferGetWidth(frame)) x \(CVPixelBufferGetHeight(frame))")
+        
+        // Test 1: Basic OpenCV functionality
+        let isWorking = OpenCVWrapper.isOpenCVWorking()
+        print("Test 1 - Basic OpenCV functionality: \(isWorking ? "✅ PASSED" : "❌ FAILED")")
+        
+        // If basic test fails, don't continue
+        if !isWorking {
+            print("❌ Basic OpenCV test failed, aborting further tests")
+            return false
+        }
+        
+        // Test 2: Get OpenCV version
+        let version = OpenCVWrapper.getOpenCVVersion()
+        let versionTest = version != "OpenCV Not Accessible" && version != "Unknown"
+        print("Test 2 - OpenCV version: \(versionTest ? "✅ PASSED" : "❌ FAILED") - Version: \(version)")
+        
+        // Test 3: Process a frame
+        let frameProcessed = OpenCVWrapper.processTestFrame(frame)
+        print("Test 3 - Frame processing: \(frameProcessed ? "✅ PASSED" : "❌ FAILED")")
+        
+        let allTestsPassed = isWorking && versionTest && frameProcessed
+        print("OpenCV integration test summary: \(allTestsPassed ? "✅ ALL TESTS PASSED" : "❌ SOME TESTS FAILED")")
+        
+        return allTestsPassed
+    }
+    
     /// Calculate auto-calibration thresholds based on the provided frames
     /// This is a dummy implementation that simply returns fixed values
     /// after processing a specified number of frames
