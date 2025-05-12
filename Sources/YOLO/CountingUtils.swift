@@ -20,7 +20,7 @@ public enum CountingDirection {
 /// Calibration utilities for auto threshold detection
 public class CalibrationUtils {
     /// Default frame count for calibration (10 seconds at 30fps)
-    public static let defaultCalibrationFrameCount = 30  // 10 seconds at 30fps to match Python version
+    public static let defaultCalibrationFrameCount = 300  // 10 seconds at 30fps to match Python version
     
     /// Test function to verify OpenCV access from the YOLO package
     /// This comprehensive test checks:
@@ -65,8 +65,8 @@ public class CalibrationUtils {
     }
     
     /// Calculate auto-calibration thresholds based on the provided frames
-    /// Implements the calibration algorithm that detects optimal threshold positions
-    /// This is the Swift equivalent of the Python calibrate_from_buffer method
+    /// This method is kept for backward compatibility but is no longer the primary calibration method.
+    /// The main calibration now happens in the streaming mode in TrackingDetector.
     ///
     /// - Parameters:
     ///   - frames: Collection of frames (pixel buffers) for processing
@@ -76,7 +76,7 @@ public class CalibrationUtils {
         from frames: [CVPixelBuffer],
         direction: CountingDirection
     ) -> (threshold1: CGFloat, threshold2: CGFloat) {
-        print("Starting auto-calibration with \(frames.count) frames")
+        print("Warning: Using legacy buffered calibration with \(frames.count) frames. This method is now deprecated in favor of streaming calibration.")
         
         // Return default values if no frames are provided
         if frames.isEmpty {
@@ -129,6 +129,36 @@ public class CalibrationUtils {
         
         // Ensure thresholds are properly ordered (smaller one first)
         return (min(avgThreshold1, avgThreshold2), max(avgThreshold1, avgThreshold2))
+    }
+    
+    /// Process a single frame for streaming calibration
+    /// This method implements the Python equivalent of processing a frame in the calibration loop
+    ///
+    /// - Parameters:
+    ///   - frame: The current frame to process
+    ///   - direction: The counting direction
+    /// - Returns: Tuple with two threshold values (0.0-1.0) from this frame, or nil if processing failed
+    public static func processCalibrationFrame(
+        _ frame: CVPixelBuffer,
+        direction: CountingDirection
+    ) -> (threshold1: CGFloat, threshold2: CGFloat)? {
+        // Determine if we're using vertical or horizontal direction
+        let isVerticalDirection = direction == .topToBottom || direction == .bottomToTop
+        
+        // Process the frame through OpenCV
+        if let thresholdArray = OpenCVWrapper.processCalibrationFrame(frame, isVerticalDirection: isVerticalDirection),
+           thresholdArray.count >= 2,
+           let value1 = thresholdArray[0] as? NSNumber,
+           let value2 = thresholdArray[1] as? NSNumber {
+            
+            let threshold1 = CGFloat(value1.floatValue)
+            let threshold2 = CGFloat(value2.floatValue)
+            
+            // Ensure thresholds are properly ordered (smaller one first)
+            return (min(threshold1, threshold2), max(threshold1, threshold2))
+        }
+        
+        return nil
     }
     
     /// Calculate the progress percentage based on collected frames

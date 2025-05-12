@@ -5,14 +5,10 @@
 #import <UIKit/UIKit.h>
 #import <CoreVideo/CoreVideo.h>
 
-// No OpenCV imports in header - we'll handle them in the implementation
-
 @interface OpenCVBridge : NSObject
 
-// Test method to verify OpenCV integration
+// Test methods to verify OpenCV integration
 + (BOOL)isOpenCVWorking;
-
-// Get OpenCV version string
 + (NSString *)getOpenCVVersion;
 
 // Convert between CVPixelBuffer and UIImage
@@ -33,6 +29,12 @@
 // Utility functions
 + (UIImage *)convertToGrayscale:(UIImage *)image;
 + (NSArray<NSNumber *> *)smoothArray:(NSArray<NSNumber *> *)array kernelSize:(int)kernelSize;
+
+// Process test frame for OpenCV verification
+- (BOOL)processTestFrame:(CVPixelBufferRef)pixelBuffer;
+
+// Process a single frame for calibration (streaming method)
+- (NSArray *)processCalibrationFrame:(CVPixelBufferRef)pixelBuffer isVerticalDirection:(BOOL)isVerticalDirection;
 
 @end
 

@@ -5,6 +5,7 @@ import Foundation
 import CoreVideo
 import UIKit
 import ObjectiveC  // For Objective-C runtime functions
+import AVFoundation
 
 /// Interface to the Objective-C OpenCVBridge when used in an iOS app
 /// This wrapper enables proper access from Swift package code
@@ -13,58 +14,55 @@ import ObjectiveC  // For Objective-C runtime functions
     /// Check if OpenCV integration is working
     /// - Returns: true if OpenCV is properly integrated
     @objc public static func isOpenCVWorking() -> Bool {
-        // Safer approach for calling Objective-C class methods at runtime
+        // Use the Objective-C runtime to dynamically find the OpenCVBridge class
         guard let openCVBridgeClass = NSClassFromString("OpenCVBridge") else {
-            print("OpenCVBridge class not found via NSClassFromString")
+            print("❌ OpenCVBridge class not found!")
             return false
         }
         
-        // Create proper selector
+        // Check if the isOpenCVWorking method exists
         let selector = NSSelectorFromString("isOpenCVWorking")
-        
-        // Verify method exists and is a class method
         guard openCVBridgeClass.responds(to: selector) else {
-            print("OpenCVBridge class does not respond to isOpenCVWorking")
+            print("❌ isOpenCVWorking method not found in OpenCVBridge!")
             return false
         }
         
-        // Prepare function pointer with the correct signature
-        typealias IsWorkingFunctionType = @convention(c) (AnyObject, Selector) -> Bool
-        
-        // Get the implementation of the method
-        let methodImp = class_getMethodImplementation(object_getClass(openCVBridgeClass), selector)
-        
-        guard methodImp != nil else {
-            print("Could not get method implementation for isOpenCVWorking")
+        // Create an instance of OpenCVBridge
+        guard let bridge = openCVBridgeClass.alloc() as? NSObject else {
+            print("❌ Could not create OpenCVBridge instance!")
             return false
         }
         
-        // Convert the implementation to a function pointer
-        let method = unsafeBitCast(methodImp, to: IsWorkingFunctionType.self)
+        // Call the isOpenCVWorking method
+        let result = bridge.perform(selector)
+        guard let resultBool = result?.takeUnretainedValue() as? Bool else {
+            return false
+        }
         
-        // Call the function safely
-        print("Calling OpenCVBridge.isOpenCVWorking() using function pointer")
-        let result = method(openCVBridgeClass, selector)
-        print("Successfully returned from OpenCVBridge.isOpenCVWorking(): \(result)")
-        
-        return result
+        return resultBool
     }
     
     /// Process a frame with OpenCV to test integration
     /// - Parameter pixelBuffer: The frame to process
     /// - Returns: true if the frame was successfully processed
     @objc public static func processTestFrame(_ pixelBuffer: CVPixelBuffer) -> Bool {
-        // Verify OpenCV is working first
-        if !isOpenCVWorking() {
-            print("Cannot process frame because OpenCV is not working")
+        guard let openCVBridgeClass = NSClassFromString("OpenCVBridge") else {
+            print("❌ OpenCVBridge class not found!")
             return false
         }
         
-        print("OpenCV is working, attempting to process a test frame")
+        guard let bridge = openCVBridgeClass.alloc() as? NSObject else {
+            print("❌ Could not create OpenCVBridge instance!")
+            return false
+        }
         
-        // For now, we'll consider the test successful if OpenCV is working
-        // Later we can add actual frame processing tests
-        return true
+        let selector = NSSelectorFromString("processTestFrame:")
+        if bridge.responds(to: selector) {
+            let success = bridge.perform(selector, with: pixelBuffer)?.takeUnretainedValue() as? Bool
+            return success ?? false
+        }
+        
+        return false
     }
     
     /// Helper function to create a UIImage from a CVPixelBuffer
@@ -112,31 +110,19 @@ import ObjectiveC  // For Objective-C runtime functions
             return "OpenCV Not Accessible"
         }
         
-        // Create proper selector
+        guard let bridge = openCVBridgeClass.alloc() as? NSObject else {
+            return "Could not create OpenCVBridge instance"
+        }
+        
         let selector = NSSelectorFromString("getOpenCVVersion")
-        
-        // Verify method exists and is a class method
-        guard openCVBridgeClass.responds(to: selector) else {
-            return "Method Not Found"
+        if bridge.responds(to: selector) {
+            let result = bridge.perform(selector)
+            if let versionString = result?.takeUnretainedValue() as? String {
+                return versionString
+            }
         }
         
-        // Prepare function pointer with the correct signature
-        typealias GetVersionFunctionType = @convention(c) (AnyObject, Selector) -> NSString
-        
-        // Get the implementation of the method
-        let methodImp = class_getMethodImplementation(object_getClass(openCVBridgeClass), selector)
-        
-        guard methodImp != nil else {
-            return "Implementation Not Found"
-        }
-        
-        // Convert the implementation to a function pointer
-        let method = unsafeBitCast(methodImp, to: GetVersionFunctionType.self)
-        
-        // Call the function safely
-        let result = method(openCVBridgeClass, selector)
-        
-        return result as String
+        return "Unknown"
     }
     
     // MARK: - Image Processing Methods for Calibration
@@ -361,91 +347,36 @@ import ObjectiveC  // For Objective-C runtime functions
     /// - Returns: NSArray containing threshold values, or nil if processing failed. 
     ///           If successful, the array will contain exactly two CGFloat values.
     @objc public static func processCalibrationFrame(_ pixelBuffer: CVPixelBuffer, isVerticalDirection: Bool) -> NSArray? {
-        // Convert CVPixelBuffer to UIImage
-        guard let image = createUIImageFromPixelBuffer(pixelBuffer) else {
-            print("Failed to convert pixel buffer to UIImage")
+        guard let openCVBridgeClass = NSClassFromString("OpenCVBridge") else {
+            print("❌ OpenCVBridge class not found!")
             return nil
         }
         
-        // Convert to grayscale
-        guard let grayImage = convertToGrayscale(image) else {
-            print("Failed to convert image to grayscale")
+        guard let bridge = openCVBridgeClass.alloc() as? NSObject else {
+            print("❌ Could not create OpenCVBridge instance!")
             return nil
         }
         
-        // Apply Gaussian blur
-        guard let blurredImage = applyGaussianBlur(grayImage, kernelSize: 5) else {
-            print("Failed to apply Gaussian blur")
-            return nil
+        let selector = NSSelectorFromString("processCalibrationFrame:isVerticalDirection:")
+        if bridge.responds(to: selector) {
+            let result = bridge.perform(selector, with: pixelBuffer, with: isVerticalDirection)
+            if let thresholdArray = result?.takeUnretainedValue() as? [Any] {
+                if thresholdArray.count == 2 {
+                    let threshold1 = thresholdArray[0] as! CGFloat
+                    let threshold2 = thresholdArray[1] as! CGFloat
+                    return [NSNumber(value: Float(threshold1)), NSNumber(value: Float(threshold2))]
+                } else if thresholdArray.count == 1 {
+                    let threshold = thresholdArray[0] as! CGFloat
+                    let threshold1 = threshold
+                    let threshold2 = threshold < 0.5 ? CGFloat(0.7) : CGFloat(0.3)
+                    return [NSNumber(value: Float(min(threshold1, threshold2))), NSNumber(value: Float(max(threshold1, threshold2)))]
+                } else {
+                    print("Unexpected threshold array format")
+                    return nil
+                }
+            }
         }
         
-        // Apply Canny edge detection
-        guard let edgesImage = applyCannyEdgeDetection(blurredImage, threshold1: 50, threshold2: 150) else {
-            print("Failed to apply Canny edge detection")
-            return nil
-        }
-        
-        // Calculate projection based on direction
-        let projection: [NSNumber]?
-        if isVerticalDirection {
-            // For top-to-bottom or bottom-to-top, calculate horizontal projection
-            projection = calculateHorizontalProjection(edgesImage)
-        } else {
-            // For left-to-right or right-to-left, calculate vertical projection
-            projection = calculateVerticalProjection(edgesImage)
-        }
-        
-        guard let projectionValues = projection else {
-            print("Failed to calculate projection")
-            return nil
-        }
-        
-        // Calculate kernel size as max(5, height//20) or max(5, width//20) depending on direction
-        let dimension = isVerticalDirection ? Int(image.size.height) : Int(image.size.width)
-        let kernelSize = max(5, dimension / 20)
-        
-        // Smooth the projection
-        guard let smoothedProjection = smoothArray(projectionValues, kernelSize: kernelSize) else {
-            print("Failed to smooth projection")
-            return nil
-        }
-        
-        // Find peaks in the smoothed projection
-        let minPeakDistance = isVerticalDirection ? 
-            Int(Double(image.size.height) * 0.25) : 
-            Int(Double(image.size.width) * 0.25)
-        
-        // Pass 0 for prominence parameter to match Python implementation (no explicit prominence specified)
-        guard let peaks = findPeaksInArray(smoothedProjection, minDistance: minPeakDistance, prominence: 0.0) else {
-            print("Failed to find peaks")
-            return nil
-        }
-        
-        // Process peaks to get threshold positions
-        if peaks.count >= 2 {
-            // Get the first two peaks
-            let peak1 = peaks[0].intValue
-            let peak2 = peaks[1].intValue
-            
-            // Convert to normalized coordinates (0.0-1.0)
-            let denominator = isVerticalDirection ? Double(image.size.height) : Double(image.size.width)
-            let threshold1 = CGFloat(Double(peak1) / denominator)
-            let threshold2 = CGFloat(Double(peak2) / denominator)
-            
-            return [NSNumber(value: Float(threshold1)), NSNumber(value: Float(threshold2))]
-        } else if peaks.count == 1 {
-            // Only one peak, use it and an offset version
-            let peak = peaks[0].intValue
-            let denominator = isVerticalDirection ? Double(image.size.height) : Double(image.size.width)
-            let threshold1 = CGFloat(Double(peak) / denominator)
-            
-            // Create a second threshold at either 30% or 70% depending on position of first
-            let threshold2 = threshold1 < 0.5 ? CGFloat(0.7) : CGFloat(0.3)
-            
-            return [NSNumber(value: Float(min(threshold1, threshold2))), NSNumber(value: Float(max(threshold1, threshold2)))]
-        } else {
-            // Fallback to default values if no peaks were found
-            return [NSNumber(value: 0.3), NSNumber(value: 0.7)]
-        }
+        return nil
     }
 }

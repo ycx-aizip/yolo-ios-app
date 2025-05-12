@@ -1,502 +1,292 @@
-#import "./OpenCVBridge.h"
-
-// Real device - use OpenCV
-#import <opencv2/core/core.hpp>
-#import <opencv2/imgproc/imgproc.hpp>
+#import "OpenCVBridge.h"
 #import <opencv2/opencv.hpp>
+#import <opencv2/imgproc/imgproc.hpp>
+#import <opencv2/core/core.hpp>
 
 @implementation OpenCVBridge
 
+#pragma mark - OpenCV Utility Methods
+
+/// Check if OpenCV is properly working
 + (BOOL)isOpenCVWorking {
-    // Real device implementation - use OpenCV
-    // Create a simple OpenCV matrix
-    cv::Mat testMat = cv::Mat::eye(3, 3, CV_8UC1);
+    NSLog(@"Checking OpenCV functionality");
     
-    // Check if the matrix is valid
-    BOOL isValid = !testMat.empty() && testMat.size().width == 3 && testMat.size().height == 3;
+    // Simple test: try to create a matrix and check if successful
+    cv::Mat testMat(5, 5, CV_8UC1);
+    NSLog(@"Created a matrix. Is empty: %d", testMat.empty());
     
-    // Print OpenCV version for verification
-    NSLog(@"OpenCV Version: %s", CV_VERSION);
-    
-    return isValid;
+    return !testMat.empty();
 }
 
+/// Get the OpenCV version string
 + (NSString *)getOpenCVVersion {
-    // Return the OpenCV version as a string
-    return [NSString stringWithFormat:@"%s", CV_VERSION];
+    return [NSString stringWithUTF8String:CV_VERSION];
 }
 
-+ (UIImage *)UIImageFromCVPixelBuffer:(CVPixelBufferRef)pixelBuffer {
-    // Lock the pixel buffer base address
+/// Convert CVPixelBuffer to cv::Mat
+- (cv::Mat)cvMatFromPixelBuffer:(CVPixelBufferRef)pixelBuffer {
     CVPixelBufferLockBaseAddress(pixelBuffer, 0);
     
-    // Get buffer dimensions
+    void *baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer);
     size_t width = CVPixelBufferGetWidth(pixelBuffer);
     size_t height = CVPixelBufferGetHeight(pixelBuffer);
-    
-    // Get base address and bytes per row
-    void *baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer);
     size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
+    OSType pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer);
     
-    // Create a CGContextRef from the pixel buffer data
-    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-    CGContextRef context = CGBitmapContextCreate(baseAddress, width, height, 8,
-                                                bytesPerRow, colorSpace,
-                                                kCGBitmapByteOrder32Little | kCGImageAlphaPremultipliedFirst);
+    cv::Mat mat;
     
-    // Create a CGImage from the context
-    CGImageRef quartzImage = CGBitmapContextCreateImage(context);
+    if (pixelFormat == kCVPixelFormatType_32BGRA) {
+        mat = cv::Mat((int)height, (int)width, CV_8UC4, baseAddress, bytesPerRow);
+    } else if (pixelFormat == kCVPixelFormatType_32RGBA) {
+        cv::Mat rgba((int)height, (int)width, CV_8UC4, baseAddress, bytesPerRow);
+        cv::cvtColor(rgba, mat, cv::COLOR_RGBA2BGRA);
+    } else if (pixelFormat == kCVPixelFormatType_24RGB) {
+        cv::Mat rgb((int)height, (int)width, CV_8UC3, baseAddress, bytesPerRow);
+        cv::cvtColor(rgb, mat, cv::COLOR_RGB2BGR);
+    } else {
+        NSLog(@"Unsupported CVPixelBuffer format: %d", pixelFormat);
+        mat = cv::Mat();
+    }
     
-    // Create a UIImage from the CGImage using the correct scale
-    UIImage *image = [UIImage imageWithCGImage:quartzImage scale:1.0 orientation:UIImageOrientationUp];
-    
-    // Clean up resources
-    CGImageRelease(quartzImage);
-    CGContextRelease(context);
-    CGColorSpaceRelease(colorSpace);
     CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
-    
-    // Log success for debugging
-    if (image) {
-        NSLog(@"Successfully converted CVPixelBuffer to UIImage: %f x %f", image.size.width, image.size.height);
-    } else {
-        NSLog(@"Failed to convert CVPixelBuffer to UIImage");
-    }
-    
-    return image;
+    return mat;
 }
 
-+ (CVPixelBufferRef)CVPixelBufferFromUIImage:(UIImage *)image {
-    // Get image dimensions
-    CGSize size = image.size;
+/// Find peaks in a signal (similar to scipy.signal.find_peaks)
+/// @param signal The signal to find peaks in
+/// @param minDist Minimum distance between peaks
+/// @returns NSArray of peak indices
+- (NSArray *)findPeaksInSignal:(const std::vector<float> &)signal withMinDistance:(int)minDist {
+    NSMutableArray *peaks = [NSMutableArray array];
     
-    // Create pixel buffer
-    NSDictionary *options = @{
-        (NSString*)kCVPixelBufferCGImageCompatibilityKey: @YES,
-        (NSString*)kCVPixelBufferCGBitmapContextCompatibilityKey: @YES,
-    };
-    
-    CVPixelBufferRef pixelBuffer = NULL;
-    CVReturn status = CVPixelBufferCreate(kCFAllocatorDefault,
-                                         size.width,
-                                         size.height,
-                                         kCVPixelFormatType_32ARGB,
-                                         (__bridge CFDictionaryRef)options,
-                                         &pixelBuffer);
-    
-    if (status != kCVReturnSuccess) {
-        NSLog(@"Failed to create CVPixelBuffer");
-        return NULL;
-    }
-    
-    // Lock pixel buffer
-    CVPixelBufferLockBaseAddress(pixelBuffer, 0);
-    
-    // Get pixel buffer data pointer
-    void *pixelData = CVPixelBufferGetBaseAddress(pixelBuffer);
-    
-    // Create bitmap context
-    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-    CGContextRef context = CGBitmapContextCreate(pixelData,
-                                               size.width,
-                                               size.height,
-                                               8,
-                                               CVPixelBufferGetBytesPerRow(pixelBuffer),
-                                               colorSpace,
-                                               kCGImageAlphaNoneSkipFirst);
-    
-    // Draw image into context
-    CGContextDrawImage(context, CGRectMake(0, 0, size.width, size.height), image.CGImage);
-    
-    // Release resources
-    CGContextRelease(context);
-    CGColorSpaceRelease(colorSpace);
-    CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
-    
-    // Log success for debugging
-    NSLog(@"Successfully converted UIImage to CVPixelBuffer: %f x %f", size.width, size.height);
-    
-    return pixelBuffer;
-}
-
-#pragma mark - Helper Methods for OpenCV conversion
-
-// Convert UIImage to cv::Mat for processing
-+ (cv::Mat)cvMatFromUIImage:(UIImage *)image {
-    CGColorSpaceRef colorSpace = CGImageGetColorSpace(image.CGImage);
-    CGFloat cols = image.size.width;
-    CGFloat rows = image.size.height;
-    
-    cv::Mat cvMat(rows, cols, CV_8UC4); // 8 bits per component, 4 channels (RGBA)
-    
-    CGContextRef contextRef = CGBitmapContextCreate(cvMat.data,
-                                                   cols,
-                                                   rows,
-                                                   8,
-                                                   cvMat.step[0],
-                                                   colorSpace,
-                                                   kCGImageAlphaNoneSkipLast |
-                                                   kCGBitmapByteOrderDefault);
-    
-    CGContextDrawImage(contextRef, CGRectMake(0, 0, cols, rows), image.CGImage);
-    CGContextRelease(contextRef);
-    
-    // Convert to BGR (OpenCV standard format)
-    cv::Mat bgr;
-    cv::cvtColor(cvMat, bgr, cv::COLOR_RGBA2BGR);
-    
-    return bgr;
-}
-
-// Convert cv::Mat to UIImage for returning to Swift
-+ (UIImage *)UIImageFromCVMat:(cv::Mat)cvMat {
-    NSData *data = [NSData dataWithBytes:cvMat.data length:cvMat.elemSize() * cvMat.total()];
-    
-    CGColorSpaceRef colorSpace;
-    
-    if (cvMat.elemSize() == 1) {
-        // Grayscale
-        colorSpace = CGColorSpaceCreateDeviceGray();
-        
-        // Create image with proper alpha channel handling
-        CGDataProviderRef provider = CGDataProviderCreateWithCFData((__bridge CFDataRef)data);
-        
-        CGImageRef imageRef = CGImageCreate(cvMat.cols,
-                                          cvMat.rows,
-                                          8,
-                                          8 * cvMat.elemSize(),
-                                          cvMat.step[0],
-                                          colorSpace,
-                                          kCGImageAlphaNone | kCGBitmapByteOrderDefault,
-                                          provider,
-                                          NULL,
-                                          false,
-                                          kCGRenderingIntentDefault);
-        
-        UIImage *image = [UIImage imageWithCGImage:imageRef];
-        
-        CGImageRelease(imageRef);
-        CGDataProviderRelease(provider);
-        CGColorSpaceRelease(colorSpace);
-        
-        return image;
-    } else {
-        // RGB
-        cv::Mat rgbaMat;
-        colorSpace = CGColorSpaceCreateDeviceRGB();
-        
-        // Ensure we have 4 channels (RGBA)
-        if (cvMat.channels() == 3) {
-            cv::cvtColor(cvMat, rgbaMat, cv::COLOR_BGR2RGBA);
-        } else if (cvMat.channels() == 4) {
-            rgbaMat = cvMat;
-        } else {
-            return nil; // Unsupported format
-        }
-        
-        // Recreate data with the modified mat
-        NSData *dataRGBA = [NSData dataWithBytes:rgbaMat.data length:rgbaMat.elemSize() * rgbaMat.total()];
-        
-        CGDataProviderRef provider = CGDataProviderCreateWithCFData((__bridge CFDataRef)dataRGBA);
-        
-        CGImageRef imageRef = CGImageCreate(rgbaMat.cols,
-                                          rgbaMat.rows,
-                                          8,
-                                          8 * rgbaMat.elemSize() / rgbaMat.channels(),
-                                          rgbaMat.step[0],
-                                          colorSpace,
-                                          kCGImageAlphaNoneSkipLast | kCGBitmapByteOrderDefault,
-                                          provider,
-                                          NULL,
-                                          false,
-                                          kCGRenderingIntentDefault);
-        
-        UIImage *image = [UIImage imageWithCGImage:imageRef];
-        
-        CGImageRelease(imageRef);
-        CGDataProviderRelease(provider);
-        CGColorSpaceRelease(colorSpace);
-        
-        return image;
-    }
-}
-
-#pragma mark - Image Processing Methods
-
-+ (UIImage *)convertToGrayscale:(UIImage *)image {
-    // Convert UIImage to cv::Mat
-    cv::Mat inputMat = [self cvMatFromUIImage:image];
-    
-    // Convert to grayscale
-    cv::Mat grayMat;
-    cv::cvtColor(inputMat, grayMat, cv::COLOR_BGR2GRAY);
-    
-    // Create 8-bits-per-component grayscale image
-    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceGray();
-    NSData *data = [NSData dataWithBytes:grayMat.data length:grayMat.elemSize() * grayMat.total()];
-    
-    CGDataProviderRef provider = CGDataProviderCreateWithCFData((__bridge CFDataRef)data);
-    
-    CGImageRef imageRef = CGImageCreate(grayMat.cols,
-                                      grayMat.rows,
-                                      8,      // 8 bits per component
-                                      8,      // 8 bits per pixel
-                                      grayMat.step[0],  // bytes per row
-                                      colorSpace,
-                                      kCGImageAlphaNone | kCGBitmapByteOrderDefault,
-                                      provider,
-                                      NULL,
-                                      false,
-                                      kCGRenderingIntentDefault);
-    
-    UIImage *newImage = [UIImage imageWithCGImage:imageRef scale:1.0 orientation:UIImageOrientationUp];
-    
-    CGImageRelease(imageRef);
-    CGDataProviderRelease(provider);
-    CGColorSpaceRelease(colorSpace);
-    
-    return newImage;
-}
-
-+ (UIImage *)applyGaussianBlur:(UIImage *)image kernelSize:(int)kernelSize {
-    // Ensure kernel size is odd
-    if (kernelSize % 2 == 0) {
-        kernelSize += 1;
-    }
-    
-    // Convert UIImage to cv::Mat
-    cv::Mat inputMat = [self cvMatFromUIImage:image];
-    
-    // Apply Gaussian blur with sigma=0 to match Python
-    cv::Mat blurredMat;
-    cv::GaussianBlur(inputMat, blurredMat, cv::Size(kernelSize, kernelSize), 0);
-    
-    // Create RGB image with proper format
-    CGColorSpaceRef colorSpace;
-    CGBitmapInfo bitmapInfo;
-    
-    if (blurredMat.channels() == 1) {
-        colorSpace = CGColorSpaceCreateDeviceGray();
-        bitmapInfo = kCGImageAlphaNone | kCGBitmapByteOrderDefault;
-    } else {
-        colorSpace = CGColorSpaceCreateDeviceRGB();
-        bitmapInfo = kCGImageAlphaNoneSkipLast | kCGBitmapByteOrderDefault;
-        // Convert to RGBA if it's BGR
-        if (blurredMat.channels() == 3) {
-            cv::cvtColor(blurredMat, blurredMat, cv::COLOR_BGR2RGBA);
-        }
-    }
-    
-    // Create CGImage from mat
-    NSData *data = [NSData dataWithBytes:blurredMat.data 
-                                  length:blurredMat.elemSize() * blurredMat.total()];
-    
-    CGDataProviderRef provider = CGDataProviderCreateWithCFData((__bridge CFDataRef)data);
-    
-    CGImageRef imageRef = CGImageCreate(blurredMat.cols,
-                                      blurredMat.rows,
-                                      8,
-                                      8 * blurredMat.channels(),
-                                      blurredMat.step[0],
-                                      colorSpace,
-                                      bitmapInfo,
-                                      provider,
-                                      NULL,
-                                      false,
-                                      kCGRenderingIntentDefault);
-    
-    UIImage *resultImage = [UIImage imageWithCGImage:imageRef 
-                                               scale:1.0 
-                                         orientation:UIImageOrientationUp];
-    
-    // Clean up
-    CGImageRelease(imageRef);
-    CGDataProviderRelease(provider);
-    CGColorSpaceRelease(colorSpace);
-    
-    return resultImage;
-}
-
-+ (UIImage *)applyCannyEdgeDetection:(UIImage *)image threshold1:(double)threshold1 threshold2:(double)threshold2 {
-    // Convert UIImage to cv::Mat
-    cv::Mat inputMat = [self cvMatFromUIImage:image];
-    
-    // Convert to grayscale if needed
-    cv::Mat grayMat;
-    if (inputMat.channels() > 1) {
-        cv::cvtColor(inputMat, grayMat, cv::COLOR_BGR2GRAY);
-    } else {
-        grayMat = inputMat;
-    }
-    
-    // Apply Canny edge detection with default aperture size=3 to match Python
-    cv::Mat edgesMat;
-    cv::Canny(grayMat, edgesMat, threshold1, threshold2, 3);
-    
-    // Create grayscale image with proper format
-    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceGray();
-    
-    // Create CGImage from mat
-    NSData *data = [NSData dataWithBytes:edgesMat.data 
-                                length:edgesMat.elemSize() * edgesMat.total()];
-    
-    CGDataProviderRef provider = CGDataProviderCreateWithCFData((__bridge CFDataRef)data);
-    
-    CGImageRef imageRef = CGImageCreate(edgesMat.cols,
-                                      edgesMat.rows,
-                                      8,
-                                      8,  // 8 bits per pixel for grayscale
-                                      edgesMat.step[0],
-                                      colorSpace,
-                                      kCGImageAlphaNone | kCGBitmapByteOrderDefault,
-                                      provider,
-                                      NULL,
-                                      false,
-                                      kCGRenderingIntentDefault);
-    
-    UIImage *resultImage = [UIImage imageWithCGImage:imageRef 
-                                             scale:1.0 
-                                       orientation:UIImageOrientationUp];
-    
-    // Clean up
-    CGImageRelease(imageRef);
-    CGDataProviderRelease(provider);
-    CGColorSpaceRelease(colorSpace);
-    
-    return resultImage;
-}
-
-#pragma mark - Projection Calculation
-
-+ (NSArray<NSNumber *> *)calculateHorizontalProjection:(UIImage *)image {
-    // Convert UIImage to cv::Mat
-    cv::Mat inputMat = [self cvMatFromUIImage:image];
-    
-    // Convert to grayscale if needed
-    cv::Mat grayMat;
-    if (inputMat.channels() > 1) {
-        cv::cvtColor(inputMat, grayMat, cv::COLOR_BGR2GRAY);
-    } else {
-        grayMat = inputMat;
-    }
-    
-    // Sum along width (axis=1 in Python, columns in OpenCV)
-    cv::Mat projection;
-    cv::reduce(grayMat, projection, 1, cv::REDUCE_SUM, CV_32F);
-    
-    // Convert to NSArray
-    NSMutableArray<NSNumber *> *result = [NSMutableArray arrayWithCapacity:projection.rows];
-    for (int i = 0; i < projection.rows; i++) {
-        float value = projection.at<float>(i, 0);
-        [result addObject:@(value)];
-    }
-    
-    return result;
-}
-
-+ (NSArray<NSNumber *> *)calculateVerticalProjection:(UIImage *)image {
-    // Convert UIImage to cv::Mat
-    cv::Mat inputMat = [self cvMatFromUIImage:image];
-    
-    // Convert to grayscale if needed
-    cv::Mat grayMat;
-    if (inputMat.channels() > 1) {
-        cv::cvtColor(inputMat, grayMat, cv::COLOR_BGR2GRAY);
-    } else {
-        grayMat = inputMat;
-    }
-    
-    // Sum along height (axis=0 in Python, rows in OpenCV)
-    cv::Mat projection;
-    cv::reduce(grayMat, projection, 0, cv::REDUCE_SUM, CV_32F);
-    
-    // Convert to NSArray
-    NSMutableArray<NSNumber *> *result = [NSMutableArray arrayWithCapacity:projection.cols];
-    for (int i = 0; i < projection.cols; i++) {
-        float value = projection.at<float>(0, i);
-        [result addObject:@(value)];
-    }
-    
-    return result;
-}
-
-#pragma mark - Array Processing
-
-+ (NSArray<NSNumber *> *)smoothArray:(NSArray<NSNumber *> *)array kernelSize:(int)kernelSize {
-    // Ensure kernel size is odd
-    if (kernelSize % 2 == 0) {
-        kernelSize += 1;
-    }
-    
-    // Convert NSArray to cv::Mat
-    cv::Mat inputMat(1, (int)array.count, CV_32F);
-    for (int i = 0; i < array.count; i++) {
-        inputMat.at<float>(0, i) = [array[i] floatValue];
-    }
-    
-    // Create kernel for smoothing (similar to np.ones(kernelSize) / kernelSize in Python)
-    cv::Mat kernel = cv::Mat::ones(1, kernelSize, CV_32F) / (float)kernelSize;
-    
-    // Apply convolution (similar to np.convolve in Python)
-    cv::Mat smoothedMat;
-    cv::filter2D(inputMat, smoothedMat, -1, kernel, cv::Point(-1, -1), 0, cv::BORDER_REFLECT);
-    
-    // Convert back to NSArray
-    NSMutableArray<NSNumber *> *result = [NSMutableArray arrayWithCapacity:smoothedMat.cols];
-    for (int i = 0; i < smoothedMat.cols; i++) {
-        float value = smoothedMat.at<float>(0, i);
-        [result addObject:@(value)];
-    }
-    
-    return result;
-}
-
-+ (NSArray<NSNumber *> *)findPeaksInArray:(NSArray<NSNumber *> *)array minDistance:(int)minDistance prominence:(double)prominence {
-    // This is a simplified peak finding algorithm similar to scipy.signal.find_peaks
-    // For a complete implementation, we would need to implement more complex logic
-    
-    NSMutableArray<NSNumber *> *peaks = [NSMutableArray array];
-    
-    // Minimum array size needed
-    if (array.count < 3) {
+    if (signal.size() < 3) {
         return peaks;
     }
     
-    // Find local maxima
-    for (int i = 1; i < array.count - 1; i++) {
-        float prev = [array[i-1] floatValue];
-        float current = [array[i] floatValue];
-        float next = [array[i+1] floatValue];
-        
-        // Check if this point is a local maximum
-        if (current > prev && current > next) {
-            // Check if it's far enough from existing peaks
-            BOOL isFarEnough = YES;
+    for (int i = 1; i < signal.size() - 1; i++) {
+        // Check if this point is higher than both its neighbors
+        if (signal[i] > signal[i-1] && signal[i] > signal[i+1]) {
+            // Check if we already have peaks and if this one is too close to any existing peak
+            BOOL tooClose = NO;
             for (NSNumber *existingPeak in peaks) {
-                int existingIndex = [existingPeak intValue];
-                if (abs(i - existingIndex) < minDistance) {
-                    // Compare heights and keep only the highest
-                    if (current > [array[existingIndex] floatValue]) {
-                        [peaks removeObject:existingPeak];
-                    } else {
-                        isFarEnough = NO;
+                if (abs(i - [existingPeak intValue]) < minDist) {
+                    tooClose = YES;
+                    
+                    // If this peak is higher than the existing one, replace it
+                    if (signal[i] > signal[[existingPeak intValue]]) {
+                        NSInteger index = [peaks indexOfObject:existingPeak];
+                        peaks[index] = @(i);
                     }
                     break;
                 }
             }
             
-            if (isFarEnough) {
+            if (!tooClose) {
                 [peaks addObject:@(i)];
             }
         }
     }
     
-    // Sort peaks by position
-    [peaks sortUsingComparator:^NSComparisonResult(NSNumber *obj1, NSNumber *obj2) {
-        return [obj1 compare:obj2];
+    // Sort peaks by height (amplitude)
+    [peaks sortUsingComparator:^NSComparisonResult(NSNumber *peak1, NSNumber *peak2) {
+        float height1 = signal[[peak1 intValue]];
+        float height2 = signal[[peak2 intValue]];
+        if (height1 < height2) {
+            return NSOrderedDescending;
+        } else if (height1 > height2) {
+            return NSOrderedAscending;
+        }
+        return NSOrderedSame;
     }];
     
     return peaks;
+}
+
+/// Smooth a 1D signal with a moving average filter
+/// @param signal The signal to smooth
+/// @param kernelSize The size of the smoothing kernel
+- (std::vector<float>)smoothSignal:(const std::vector<float> &)signal withKernelSize:(int)kernelSize {
+    if (kernelSize < 2 || signal.size() == 0) {
+        return signal;
+    }
+    
+    // Ensure kernel size is odd
+    if (kernelSize % 2 == 0) {
+        kernelSize += 1;
+    }
+    
+    std::vector<float> smoothed(signal.size(), 0.0);
+    int halfKernel = kernelSize / 2;
+    
+    // For each point in the signal
+    for (int i = 0; i < signal.size(); i++) {
+        float sum = 0.0;
+        int count = 0;
+        
+        // Sum the values in the kernel window
+        for (int j = -halfKernel; j <= halfKernel; j++) {
+            int idx = i + j;
+            if (idx >= 0 && idx < signal.size()) {
+                sum += signal[idx];
+                count++;
+            }
+        }
+        
+        // Compute the average
+        smoothed[i] = (count > 0) ? sum / count : signal[i];
+    }
+    
+    return smoothed;
+}
+
+/// Calculate projection (sum along axis) of a grayscale image
+/// @param image The input grayscale image
+/// @param isHorizontalProjection Whether to calculate horizontal projection (sum along rows) or vertical (sum along columns)
+- (std::vector<float>)calculateProjection:(const cv::Mat &)image isHorizontalProjection:(BOOL)isHorizontalProjection {
+    std::vector<float> projection;
+    
+    if (image.empty()) {
+        return projection;
+    }
+    
+    if (isHorizontalProjection) {
+        // Horizontal projection: sum along rows (for each y-coordinate)
+        projection.resize(image.rows);
+        for (int y = 0; y < image.rows; y++) {
+            float sum = 0;
+            for (int x = 0; x < image.cols; x++) {
+                sum += image.at<uchar>(y, x);
+            }
+            projection[y] = sum;
+        }
+    } else {
+        // Vertical projection: sum along columns (for each x-coordinate)
+        projection.resize(image.cols);
+        for (int x = 0; x < image.cols; x++) {
+            float sum = 0;
+            for (int y = 0; y < image.rows; y++) {
+                sum += image.at<uchar>(y, x);
+            }
+            projection[x] = sum;
+        }
+    }
+    
+    return projection;
+}
+
+#pragma mark - Core Image Processing Methods for Calibration
+
+/// Test processing a frame
+- (BOOL)processTestFrame:(CVPixelBufferRef)pixelBuffer {
+    if (pixelBuffer == nil) {
+        NSLog(@"processTestFrame: Nil pixel buffer");
+        return NO;
+    }
+    
+    // Try to convert to cv::Mat
+    cv::Mat inputMat = [self cvMatFromPixelBuffer:pixelBuffer];
+    if (inputMat.empty()) {
+        NSLog(@"processTestFrame: Failed to convert pixel buffer to cv::Mat");
+        return NO;
+    }
+    
+    // Try basic image operations
+    cv::Mat grayMat;
+    cv::cvtColor(inputMat, grayMat, cv::COLOR_BGRA2GRAY);
+    
+    if (grayMat.empty()) {
+        NSLog(@"processTestFrame: Failed to convert to grayscale");
+        return NO;
+    }
+    
+    NSLog(@"processTestFrame: Successfully processed frame (%dx%d)", inputMat.cols, inputMat.rows);
+    return YES;
+}
+
+/// Process a single frame for auto-calibration
+/// Implements the Python algorithm for detecting optimal threshold positioning
+/// @param pixelBuffer The input video frame
+/// @param isVerticalDirection Whether counting direction is vertical (true) or horizontal (false)
+- (NSArray *)processCalibrationFrame:(CVPixelBufferRef)pixelBuffer isVerticalDirection:(BOOL)isVerticalDirection {
+    NSLog(@"Processing calibration frame");
+    
+    // Convert pixel buffer to cv::Mat
+    cv::Mat inputFrame = [self cvMatFromPixelBuffer:pixelBuffer];
+    if (inputFrame.empty()) {
+        NSLog(@"Failed to convert pixel buffer to cv::Mat");
+        return @[@0.3f, @0.7f]; // Default fallback values
+    }
+    
+    // 1. Convert to grayscale - matches Python cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    cv::Mat grayFrame;
+    cv::cvtColor(inputFrame, grayFrame, cv::COLOR_BGRA2GRAY);
+    
+    // 2. Apply Gaussian blur with 5x5 kernel - matches Python cv2.GaussianBlur(gray, (5, 5), 0)
+    cv::Mat blurredFrame;
+    cv::GaussianBlur(grayFrame, blurredFrame, cv::Size(5, 5), 0);
+    
+    // 3. Apply Canny edge detection with thresholds 50, 150 - matches Python cv2.Canny(blurred, 50, 150)
+    cv::Mat edges;
+    cv::Canny(blurredFrame, edges, 50, 150);
+    
+    // 4. Calculate projection based on direction
+    std::vector<float> projection = [self calculateProjection:edges isHorizontalProjection:isVerticalDirection];
+    
+    // 5. Calculate kernel size based on dimension
+    // max(5, height//20) for vertical or max(5, width//20) for horizontal - matches Python
+    int dimension = isVerticalDirection ? inputFrame.rows : inputFrame.cols;
+    int kernelSize = std::max(5, dimension / 20);
+    
+    // 6. Smooth the projection
+    std::vector<float> smoothedProjection = [self smoothSignal:projection withKernelSize:kernelSize];
+    
+    // 7. Find peaks in the smoothed projection
+    // Calculate minimum distance between peaks - matches Python distance parameter
+    // Quarter of the dimension (height/width)
+    int minPeakDistance = dimension / 4;
+    
+    NSArray *peaks = [self findPeaksInSignal:smoothedProjection withMinDistance:minPeakDistance];
+    
+    // 8. Convert peak positions to normalized thresholds
+    NSMutableArray *thresholds = [NSMutableArray array];
+    float denominator = (float)dimension;
+    
+    // If we found at least two peaks, use them
+    if ([peaks count] >= 2) {
+        // Use the first two peaks (which are sorted by amplitude)
+        int peak1 = [[peaks objectAtIndex:0] intValue];
+        int peak2 = [[peaks objectAtIndex:1] intValue];
+        
+        float threshold1 = peak1 / denominator;
+        float threshold2 = peak2 / denominator;
+        
+        // Sort thresholds by position (not amplitude)
+        if (threshold1 > threshold2) {
+            [thresholds addObject:@(threshold2)];
+            [thresholds addObject:@(threshold1)];
+        } else {
+            [thresholds addObject:@(threshold1)];
+            [thresholds addObject:@(threshold2)];
+        }
+    }
+    // If we found only one peak, use it with a second one positioned at 30% or 70%
+    else if ([peaks count] == 1) {
+        int peak = [[peaks objectAtIndex:0] intValue];
+        float threshold = peak / denominator;
+        
+        // Add a second threshold at 30% or 70% depending on first peak - matches Python fallback
+        float secondThreshold = (threshold < 0.5f) ? 0.7f : 0.3f;
+        
+        [thresholds addObject:@(std::min(threshold, secondThreshold))];
+        [thresholds addObject:@(std::max(threshold, secondThreshold))];
+    }
+    // Fallback: use default thresholds at 30% and 70% - matches Python np.linspace(0.3 * dim, 0.7 * dim, n_lines)
+    else {
+        [thresholds addObject:@(0.3f)];
+        [thresholds addObject:@(0.7f)];
+    }
+    
+    return thresholds;
 }
 
 @end 

@@ -81,23 +81,23 @@ class TrackingDetector: ObjectDetector {
     /// Flag indicating if calibration has been completed
     private var isCalibrated: Bool = false
     
-    /// Buffer to store frames during calibration
-    private var calibrationFrameBuffer: [CVPixelBuffer] = []
+    /// Current frame number in calibration sequence
+    private var calibrationFrameCount: Int = 0
     
-    /// Number of frames to collect for calibration (approx. 5 seconds at 30fps)
-    private var calibrationFrameCount: Int = CalibrationUtils.defaultCalibrationFrameCount
+    /// Total number of frames to process for calibration (approx. 10 seconds at 30fps)
+    private var targetCalibrationFrames: Int = CalibrationUtils.defaultCalibrationFrameCount
     
     /// Reference to the current frame being processed
     private var currentPixelBuffer: CVPixelBuffer?
+    
+    /// Accumulated edge detection results for calibration
+    private var edgeAccumulator: UIImage?
     
     /// Callback for reporting calibration progress
     var onCalibrationProgress: ((Int, Int) -> Void)?
     
     /// Callback for reporting calibration completion with new thresholds
     var onCalibrationComplete: (([CGFloat]) -> Void)?
-    
-    /// Flag to indicate we should test OpenCV on the next available frame
-    private var shouldTestOpenCVOnNextFrame: Bool = false
     
     // MARK: - Threshold management
     
@@ -162,9 +162,7 @@ class TrackingDetector: ObjectDetector {
         // If we're disabling calibration that was previously enabled, make sure we clean up properly
         if !enabled && isAutoCalibrationEnabled {
             // Clear out any partial calibration data
-            calibrationFrameBuffer.removeAll(keepingCapacity: true)
-            currentPixelBuffer = nil
-            isCalibrated = false
+            resetCalibration()
         }
         
         // Set the new state
@@ -174,22 +172,11 @@ class TrackingDetector: ObjectDetector {
             // Reset calibration state when enabling
             resetCalibration()
             
-            // Mark that we should test OpenCV with the next frame
-            // shouldTestOpenCVOnNextFrame = true
-            // print("Will test OpenCV integration when next frame arrives")
-        }
-    }
-    
-    /// Test OpenCV integration during calibration
-    @MainActor
-    private func testOpenCVIntegration() {
-        // Check if we have a frame to test with
-        if let pixelBuffer = currentPixelBuffer {
-            // Test OpenCV access using CalibrationUtils
-            let success = CalibrationUtils.testOpenCVAccess(frame: pixelBuffer)
-            print("OpenCV integration test during calibration: \(success ? "Successful" : "Failed")")
-        } else {
-            print("No frame available for OpenCV test")
+            // Initialize calibration state
+            calibrationFrameCount = 0
+            edgeAccumulator = nil
+            
+            print("Starting streaming auto-calibration process")
         }
     }
     
@@ -197,48 +184,65 @@ class TrackingDetector: ObjectDetector {
     @MainActor
     private func resetCalibration() {
         isCalibrated = false
-        calibrationFrameBuffer.removeAll(keepingCapacity: true)
+        calibrationFrameCount = 0
+        edgeAccumulator = nil
+        currentPixelBuffer = nil
     }
     
-    /// Add a frame to the calibration buffer
+    /// Process a frame for calibration (streaming approach)
     @MainActor
-    private func addFrameToCalibrationBuffer(_ pixelBuffer: CVPixelBuffer) {
-        // Skip if we already have enough frames or calibration is completed
-        if calibrationFrameBuffer.count >= calibrationFrameCount || isCalibrated {
+    private func processFrameForCalibration(_ pixelBuffer: CVPixelBuffer) {
+        // Skip if calibration is completed
+        if isCalibrated {
             return
         }
         
-        // Add the frame to the buffer
-        calibrationFrameBuffer.append(pixelBuffer)
+        calibrationFrameCount += 1
         
         // Report progress via callback
-        let progress = calibrationFrameBuffer.count
-        onCalibrationProgress?(progress, calibrationFrameCount)
+        onCalibrationProgress?(calibrationFrameCount, targetCalibrationFrames)
         
-        // Perform calibration if we have collected enough frames
-        if calibrationFrameBuffer.count >= calibrationFrameCount {
-            performCalibration()
+        // Process frame with OpenCV directly for calibration
+        let isVerticalDirection = countingDirection == .topToBottom || countingDirection == .bottomToTop
+        
+        if let thresholds = OpenCVWrapper.processCalibrationFrame(pixelBuffer, isVerticalDirection: isVerticalDirection) as? [NSNumber], 
+           thresholds.count >= 2 {
+            // Accumulate these threshold values (we'll average them at the end)
+            let threshold1 = CGFloat(thresholds[0].floatValue)
+            let threshold2 = CGFloat(thresholds[1].floatValue)
+            
+            // Update our running thresholds
+            if edgeAccumulator == nil {
+                // First frame - just use the values directly
+                self.thresholds = [threshold1, threshold2]
+            } else {
+                // Accumulate by blending with previous values using weighted average
+                // Give more weight to newer frames using a simple exponential moving average
+                let weight = 2.0 / Double(calibrationFrameCount + 1) 
+                let newThreshold1 = CGFloat(weight) * threshold1 + CGFloat(1 - weight) * self.thresholds[0]
+                let newThreshold2 = CGFloat(weight) * threshold2 + CGFloat(1 - weight) * self.thresholds[1]
+                self.thresholds = [newThreshold1, newThreshold2]
+            }
+        }
+        
+        // Check if we've processed enough frames
+        if calibrationFrameCount >= targetCalibrationFrames {
+            completeCalibration()
         }
     }
     
-    /// Perform calibration calculation on collected frames
+    /// Complete the calibration process
     @MainActor
-    private func performCalibration() {
-        // Calculate new thresholds from collected frames
-        let (threshold1, threshold2) = CalibrationUtils.calculateThresholds(
-            from: calibrationFrameBuffer,
-            direction: countingDirection
-        )
-        
-        // Set the new thresholds
-        thresholds = [threshold1, threshold2]
-        
+    private func completeCalibration() {
         // Mark calibration as completed
         isCalibrated = true
         isAutoCalibrationEnabled = false
         
-        // Clear buffer to free memory
-        calibrationFrameBuffer.removeAll(keepingCapacity: true)
+        // Sort thresholds to ensure proper order
+        let sortedThresholds = thresholds.sorted()
+        self.thresholds = sortedThresholds
+        
+        print("Streaming calibration complete - Thresholds: \(thresholds)")
         
         // Clear any previous counting state to ensure new thresholds are used
         countedTracks.removeAll(keepingCapacity: true)
@@ -269,9 +273,9 @@ class TrackingDetector: ObjectDetector {
         if let results = request.results as? [VNRecognizedObjectObservation] {
             // First check if we're in calibration mode
             if isAutoCalibrationEnabled, let pixelBuffer = capturedPixelBuffer {
-                // Add the frame to calibration buffer on the main actor
+                // Process frame for calibration on the main actor
                 Task { @MainActor in
-                    self.addFrameToCalibrationBuffer(pixelBuffer)
+                    self.processFrameForCalibration(pixelBuffer)
                 }
                 
                 // Skip normal detection processing during calibration
@@ -343,15 +347,9 @@ class TrackingDetector: ObjectDetector {
         // Store the pixel buffer for use in processObservations
         currentPixelBuffer = pixelBuffer
         
-        // // Test OpenCV if needed with this frame
-        // if shouldTestOpenCVOnNextFrame {
-        //     testOpenCVIntegration()
-        //     shouldTestOpenCVOnNextFrame = false
-        // }
-        
         // If in calibration mode, process directly here
         if isAutoCalibrationEnabled {
-            addFrameToCalibrationBuffer(pixelBuffer)
+            processFrameForCalibration(pixelBuffer)
             return
         }
         
