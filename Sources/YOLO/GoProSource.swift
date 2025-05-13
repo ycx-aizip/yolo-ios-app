@@ -8,7 +8,7 @@
 
 import AVFoundation
 import Foundation
-// UIKit is not needed for the current implementation
+import MobileVLCKit
 
 /// GoPro webcam version response structure - simplified version
 struct GoProWebcamVersion: Decodable {
@@ -19,8 +19,23 @@ struct GoProWebcamVersion: Decodable {
     let usb_3_1_compatible: Bool?
 }
 
+/// GoPro streaming status for validation purposes
+enum GoProStreamingStatus {
+    case connecting
+    case playing
+    case error(String)
+    case stopped
+}
+
+/// Delegate protocol for GoProSource streaming status updates
+protocol GoProSourceDelegate: AnyObject {
+    func goProSource(_ source: GoProSource, didUpdateStatus status: GoProStreamingStatus)
+    func goProSource(_ source: GoProSource, didReceiveFirstFrame size: CGSize)
+    func goProSource(_ source: GoProSource, didReceiveFrameWithTime time: Int64)
+}
+
 /// Class for handling GoPro camera as a frame source
-class GoProSource: NSObject {
+class GoProSource: NSObject, VLCMediaPlayerDelegate {
     // Default GoPro IP address when connected via WiFi
     private let goProIP = "10.5.5.9"
     private let goProPort = 8080
@@ -33,8 +48,205 @@ class GoProSource: NSObject {
     private let exitEndpoint = "/gopro/webcam/exit"
     
     // RTSP configuration
-    private let rtspPort = 554
+    private let rtspPort = 8554
     private let rtspPath = "/live"
+    
+    // VLCKit video player
+    private var videoPlayer: VLCMediaPlayer?
+    
+    // Stream status tracking
+    private var streamStartTime: Date?
+    private var hasReceivedFirstFrame = false
+    private var frameCount = 0
+    private var lastFrameTime: Int64 = 0
+    
+    // Delegate for status updates
+    weak var delegate: GoProSourceDelegate?
+    
+    // Initialize VLC player
+    override init() {
+        super.init()
+        setupVLCPlayer()
+    }
+    
+    private func setupVLCPlayer() {
+        videoPlayer = VLCMediaPlayer()
+        videoPlayer?.delegate = self
+        videoPlayer?.libraryInstance.debugLogging = true
+        videoPlayer?.libraryInstance.debugLoggingLevel = 3
+    }
+    
+    /// Start RTSP stream from GoPro
+    /// - Parameter completion: Callback with result (success/failure)
+    func startRTSPStream(completion: @escaping (Result<Void, Error>) -> Void) {
+        // Construct RTSP URL
+        let rtspURLString = "rtsp://\(goProIP):\(rtspPort)\(rtspPath)"
+        print("GoPro: Attempting to connect to RTSP stream at \(rtspURLString)")
+        
+        guard let url = URL(string: rtspURLString), let videoPlayer = videoPlayer else {
+            let error = NSError(domain: "GoProSource", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid RTSP URL or player not initialized"])
+            completion(.failure(error))
+            return
+        }
+        
+        // Set stream status to connecting
+        self.delegate?.goProSource(self, didUpdateStatus: .connecting)
+        
+        // Reset frame tracking
+        hasReceivedFirstFrame = false
+        frameCount = 0
+        streamStartTime = Date()
+        
+        // Configure player
+        videoPlayer.media = VLCMedia(url: url)
+        configureMediaOptions(videoPlayer.media)
+        
+        // Create a timer for timeout
+        let timeoutTimer = Timer(timeInterval: 10.0, repeats: false) { [weak self] timer in
+            guard let self = self else { return }
+            
+            if !self.hasReceivedFirstFrame {
+                print("GoPro: Timeout waiting for first frame")
+                
+                // Use main thread to stop player and update UI
+                DispatchQueue.main.async {
+                    self.videoPlayer?.stop()
+                    
+                    let error = NSError(
+                        domain: "GoProSource",
+                        code: 2,
+                        userInfo: [NSLocalizedDescriptionKey: "Timeout waiting for first frame from RTSP stream"]
+                    )
+                    self.delegate?.goProSource(self, didUpdateStatus: .error("Connection timeout"))
+                    completion(.failure(error))
+                }
+            }
+            
+            // Invalidate the timer
+            timer.invalidate()
+        }
+        
+        // Add timer to the main run loop
+        RunLoop.main.add(timeoutTimer, forMode: .common)
+        
+        // Start playback
+        videoPlayer.play()
+        
+        // Success is reported via delegate when first frame is received
+        completion(.success(()))
+    }
+    
+    /// Configure media options for optimal RTSP streaming from GoPro
+    private func configureMediaOptions(_ media: VLCMedia?) {
+        guard let media = media else { return }
+        
+        // Apply the suggested options from the issue #638
+        media.addOptions([
+            "network-caching": 500,
+            "sout-rtp-caching": 100,
+            "sout-rtp-port-audio": 20000,
+            "sout-rtp-port-video": 20002,
+            ":rtp-timeout": 10000,
+            ":rtsp-tcp": true,
+            ":rtsp-frame-buffer-size": 1024,
+            ":rtsp-caching": 0,
+            ":live-caching": 0,
+        ])
+        
+        // Additional codec specifications
+        media.addOption(":codec=avcodec")
+        media.addOption(":vcodec=h264")
+        media.addOption("--file-caching=2000")
+        media.addOption("clock-jitter=0")
+        media.addOption("--rtsp-tcp")
+        
+        // Clear any stored cookies
+        media.clearStoredCookies()
+        
+        print("GoPro: Media options configured for RTSP streaming")
+    }
+    
+    /// Stop RTSP stream
+    func stopRTSPStream() {
+        print("GoPro: Stopping RTSP stream")
+        videoPlayer?.stop()
+        delegate?.goProSource(self, didUpdateStatus: .stopped)
+    }
+    
+    // MARK: - VLC Media Player Delegate Methods
+    
+    func mediaPlayerStateChanged(_ aNotification: Notification!) {
+        guard let player = aNotification.object as? VLCMediaPlayer else { return }
+        
+        switch player.state {
+        case .opening:
+            print("GoPro: VLC Player - Opening stream")
+        
+        case .buffering:
+            print("GoPro: VLC Player - Buffering stream")
+            
+        case .playing:
+            print("GoPro: VLC Player - Stream is playing")
+            delegate?.goProSource(self, didUpdateStatus: .playing)
+            
+        case .error:
+            print("GoPro: VLC Player - Error streaming")
+            delegate?.goProSource(self, didUpdateStatus: .error("Playback error"))
+            
+        case .ended:
+            print("GoPro: VLC Player - Stream ended")
+            delegate?.goProSource(self, didUpdateStatus: .stopped)
+            
+        case .stopped:
+            print("GoPro: VLC Player - Stream stopped")
+            delegate?.goProSource(self, didUpdateStatus: .stopped)
+            
+        default:
+            print("GoPro: VLC Player - State: \(player.state.rawValue)")
+        }
+    }
+    
+    func mediaPlayerTimeChanged(_ aNotification: Notification!) {
+        guard let player = aNotification.object as? VLCMediaPlayer else { return }
+        
+        // Increment frame count
+        frameCount += 1
+        
+        // Store the current media time
+        lastFrameTime = Int64(player.time.intValue)
+        
+        // Calculate frame size if this is the first frame
+        if !hasReceivedFirstFrame {
+            hasReceivedFirstFrame = true
+            
+            // Log frame details
+            let videoSize = player.videoSize
+            print("GoPro: VLC Player - Received first frame, size: \(videoSize)")
+            
+            // Calculate FPS if media track info is available
+            if let trackInfo = player.media?.tracksInformation, !trackInfo.isEmpty {
+                print("GoPro: VLC Player - Media tracks: \(trackInfo)")
+            }
+            
+            // Notify first frame received with size
+            delegate?.goProSource(self, didReceiveFirstFrame: videoSize)
+        }
+        
+        // Every 30 frames, report status
+        if frameCount % 30 == 0 {
+            // Calculate FPS if stream has been running for at least 1 second
+            if let startTime = streamStartTime {
+                let elapsed = Date().timeIntervalSince(startTime)
+                let fps = Double(frameCount) / elapsed
+                print("GoPro: VLC Player - Receiving frames at \(String(format: "%.2f", fps)) FPS")
+            }
+            
+            // Notify about frame reception
+            delegate?.goProSource(self, didReceiveFrameWithTime: lastFrameTime)
+        }
+    }
+    
+    // MARK: - GoPro HTTP API Methods
     
     /// Check if connected to a GoPro camera by requesting webcam version
     /// - Parameter completion: Callback with result (success/failure)
@@ -377,6 +589,9 @@ class GoProSource: NSObject {
     /// - Parameter completion: Callback with result (success/failure)
     func gracefulWebcamExit(completion: @escaping (Result<Void, Error>) -> Void) {
         print("GoPro: Starting graceful webcam exit")
+        
+        // Stop RTSP stream if running
+        stopRTSPStream()
         
         // First stop the webcam
         stopWebcam { [weak self] stopResult in
