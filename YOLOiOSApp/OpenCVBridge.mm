@@ -220,7 +220,7 @@
 /// @param pixelBuffer The input video frame
 /// @param isVerticalDirection Whether counting direction is vertical (true) or horizontal (false)
 - (NSArray *)processCalibrationFrame:(CVPixelBufferRef)pixelBuffer isVerticalDirection:(BOOL)isVerticalDirection {
-    NSLog(@"Processing calibration frame");
+    // NSLog(@"Processing calibration frame");
     
     // Convert pixel buffer to cv::Mat
     cv::Mat inputFrame = [self cvMatFromPixelBuffer:pixelBuffer];
