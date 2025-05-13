@@ -260,4 +260,162 @@ class GoProSource: NSObject {
         
         task.resume()
     }
+    
+    /// Stop webcam streaming
+    /// - Parameter completion: Callback with result (success/failure)
+    func stopWebcam(completion: @escaping (Result<Void, Error>) -> Void) {
+        print("GoPro: Stopping webcam stream")
+        let urlString = "http://\(goProIP):\(goProPort)\(stopEndpoint)"
+        
+        guard let url = URL(string: urlString) else {
+            print("GoPro: Invalid stop URL format")
+            completion(.failure(NSError(domain: "GoProSource", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid stop URL"])))
+            return
+        }
+        
+        // Create a URL request with a timeout
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5.0 // 5 second timeout
+        
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            // Handle network error
+            if let error = error {
+                print("GoPro: Stop webcam network error: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    completion(.failure(error))
+                }
+                return
+            }
+            
+            // Check HTTP response
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("GoPro: Invalid HTTP response for stop")
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "GoProSource", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response"])))
+                }
+                return
+            }
+            
+            print("GoPro: Stop HTTP Status Code: \(httpResponse.statusCode)")
+            
+            // Check status code
+            guard httpResponse.statusCode == 200 else {
+                print("GoPro: Stop HTTP error status code: \(httpResponse.statusCode)")
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "GoProSource", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "HTTP error: \(httpResponse.statusCode)"])))
+                }
+                return
+            }
+            
+            // Success - empty response is expected
+            print("GoPro: Webcam stopped successfully")
+            DispatchQueue.main.async {
+                completion(.success(()))
+            }
+        }
+        
+        task.resume()
+    }
+    
+    /// Exit webcam mode
+    /// - Parameter completion: Callback with result (success/failure)
+    func exitWebcam(completion: @escaping (Result<Void, Error>) -> Void) {
+        print("GoPro: Exiting webcam mode")
+        let urlString = "http://\(goProIP):\(goProPort)\(exitEndpoint)"
+        
+        guard let url = URL(string: urlString) else {
+            print("GoPro: Invalid exit URL format")
+            completion(.failure(NSError(domain: "GoProSource", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid exit URL"])))
+            return
+        }
+        
+        // Create a URL request with a timeout
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5.0 // 5 second timeout
+        
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            // Handle network error
+            if let error = error {
+                print("GoPro: Exit webcam network error: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    completion(.failure(error))
+                }
+                return
+            }
+            
+            // Check HTTP response
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("GoPro: Invalid HTTP response for exit")
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "GoProSource", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response"])))
+                }
+                return
+            }
+            
+            print("GoPro: Exit HTTP Status Code: \(httpResponse.statusCode)")
+            
+            // Check status code
+            guard httpResponse.statusCode == 200 else {
+                print("GoPro: Exit HTTP error status code: \(httpResponse.statusCode)")
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "GoProSource", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "HTTP error: \(httpResponse.statusCode)"])))
+                }
+                return
+            }
+            
+            // Success - empty response is expected
+            print("GoPro: Webcam exited successfully")
+            DispatchQueue.main.async {
+                completion(.success(()))
+            }
+        }
+        
+        task.resume()
+    }
+    
+    /// Gracefully exit webcam mode with both stop and exit commands
+    /// - Parameter completion: Callback with result (success/failure)
+    func gracefulWebcamExit(completion: @escaping (Result<Void, Error>) -> Void) {
+        print("GoPro: Starting graceful webcam exit")
+        
+        // First stop the webcam
+        stopWebcam { [weak self] stopResult in
+            guard let self = self else { return }
+            
+            switch stopResult {
+            case .success:
+                // Then exit webcam mode
+                self.exitWebcam { exitResult in
+                    switch exitResult {
+                    case .success:
+                        print("GoPro: Graceful exit completed successfully")
+                        completion(.success(()))
+                    case .failure(let error):
+                        print("GoPro: Exit command failed: \(error.localizedDescription)")
+                        completion(.failure(error))
+                    }
+                }
+            case .failure(let error):
+                print("GoPro: Stop command failed: \(error.localizedDescription)")
+                // Try exit anyway as a best effort
+                self.exitWebcam { exitResult in
+                    switch exitResult {
+                    case .success:
+                        // If exit succeeds, still report the stop error
+                        completion(.failure(error))
+                    case .failure(let exitError):
+                        // Report both errors
+                        let combinedError = NSError(
+                            domain: "GoProSource",
+                            code: 3,
+                            userInfo: [
+                                NSLocalizedDescriptionKey: "Multiple errors: Stop - \(error.localizedDescription), Exit - \(exitError.localizedDescription)"
+                            ]
+                        )
+                        completion(.failure(combinedError))
+                    }
+                }
+            }
+        }
+    }
 }

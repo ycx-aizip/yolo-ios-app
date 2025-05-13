@@ -2260,8 +2260,68 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
                                                 preferredStyle: .alert
                                             )
                                             
-                                            // Add Cancel button
-                                            startedAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+                                            // Add Cancel button with graceful exit
+                                            startedAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
+                                                guard let self = self else { return }
+                                                
+                                                // Show loading indicator during exit
+                                                let exitingAlert = UIAlertController(
+                                                    title: "Exiting Webcam",
+                                                    message: "Closing GoPro webcam mode...",
+                                                    preferredStyle: .alert
+                                                )
+                                                viewController.present(exitingAlert, animated: true)
+                                                
+                                                // Perform graceful exit
+                                                goProSource.gracefulWebcamExit { result in
+                                                    // Dismiss loading indicator
+                                                    exitingAlert.dismiss(animated: true) {
+                                                        switch result {
+                                                        case .success:
+                                                            // Successfully exited - switch back to camera source
+                                                            self.switchToFrameSource(.camera)
+                                                            
+                                                        case .failure(let error):
+                                                            // Show error with retry option
+                                                            let errorAlert = UIAlertController(
+                                                                title: "Exit Failed",
+                                                                message: "Failed to exit webcam mode: \(error.localizedDescription)\nRetry exit?",
+                                                                preferredStyle: .alert
+                                                            )
+                                                            
+                                                            // Add Retry button
+                                                            errorAlert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
+                                                                guard let self = self else { return }
+                                                                // Retry the exit process
+                                                                viewController.present(exitingAlert, animated: true)
+                                                                goProSource.gracefulWebcamExit { retryResult in
+                                                                    exitingAlert.dismiss(animated: true) {
+                                                                        switch retryResult {
+                                                                        case .success:
+                                                                            // Successfully exited on retry
+                                                                            self.switchToFrameSource(.camera)
+                                                                        case .failure:
+                                                                            // If retry fails, force switch to camera
+                                                                            print("GoPro: Exit retry failed, forcing camera switch")
+                                                                            self.switchToFrameSource(.camera)
+                                                                        }
+                                                                    }
+                                                                }
+                                                            })
+                                                            
+                                                            // Add Force Exit button
+                                                            errorAlert.addAction(UIAlertAction(title: "Force Exit", style: .destructive) { [weak self] _ in
+                                                                guard let self = self else { return }
+                                                                // Force switch to camera source
+                                                                print("GoPro: Forcing camera switch after exit failure")
+                                                                self.switchToFrameSource(.camera)
+                                                            })
+                                                            
+                                                            viewController.present(errorAlert, animated: true)
+                                                        }
+                                                    }
+                                                }
+                                            })
                                             
                                             // Add Stream button (will implement streaming later)
                                             startedAlert.addAction(UIAlertAction(title: "Stream", style: .default) { _ in
