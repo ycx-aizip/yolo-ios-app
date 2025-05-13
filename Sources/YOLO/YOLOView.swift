@@ -179,6 +179,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   @MainActor private var longPressDetected = false
   @MainActor private var isPinching = false
 
+  // Add property for GoPro stream test reference
+  private var tempGoProSource: GoProSource?
+
   public init(
     frame: CGRect,
     modelPathOrName: String,
@@ -2393,160 +2396,29 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     // Create GoPro source and test RTSP streaming
     let goProSource = GoProSource()
     
-    // Keep a reference to prevent deallocation during test
+    // Save strong reference to prevent premature deallocation
     self.tempGoProSource = goProSource
     
-    // Create a custom delegate to show frame info
-    class StreamTestDelegate: NSObject, GoProSourceDelegate {
-      var onStatusUpdate: ((GoProStreamingStatus) -> Void)?
-      var onFrameReceived: ((Int64) -> Void)?
-      var onFirstFrameReceived: ((CGSize) -> Void)?
-      var framesReceived = 0
-      
-      func goProSource(_ source: GoProSource, didUpdateStatus status: GoProStreamingStatus) {
-        onStatusUpdate?(status)
-      }
-      
-      func goProSource(_ source: GoProSource, didReceiveFirstFrame size: CGSize) {
-        onFirstFrameReceived?(size)
-      }
-      
-      func goProSource(_ source: GoProSource, didReceiveFrameWithTime time: Int64) {
-        framesReceived += 1
-        onFrameReceived?(time)
-      }
-    }
-    
-    // Create delegate instance
-    let testDelegate = StreamTestDelegate()
-    goProSource.delegate = testDelegate
-    
-    // Store delegate reference to prevent deallocation
-    self.tempStreamDelegate = testDelegate
-    
-    var testLogMessages = ""
-    
-    testDelegate.onStatusUpdate = { status in
-      switch status {
-      case .connecting:
-        testLogMessages += "Connecting to RTSP stream...\n"
-        DispatchQueue.main.async {
-          loadingAlert.message = "Connecting to RTSP stream..."
-        }
-        
-      case .playing:
-        testLogMessages += "Stream is playing!\n"
-        DispatchQueue.main.async {
-          loadingAlert.message = "Stream is playing! Waiting for frames..."
-        }
-        
-      case .error(let message):
-        testLogMessages += "Stream error: \(message)\n"
-        DispatchQueue.main.async {
-          loadingAlert.dismiss(animated: true) {
-            self.showStreamTestResults(
-              viewController: viewController,
-              success: false,
-              message: "Stream error: \(message)",
-              log: testLogMessages
-            )
-          }
-        }
-        
-      case .stopped:
-        testLogMessages += "Stream stopped\n"
-      }
-    }
-    
-    testDelegate.onFirstFrameReceived = { size in
-      testLogMessages += "🎉 FIRST FRAME RECEIVED! Size: \(size.width)x\(size.height)\n"
+    // Run a simple test with shorter timeout
+    goProSource.testRTSPStream(timeout: 8.0) { success, log in
+      // Update alert on main thread
       DispatchQueue.main.async {
-        loadingAlert.message = "First frame received! Size: \(Int(size.width))×\(Int(size.height))"
-      }
-    }
-    
-    testDelegate.onFrameReceived = { time in
-      if testDelegate.framesReceived % 30 == 0 {
-        let frameMessage = "Received \(testDelegate.framesReceived) frames"
-        testLogMessages += "\(frameMessage)\n"
-        
-        DispatchQueue.main.async {
-          loadingAlert.message = frameMessage
-          
-          // After receiving 90 frames (about 3 seconds at 30fps), consider it a success
-          if testDelegate.framesReceived >= 90 {
-            loadingAlert.dismiss(animated: true) {
-              let fps = testDelegate.framesReceived / 3  // Approx FPS based on 3 seconds
-              self.showStreamTestResults(
-                viewController: viewController,
-                success: true,
-                message: "Successfully received \(testDelegate.framesReceived) frames at approximately \(fps) FPS",
-                log: testLogMessages
-              )
-              
-              // Clean up the streaming
-              goProSource.stopRTSPStream()
-              self.tempGoProSource = nil
-              self.tempStreamDelegate = nil
-            }
-          }
-        }
-      }
-    }
-    
-    // Set 20 second timeout
-    DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self, weak testDelegate, weak loadingAlert] in
-      guard let self = self, let testDelegate = testDelegate else { return }
-      
-      // If we haven't received enough frames yet, show timeout
-      if testDelegate.framesReceived < 90 {
-        loadingAlert?.dismiss(animated: true) {
+        loadingAlert.dismiss(animated: true) {
+          // Show result
           self.showStreamTestResults(
             viewController: viewController,
-            success: false,
-            message: "Timeout: Only received \(testDelegate.framesReceived) frames in 20 seconds",
-            log: testLogMessages
+            success: success,
+            message: success ? "Successfully connected to GoPro RTSP stream!" : "Could not connect to RTSP stream",
+            log: log
           )
           
-          // Clean up the streaming
+          // Clean up
           goProSource.stopRTSPStream()
           self.tempGoProSource = nil
-          self.tempStreamDelegate = nil
-        }
-      }
-    }
-    
-    // Start the RTSP stream test
-    goProSource.startRTSPStream { result in
-      switch result {
-      case .success:
-        testLogMessages += "RTSP stream started successfully\n"
-        // Result will be handled by the callbacks
-        
-      case .failure(let error):
-        testLogMessages += "Failed to start RTSP stream: \(error.localizedDescription)\n"
-        
-        DispatchQueue.main.async {
-          loadingAlert.dismiss(animated: true) {
-            self.showStreamTestResults(
-              viewController: viewController,
-              success: false,
-              message: "Failed to start RTSP stream: \(error.localizedDescription)",
-              log: testLogMessages
-            )
-            
-            // Clean up resources
-            self.tempGoProSource = nil
-            self.tempStreamDelegate = nil
-          }
         }
       }
     }
   }
-  
-  // Temporary properties to hold references during streaming test
-  private var tempGoProSource: GoProSource?
-  private var tempStreamDelegate: AnyObject?
   
   // Show RTSP stream test results
   private func showStreamTestResults(viewController: UIViewController, success: Bool, message: String, log: String) {

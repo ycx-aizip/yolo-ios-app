@@ -38,17 +38,17 @@ protocol GoProSourceDelegate: AnyObject {
 class GoProSource: NSObject, VLCMediaPlayerDelegate {
     // Default GoPro IP address when connected via WiFi
     private let goProIP = "10.5.5.9"
-    private let goProPort = 8080
     
-    // HTTP endpoints
+    // HTTP endpoints for controlling webcam mode
+    private let goProPort = 8080
     private let versionEndpoint = "/gopro/webcam/version"
     private let previewEndpoint = "/gopro/webcam/preview"
     private let startEndpoint = "/gopro/webcam/start"
     private let stopEndpoint = "/gopro/webcam/stop"
     private let exitEndpoint = "/gopro/webcam/exit"
     
-    // RTSP configuration
-    private let rtspPort = 8554
+    // RTSP configuration - simplified to known working values
+    private let rtspPort = 554
     private let rtspPath = "/live"
     
     // VLCKit video player
@@ -79,9 +79,9 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
     /// Start RTSP stream from GoPro
     /// - Parameter completion: Callback with result (success/failure)
     func startRTSPStream(completion: @escaping (Result<Void, Error>) -> Void) {
-        // Construct RTSP URL
+        // Construct RTSP URL - using the known working configuration
         let rtspURLString = "rtsp://\(goProIP):\(rtspPort)\(rtspPath)"
-        print("GoPro: Attempting to connect to RTSP stream at \(rtspURLString)")
+        print("GoPro: Connecting to RTSP stream at \(rtspURLString)")
         
         guard let url = URL(string: rtspURLString), let videoPlayer = videoPlayer else {
             let error = NSError(domain: "GoProSource", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid RTSP URL or player not initialized"])
@@ -90,16 +90,17 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
         }
         
         // Set stream status to connecting
-        self.delegate?.goProSource(self, didUpdateStatus: .connecting)
+        delegate?.goProSource(self, didUpdateStatus: .connecting)
         
         // Reset frame tracking
         hasReceivedFirstFrame = false
         frameCount = 0
         streamStartTime = Date()
         
-        // Configure player
-        videoPlayer.media = VLCMedia(url: url)
-        configureMediaOptions(videoPlayer.media)
+        // Configure player - with simplified options
+        let media = VLCMedia(url: url)
+        configureSimplifiedMediaOptions(media)
+        videoPlayer.media = media
         
         // Create a timer for timeout
         let timeoutTimer = Timer(timeInterval: 10.0, repeats: false) { [weak self] timer in
@@ -137,33 +138,15 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
     }
     
     /// Configure media options for optimal RTSP streaming from GoPro
-    private func configureMediaOptions(_ media: VLCMedia?) {
-        guard let media = media else { return }
-        
-        // Apply the suggested options from the issue #638
+    private func configureSimplifiedMediaOptions(_ media: VLCMedia) {
+        // Simplified core options for stability
         media.addOptions([
-            "network-caching": 500,
-            "sout-rtp-caching": 100,
-            "sout-rtp-port-audio": 20000,
-            "sout-rtp-port-video": 20002,
-            ":rtp-timeout": 10000,
+            "network-caching": 1000,
             ":rtsp-tcp": true,
-            ":rtsp-frame-buffer-size": 1024,
-            ":rtsp-caching": 0,
             ":live-caching": 0,
         ])
         
-        // Additional codec specifications
-        media.addOption(":codec=avcodec")
-        media.addOption(":vcodec=h264")
-        media.addOption("--file-caching=2000")
-        media.addOption("clock-jitter=0")
-        media.addOption("--rtsp-tcp")
-        
-        // Clear any stored cookies
-        media.clearStoredCookies()
-        
-        print("GoPro: Media options configured for RTSP streaming")
+        print("GoPro: Simplified media options configured for RTSP streaming")
     }
     
     /// Stop RTSP stream
@@ -223,11 +206,6 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
             let videoSize = player.videoSize
             print("GoPro: VLC Player - Received first frame, size: \(videoSize)")
             
-            // Calculate FPS if media track info is available
-            if let trackInfo = player.media?.tracksInformation, !trackInfo.isEmpty {
-                print("GoPro: VLC Player - Media tracks: \(trackInfo)")
-            }
-            
             // Notify first frame received with size
             delegate?.goProSource(self, didReceiveFirstFrame: videoSize)
         }
@@ -243,6 +221,178 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
             
             // Notify about frame reception
             delegate?.goProSource(self, didReceiveFrameWithTime: lastFrameTime)
+        }
+    }
+    
+    // MARK: - Simple Test Function for RTSP Stream
+    
+    /// Simple test function to validate RTSP streaming from GoPro
+    /// Call this function to perform a quick verification of the RTSP stream
+    /// - Parameters:
+    ///   - timeout: Timeout in seconds to wait for frames (default 15 seconds)
+    ///   - completion: Called with success/failure and detailed message
+    @MainActor
+    func testRTSPStream(timeout: TimeInterval = 15.0, completion: @escaping (Bool, String) -> Void) {
+        var testLog = "Starting GoPro RTSP stream test...\n"
+        testLog += "Initializing video player...\n"
+        
+        // Create a standalone player instance for testing, which won't interfere with the main player
+        let testPlayer = VLCMediaPlayer()
+        testPlayer.delegate = self
+        testPlayer.drawable = nil // No need for display during test
+        
+        // Strong reference to avoid premature deallocation
+        var strongPlayerRef: VLCMediaPlayer? = testPlayer
+        
+        // Initialize tracking variables
+        var frameCountDuringTest = 0
+        var hasReceivedFrame = false
+        var testCompleted = false
+        
+        // Construct RTSP URL
+        let rtspURLString = "rtsp://\(goProIP):\(rtspPort)\(rtspPath)"
+        testLog += "Attempting to connect to RTSP stream at \(rtspURLString)\n"
+        print("GoPro RTSP Test: Trying \(rtspURLString)")
+        
+        guard let url = URL(string: rtspURLString) else {
+            testLog += "ERROR: Invalid URL format\n"
+            testCompleted = true
+            completion(false, "Failed to create valid RTSP URL\n\nLog:\n\(testLog)")
+            return
+        }
+        
+        // Configure media
+        let media = VLCMedia(url: url)
+        
+        // Apply only essential options
+        media.addOptions([
+            "network-caching": 500,
+            ":rtsp-tcp": true,
+        ])
+        
+        testLog += "Simple media options configured\n"
+        
+        // Set up player
+        testPlayer.media = media
+        testPlayer.audio?.isMuted = true // Mute audio for test
+        
+        // Set up observation token
+        var timeObserverToken: NSObjectProtocol? = nil
+        var stateObserverToken: NSObjectProtocol? = nil
+        
+        // Function to clean up observers
+        @MainActor func cleanupObservers() {
+            if let timeToken = timeObserverToken {
+                NotificationCenter.default.removeObserver(timeToken)
+                timeObserverToken = nil
+            }
+            
+            if let stateToken = stateObserverToken {
+                NotificationCenter.default.removeObserver(stateToken)
+                stateObserverToken = nil
+            }
+            
+            strongPlayerRef = nil
+        }
+        
+        // Very important: Set up callbacks for frame counting and logging
+        timeObserverToken = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name(rawValue: "VLCMediaPlayerTimeChanged"),
+            object: testPlayer,
+            queue: .main
+        ) { notification in
+            guard let player = notification.object as? VLCMediaPlayer, !testCompleted else { return }
+            
+            // A time change notification indicates we've received a frame
+            frameCountDuringTest += 1
+            
+            // Calculate frame size if this is the first frame
+            if !hasReceivedFrame {
+                hasReceivedFrame = true
+                
+                // Try to get video dimensions
+                let videoSize = player.videoSize
+                if videoSize != .zero {
+                    testLog += "First frame received! Size: \(Int(videoSize.width))×\(Int(videoSize.height))\n"
+                } else {
+                    testLog += "First frame received! (Size unavailable)\n"
+                }
+                
+                // Auto-complete test after receiving at least one frame
+                if !testCompleted {
+                    testCompleted = true
+                    
+                    // Clean up
+                    player.stop()
+                    Task { @MainActor in
+                        cleanupObservers()
+                    }
+                    
+                    // Success!
+                    testLog += "Test completed successfully: First frame received!\n"
+                    completion(true, "Successfully received video frame\n\nLog:\n\(testLog)")
+                }
+            }
+            
+            // Log every 10th frame during test
+            if frameCountDuringTest % 10 == 0 {
+                print("GoPro RTSP Test: Received \(frameCountDuringTest) frames")
+                testLog += "Received \(frameCountDuringTest) frames\n"
+            }
+        }
+        
+        // Set up callback for state changes
+        stateObserverToken = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name(rawValue: "VLCMediaPlayerStateChanged"),
+            object: testPlayer,
+            queue: .main
+        ) { notification in
+            guard let player = notification.object as? VLCMediaPlayer, !testCompleted else { return }
+            
+            let state = player.state
+            testLog += "Player state changed: \(state.rawValue)\n"
+            
+            // Handle errors
+            if state == .error {
+                testLog += "Player ERROR occurred\n"
+                
+                if !testCompleted {
+                    testCompleted = true
+                    
+                    // Clean up
+                    player.stop()
+                    Task { @MainActor in
+                        cleanupObservers()
+                    }
+                    
+                    completion(false, "Stream error occurred\n\nLog:\n\(testLog)")
+                }
+            }
+        }
+        
+        // Start playback
+        testPlayer.play()
+        testLog += "Started playback\n"
+        
+        // Set timeout timer
+        Task {
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            
+            if !testCompleted {
+                testCompleted = true
+                
+                // Clean up
+                testPlayer.stop()
+                await cleanupObservers()
+                
+                if hasReceivedFrame {
+                    // Success!
+                    completion(true, "Successfully received \(frameCountDuringTest) frames\n\nLog:\n\(testLog)")
+                } else {
+                    testLog += "Timeout: No frames received after \(Int(timeout)) seconds\n"
+                    completion(false, "Failed to receive any frames\n\nLog:\n\(testLog)")
+                }
+            }
         }
     }
     
@@ -631,200 +781,6 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
                     }
                 }
             }
-        }
-    }
-    
-    // MARK: - Simple Test Function for RTSP Stream
-    
-    /// Simple test function to validate RTSP streaming from GoPro
-    /// Call this function to perform a quick verification of the RTSP stream
-    /// - Parameters:
-    ///   - timeout: Timeout in seconds to wait for frames (default 15 seconds)
-    ///   - completion: Called with success/failure and detailed message
-    @MainActor
-    func testRTSPStream(timeout: TimeInterval = 15.0, completion: @escaping (Bool, String) -> Void) {
-        print("======= GOPRO RTSP STREAM TEST =======")
-        print("Starting GoPro RTSP stream test...")
-        
-        // Test state variables
-        var testCompleted = false
-        var framesReceived = 0
-        var detailedLog = ""
-        var timeoutTimer: Timer?
-        
-        // Log a message to console and detailed log
-        func logMessage(_ message: String) {
-            print(message)
-            detailedLog += message + "\n"
-        }
-        
-        // Complete the test and clean up
-        func completeTest(success: Bool) {
-            if !testCompleted {
-                testCompleted = true
-                
-                // Clear timeout timer
-                timeoutTimer?.invalidate()
-                timeoutTimer = nil
-                
-                // Stop stream
-                stopRTSPStream()
-                
-                // Call completion
-                completion(success, detailedLog)
-            }
-        }
-        
-        // Create a simple delegate implementation
-        let delegate = SimpleTestDelegate()
-        delegate.onStatusUpdate = { status in
-            Task { @MainActor in
-                switch status {
-                case .connecting:
-                    logMessage("RTSP stream connecting...")
-                    
-                case .playing:
-                    logMessage("RTSP stream playing!")
-                    
-                case .error(let errorMessage):
-                    logMessage("RTSP stream error: \(errorMessage)")
-                    completeTest(success: false)
-                    
-                case .stopped:
-                    logMessage("RTSP stream stopped")
-                }
-            }
-        }
-        
-        delegate.onFirstFrame = { size in
-            Task { @MainActor in
-                logMessage("🎉 FIRST FRAME RECEIVED! Size: \(size.width)x\(size.height)")
-                
-                // Check media tracks for more information
-                if let trackInfo = self.videoPlayer?.media?.tracksInformation {
-                    logMessage("Media tracks: \(trackInfo)")
-                }
-            }
-        }
-        
-        delegate.onFrameReceived = { time in
-            Task { @MainActor in
-                framesReceived += 1
-                
-                // Only log every 30 frames to avoid spam
-                if framesReceived % 30 == 0 {
-                    logMessage("Received \(framesReceived) frames, current time: \(time) ms")
-                    
-                    // After receiving enough frames, consider the test successful
-                    if framesReceived >= 90 {
-                        logMessage("✅ TEST SUCCESSFUL: Received \(framesReceived) frames from GoPro RTSP stream")
-                        completeTest(success: true)
-                    }
-                }
-            }
-        }
-        
-        // Set delegate
-        self.delegate = delegate
-        
-        // Setup timeout timer
-        timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                guard !testCompleted else { return }
-                
-                let timeoutMessage = "❌ TEST FAILED: Timeout after \(timeout) seconds. Received \(framesReceived) frames."
-                logMessage(timeoutMessage)
-                completeTest(success: false)
-            }
-        }
-        
-        // Start the test process
-        Task {
-            do {
-                // Check connection
-                let version = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<GoProWebcamVersion, Error>) in
-                    checkConnection { result in
-                        switch result {
-                        case .success(let version):
-                            continuation.resume(returning: version)
-                        case .failure(let error):
-                            continuation.resume(throwing: error)
-                        }
-                    }
-                }
-                
-                logMessage("Connected to GoPro, API version: \(version.version)")
-                
-                // Initialize webcam mode
-                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                    setupWebcamForRTSP { result in
-                        switch result {
-                        case .success:
-                            continuation.resume()
-                        case .failure(let error):
-                            continuation.resume(throwing: error)
-                        }
-                    }
-                }
-                
-                logMessage("Webcam mode initialized. Starting RTSP stream...")
-                
-                // Start RTSP stream
-                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                    startRTSPStream { result in
-                        switch result {
-                        case .success:
-                            continuation.resume()
-                        case .failure(let error):
-                            continuation.resume(throwing: error)
-                        }
-                    }
-                }
-                
-                logMessage("RTSP stream started, waiting for frames...")
-                
-            } catch {
-                logMessage("❌ TEST FAILED: \(error.localizedDescription)")
-                completeTest(success: false)
-            }
-        }
-        
-        logMessage("Test initialized, waiting for results...")
-    }
-    
-    /// Helper method to set up webcam mode for RTSP streaming
-    private func setupWebcamForRTSP(completion: @escaping (Result<Void, Error>) -> Void) {
-        // First enter preview mode
-        enterWebcamPreview { [weak self] previewResult in
-            guard let self = self else { return }
-            
-            switch previewResult {
-            case .success:
-                // Then start webcam
-                self.startWebcam(completion: completion)
-                
-            case .failure(let error):
-                completion(.failure(error))
-            }
-        }
-    }
-    
-    /// A simple delegate implementation for testing the RTSP stream
-    private class SimpleTestDelegate: NSObject, GoProSourceDelegate {
-        var onStatusUpdate: ((GoProStreamingStatus) -> Void)?
-        var onFirstFrame: ((CGSize) -> Void)?
-        var onFrameReceived: ((Int64) -> Void)?
-        
-        func goProSource(_ source: GoProSource, didUpdateStatus status: GoProStreamingStatus) {
-            onStatusUpdate?(status)
-        }
-        
-        func goProSource(_ source: GoProSource, didReceiveFirstFrame size: CGSize) {
-            onFirstFrame?(size)
-        }
-        
-        func goProSource(_ source: GoProSource, didReceiveFrameWithTime time: Int64) {
-            onFrameReceived?(time)
         }
     }
 }
