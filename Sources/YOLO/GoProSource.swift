@@ -633,4 +633,198 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
             }
         }
     }
+    
+    // MARK: - Simple Test Function for RTSP Stream
+    
+    /// Simple test function to validate RTSP streaming from GoPro
+    /// Call this function to perform a quick verification of the RTSP stream
+    /// - Parameters:
+    ///   - timeout: Timeout in seconds to wait for frames (default 15 seconds)
+    ///   - completion: Called with success/failure and detailed message
+    @MainActor
+    func testRTSPStream(timeout: TimeInterval = 15.0, completion: @escaping (Bool, String) -> Void) {
+        print("======= GOPRO RTSP STREAM TEST =======")
+        print("Starting GoPro RTSP stream test...")
+        
+        // Test state variables
+        var testCompleted = false
+        var framesReceived = 0
+        var detailedLog = ""
+        var timeoutTimer: Timer?
+        
+        // Log a message to console and detailed log
+        func logMessage(_ message: String) {
+            print(message)
+            detailedLog += message + "\n"
+        }
+        
+        // Complete the test and clean up
+        func completeTest(success: Bool) {
+            if !testCompleted {
+                testCompleted = true
+                
+                // Clear timeout timer
+                timeoutTimer?.invalidate()
+                timeoutTimer = nil
+                
+                // Stop stream
+                stopRTSPStream()
+                
+                // Call completion
+                completion(success, detailedLog)
+            }
+        }
+        
+        // Create a simple delegate implementation
+        let delegate = SimpleTestDelegate()
+        delegate.onStatusUpdate = { status in
+            Task { @MainActor in
+                switch status {
+                case .connecting:
+                    logMessage("RTSP stream connecting...")
+                    
+                case .playing:
+                    logMessage("RTSP stream playing!")
+                    
+                case .error(let errorMessage):
+                    logMessage("RTSP stream error: \(errorMessage)")
+                    completeTest(success: false)
+                    
+                case .stopped:
+                    logMessage("RTSP stream stopped")
+                }
+            }
+        }
+        
+        delegate.onFirstFrame = { size in
+            Task { @MainActor in
+                logMessage("🎉 FIRST FRAME RECEIVED! Size: \(size.width)x\(size.height)")
+                
+                // Check media tracks for more information
+                if let trackInfo = self.videoPlayer?.media?.tracksInformation {
+                    logMessage("Media tracks: \(trackInfo)")
+                }
+            }
+        }
+        
+        delegate.onFrameReceived = { time in
+            Task { @MainActor in
+                framesReceived += 1
+                
+                // Only log every 30 frames to avoid spam
+                if framesReceived % 30 == 0 {
+                    logMessage("Received \(framesReceived) frames, current time: \(time) ms")
+                    
+                    // After receiving enough frames, consider the test successful
+                    if framesReceived >= 90 {
+                        logMessage("✅ TEST SUCCESSFUL: Received \(framesReceived) frames from GoPro RTSP stream")
+                        completeTest(success: true)
+                    }
+                }
+            }
+        }
+        
+        // Set delegate
+        self.delegate = delegate
+        
+        // Setup timeout timer
+        timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard !testCompleted else { return }
+                
+                let timeoutMessage = "❌ TEST FAILED: Timeout after \(timeout) seconds. Received \(framesReceived) frames."
+                logMessage(timeoutMessage)
+                completeTest(success: false)
+            }
+        }
+        
+        // Start the test process
+        Task {
+            do {
+                // Check connection
+                let version = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<GoProWebcamVersion, Error>) in
+                    checkConnection { result in
+                        switch result {
+                        case .success(let version):
+                            continuation.resume(returning: version)
+                        case .failure(let error):
+                            continuation.resume(throwing: error)
+                        }
+                    }
+                }
+                
+                logMessage("Connected to GoPro, API version: \(version.version)")
+                
+                // Initialize webcam mode
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    setupWebcamForRTSP { result in
+                        switch result {
+                        case .success:
+                            continuation.resume()
+                        case .failure(let error):
+                            continuation.resume(throwing: error)
+                        }
+                    }
+                }
+                
+                logMessage("Webcam mode initialized. Starting RTSP stream...")
+                
+                // Start RTSP stream
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    startRTSPStream { result in
+                        switch result {
+                        case .success:
+                            continuation.resume()
+                        case .failure(let error):
+                            continuation.resume(throwing: error)
+                        }
+                    }
+                }
+                
+                logMessage("RTSP stream started, waiting for frames...")
+                
+            } catch {
+                logMessage("❌ TEST FAILED: \(error.localizedDescription)")
+                completeTest(success: false)
+            }
+        }
+        
+        logMessage("Test initialized, waiting for results...")
+    }
+    
+    /// Helper method to set up webcam mode for RTSP streaming
+    private func setupWebcamForRTSP(completion: @escaping (Result<Void, Error>) -> Void) {
+        // First enter preview mode
+        enterWebcamPreview { [weak self] previewResult in
+            guard let self = self else { return }
+            
+            switch previewResult {
+            case .success:
+                // Then start webcam
+                self.startWebcam(completion: completion)
+                
+            case .failure(let error):
+                completion(.failure(error))
+            }
+        }
+    }
+    
+    /// A simple delegate implementation for testing the RTSP stream
+    private class SimpleTestDelegate: NSObject, GoProSourceDelegate {
+        var onStatusUpdate: ((GoProStreamingStatus) -> Void)?
+        var onFirstFrame: ((CGSize) -> Void)?
+        var onFrameReceived: ((Int64) -> Void)?
+        
+        func goProSource(_ source: GoProSource, didUpdateStatus status: GoProStreamingStatus) {
+            onStatusUpdate?(status)
+        }
+        
+        func goProSource(_ source: GoProSource, didReceiveFirstFrame size: CGSize) {
+            onFirstFrame?(size)
+        }
+        
+        func goProSource(_ source: GoProSource, didReceiveFrameWithTime time: Int64) {
+            onFrameReceived?(time)
+        }
+    }
 }

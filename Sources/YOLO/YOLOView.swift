@@ -2323,10 +2323,11 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
                                                 }
                                             })
                                             
-                                            // Add Stream button (will implement streaming later)
-                                            startedAlert.addAction(UIAlertAction(title: "Stream", style: .default) { _ in
-                                                // Will implement RTSP streaming in next step
-                                                print("GoPro: Ready to start RTSP streaming")
+                                            // Add Stream button (will implement RTSP streaming in next step)
+                                            startedAlert.addAction(UIAlertAction(title: "Stream", style: .default) { [weak self] _ in
+                                                guard let self = self else { return }
+                                                // Test RTSP streaming
+                                                self.testGoProRTSPStream(viewController: viewController)
                                             })
                                             
                                             viewController.present(startedAlert, animated: true)
@@ -2369,6 +2370,200 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     })
     
     viewController.present(connectionAlert, animated: true)
+  }
+
+  // Add GoPro RTSP stream test function
+  private func testGoProRTSPStream(viewController: UIViewController) {
+    // Create loading alert
+    let loadingAlert = UIAlertController(
+      title: "Testing RTSP Stream",
+      message: "Connecting to GoPro RTSP stream...",
+      preferredStyle: .alert
+    )
+    
+    // Show cancel button
+    loadingAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in
+      // Create a GoPro source just to stop any streams
+      let goProSource = GoProSource()
+      goProSource.stopRTSPStream()
+    })
+    
+    viewController.present(loadingAlert, animated: true)
+    
+    // Create GoPro source and test RTSP streaming
+    let goProSource = GoProSource()
+    
+    // Keep a reference to prevent deallocation during test
+    self.tempGoProSource = goProSource
+    
+    // Create a custom delegate to show frame info
+    class StreamTestDelegate: NSObject, GoProSourceDelegate {
+      var onStatusUpdate: ((GoProStreamingStatus) -> Void)?
+      var onFrameReceived: ((Int64) -> Void)?
+      var onFirstFrameReceived: ((CGSize) -> Void)?
+      var framesReceived = 0
+      
+      func goProSource(_ source: GoProSource, didUpdateStatus status: GoProStreamingStatus) {
+        onStatusUpdate?(status)
+      }
+      
+      func goProSource(_ source: GoProSource, didReceiveFirstFrame size: CGSize) {
+        onFirstFrameReceived?(size)
+      }
+      
+      func goProSource(_ source: GoProSource, didReceiveFrameWithTime time: Int64) {
+        framesReceived += 1
+        onFrameReceived?(time)
+      }
+    }
+    
+    // Create delegate instance
+    let testDelegate = StreamTestDelegate()
+    goProSource.delegate = testDelegate
+    
+    // Store delegate reference to prevent deallocation
+    self.tempStreamDelegate = testDelegate
+    
+    var testLogMessages = ""
+    
+    testDelegate.onStatusUpdate = { status in
+      switch status {
+      case .connecting:
+        testLogMessages += "Connecting to RTSP stream...\n"
+        DispatchQueue.main.async {
+          loadingAlert.message = "Connecting to RTSP stream..."
+        }
+        
+      case .playing:
+        testLogMessages += "Stream is playing!\n"
+        DispatchQueue.main.async {
+          loadingAlert.message = "Stream is playing! Waiting for frames..."
+        }
+        
+      case .error(let message):
+        testLogMessages += "Stream error: \(message)\n"
+        DispatchQueue.main.async {
+          loadingAlert.dismiss(animated: true) {
+            self.showStreamTestResults(
+              viewController: viewController,
+              success: false,
+              message: "Stream error: \(message)",
+              log: testLogMessages
+            )
+          }
+        }
+        
+      case .stopped:
+        testLogMessages += "Stream stopped\n"
+      }
+    }
+    
+    testDelegate.onFirstFrameReceived = { size in
+      testLogMessages += "🎉 FIRST FRAME RECEIVED! Size: \(size.width)x\(size.height)\n"
+      DispatchQueue.main.async {
+        loadingAlert.message = "First frame received! Size: \(Int(size.width))×\(Int(size.height))"
+      }
+    }
+    
+    testDelegate.onFrameReceived = { time in
+      if testDelegate.framesReceived % 30 == 0 {
+        let frameMessage = "Received \(testDelegate.framesReceived) frames"
+        testLogMessages += "\(frameMessage)\n"
+        
+        DispatchQueue.main.async {
+          loadingAlert.message = frameMessage
+          
+          // After receiving 90 frames (about 3 seconds at 30fps), consider it a success
+          if testDelegate.framesReceived >= 90 {
+            loadingAlert.dismiss(animated: true) {
+              let fps = testDelegate.framesReceived / 3  // Approx FPS based on 3 seconds
+              self.showStreamTestResults(
+                viewController: viewController,
+                success: true,
+                message: "Successfully received \(testDelegate.framesReceived) frames at approximately \(fps) FPS",
+                log: testLogMessages
+              )
+              
+              // Clean up the streaming
+              goProSource.stopRTSPStream()
+              self.tempGoProSource = nil
+              self.tempStreamDelegate = nil
+            }
+          }
+        }
+      }
+    }
+    
+    // Set 20 second timeout
+    DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self, weak testDelegate, weak loadingAlert] in
+      guard let self = self, let testDelegate = testDelegate else { return }
+      
+      // If we haven't received enough frames yet, show timeout
+      if testDelegate.framesReceived < 90 {
+        loadingAlert?.dismiss(animated: true) {
+          self.showStreamTestResults(
+            viewController: viewController,
+            success: false,
+            message: "Timeout: Only received \(testDelegate.framesReceived) frames in 20 seconds",
+            log: testLogMessages
+          )
+          
+          // Clean up the streaming
+          goProSource.stopRTSPStream()
+          self.tempGoProSource = nil
+          self.tempStreamDelegate = nil
+        }
+      }
+    }
+    
+    // Start the RTSP stream test
+    goProSource.startRTSPStream { result in
+      switch result {
+      case .success:
+        testLogMessages += "RTSP stream started successfully\n"
+        // Result will be handled by the callbacks
+        
+      case .failure(let error):
+        testLogMessages += "Failed to start RTSP stream: \(error.localizedDescription)\n"
+        
+        DispatchQueue.main.async {
+          loadingAlert.dismiss(animated: true) {
+            self.showStreamTestResults(
+              viewController: viewController,
+              success: false,
+              message: "Failed to start RTSP stream: \(error.localizedDescription)",
+              log: testLogMessages
+            )
+            
+            // Clean up resources
+            self.tempGoProSource = nil
+            self.tempStreamDelegate = nil
+          }
+        }
+      }
+    }
+  }
+  
+  // Temporary properties to hold references during streaming test
+  private var tempGoProSource: GoProSource?
+  private var tempStreamDelegate: AnyObject?
+  
+  // Show RTSP stream test results
+  private func showStreamTestResults(viewController: UIViewController, success: Bool, message: String, log: String) {
+    let title = success ? "Stream Test Successful" : "Stream Test Failed"
+    let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+    
+    // Add action to view detailed log
+    alert.addAction(UIAlertAction(title: "View Details", style: .default) { _ in
+      let logAlert = UIAlertController(title: "Stream Test Log", message: log, preferredStyle: .alert)
+      logAlert.addAction(UIAlertAction(title: "Close", style: .cancel))
+      viewController.present(logAlert, animated: true)
+    })
+    
+    // Add OK button
+    alert.addAction(UIAlertAction(title: "OK", style: .default))
+    
+    viewController.present(alert, animated: true)
   }
 
   // Helper method to show connection errors with consistent UI
