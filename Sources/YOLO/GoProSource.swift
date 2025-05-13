@@ -78,6 +78,7 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
     
     /// Start RTSP stream from GoPro
     /// - Parameter completion: Callback with result (success/failure)
+    @MainActor
     func startRTSPStream(completion: @escaping (Result<Void, Error>) -> Void) {
         // Construct RTSP URL - using the known working configuration
         let rtspURLString = "rtsp://\(goProIP):\(rtspPort)\(rtspPath)"
@@ -97,10 +98,18 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
         frameCount = 0
         streamStartTime = Date()
         
-        // Configure player - with simplified options
+        // Configure player - with improved options from the example code
         let media = VLCMedia(url: url)
         configureSimplifiedMediaOptions(media)
         videoPlayer.media = media
+        
+        // Ensure a drawable is set (even if it's just a placeholder)
+        if videoPlayer.drawable == nil {
+            // Create a minimal drawable if none provided
+            // This may be necessary for proper VLC media player initialization
+            let minimalDrawable = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+            videoPlayer.drawable = minimalDrawable
+        }
         
         // Create a timer for timeout
         let timeoutTimer = Timer(timeInterval: 10.0, repeats: false) { [weak self] timer in
@@ -139,14 +148,32 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
     
     /// Configure media options for optimal RTSP streaming from GoPro
     private func configureSimplifiedMediaOptions(_ media: VLCMedia) {
-        // Simplified core options for stability
+        // Apply the suggested options from the example code
+        media.addOption("-vv") // Verbose logging
+        
         media.addOptions([
-            "network-caching": 1000,
+            "network-caching": 500,
+            "sout-rtp-caching": 100,
+            "sout-rtp-port-audio": 20000,
+            "sout-rtp-port-video": 20002,
+            ":rtp-timeout": 10000,
             ":rtsp-tcp": true,
+            ":rtsp-frame-buffer-size": 1024,
+            ":rtsp-caching": 0,
             ":live-caching": 0,
         ])
         
-        print("GoPro: Simplified media options configured for RTSP streaming")
+        // Add additional codec specifications
+        media.addOption(":codec=avcodec")
+        media.addOption(":vcodec=h264")
+        media.addOption("--file-caching=2000")
+        media.addOption("clock-jitter=0")
+        media.addOption("--rtsp-tcp")
+        
+        // Clear cookies
+        media.clearStoredCookies()
+        
+        print("GoPro: Media options configured for RTSP streaming")
     }
     
     /// Stop RTSP stream
@@ -236,13 +263,18 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
         var testLog = "Starting GoPro RTSP stream test...\n"
         testLog += "Initializing video player...\n"
         
+        // Create a temporary view to serve as the drawable
+        // This is important as some VLC functionality may depend on having a valid drawable
+        let tempView = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+        
         // Create a standalone player instance for testing, which won't interfere with the main player
         let testPlayer = VLCMediaPlayer()
         testPlayer.delegate = self
-        testPlayer.drawable = nil // No need for display during test
+        testPlayer.drawable = tempView // Assign the drawable instead of nil
         
         // Strong reference to avoid premature deallocation
         var strongPlayerRef: VLCMediaPlayer? = testPlayer
+        var strongView: UIView? = tempView
         
         // Initialize tracking variables
         var frameCountDuringTest = 0
@@ -264,17 +296,40 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
         // Configure media
         let media = VLCMedia(url: url)
         
-        // Apply only essential options
+        // Apply the more comprehensive options
+        media.addOption("-vv") // Verbose logging
+        
         media.addOptions([
             "network-caching": 500,
+            "sout-rtp-caching": 100,
+            "sout-rtp-port-audio": 20000,
+            "sout-rtp-port-video": 20002,
+            ":rtp-timeout": 10000,
             ":rtsp-tcp": true,
+            ":rtsp-frame-buffer-size": 1024,
+            ":rtsp-caching": 0,
+            ":live-caching": 0,
         ])
         
-        testLog += "Simple media options configured\n"
+        // Add additional codec specifications
+        media.addOption(":codec=avcodec")
+        media.addOption(":vcodec=h264")
+        media.addOption("--file-caching=2000")
+        media.addOption("clock-jitter=0")
+        media.addOption("--rtsp-tcp")
+        
+        // Clear cookies
+        media.clearStoredCookies()
+        
+        testLog += "Comprehensive media options configured\n"
         
         // Set up player
         testPlayer.media = media
         testPlayer.audio?.isMuted = true // Mute audio for test
+        
+        // Set verbosity level
+        testPlayer.libraryInstance.debugLogging = true
+        testPlayer.libraryInstance.debugLoggingLevel = 3
         
         // Set up observation token
         var timeObserverToken: NSObjectProtocol? = nil
@@ -293,6 +348,7 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
             }
             
             strongPlayerRef = nil
+            strongView = nil
         }
         
         // Very important: Set up callbacks for frame counting and logging

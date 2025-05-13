@@ -21,15 +21,22 @@
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>980</string>
+	<string>982</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<false/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_rtsp._tcp</string>
+		<string>_rtsp._udp</string>
+	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Fish Counting uses your camera to detect fish and display results in realtime on your screen 🚀</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Fish Counting uses the network to stream from GoPro cameras</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>To save results to Photo Library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
