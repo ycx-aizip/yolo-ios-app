@@ -35,7 +35,7 @@ protocol GoProSourceDelegate: AnyObject {
 }
 
 /// Class for handling GoPro camera as a frame source
-class GoProSource: NSObject, VLCMediaPlayerDelegate {
+class GoProSource: NSObject, @preconcurrency VLCMediaPlayerDelegate {
     // Default GoPro IP address when connected via WiFi
     private let goProIP = "10.5.5.9"
     
@@ -64,16 +64,22 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
     weak var delegate: GoProSourceDelegate?
     
     // Initialize VLC player
+    @MainActor
     override init() {
         super.init()
         setupVLCPlayer()
     }
     
+    @MainActor
     private func setupVLCPlayer() {
         videoPlayer = VLCMediaPlayer()
         videoPlayer?.delegate = self
         videoPlayer?.libraryInstance.debugLogging = true
         videoPlayer?.libraryInstance.debugLoggingLevel = 3
+        
+        // Set a drawable early to prevent threading issues later
+        let minimalDrawable = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+        videoPlayer?.drawable = minimalDrawable
     }
     
     /// Start RTSP stream from GoPro
@@ -98,27 +104,18 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
         frameCount = 0
         streamStartTime = Date()
         
-        // Configure player - with improved options from the example code
+        // Configure player with optimized options
         let media = VLCMedia(url: url)
-        configureSimplifiedMediaOptions(media)
+        configureRTSPMediaOptions(media)
         videoPlayer.media = media
-        
-        // Ensure a drawable is set (even if it's just a placeholder)
-        if videoPlayer.drawable == nil {
-            // Create a minimal drawable if none provided
-            // This may be necessary for proper VLC media player initialization
-            let minimalDrawable = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
-            videoPlayer.drawable = minimalDrawable
-        }
-        
-        // Create a timer for timeout
-        let timeoutTimer = Timer(timeInterval: 10.0, repeats: false) { [weak self] timer in
+                
+        // Create a timer for timeout - increased to 15 seconds to give more time for SPS/PPS
+        let timeoutTimer = Timer(timeInterval: 15.0, repeats: false) { [weak self] timer in
             guard let self = self else { return }
             
             if !self.hasReceivedFirstFrame {
                 print("GoPro: Timeout waiting for first frame")
                 
-                // Use main thread to stop player and update UI
                 DispatchQueue.main.async {
                     self.videoPlayer?.stop()
                     
@@ -132,7 +129,6 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
                 }
             }
             
-            // Invalidate the timer
             timer.invalidate()
         }
         
@@ -147,61 +143,26 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
     }
     
     /// Configure media options for optimal RTSP streaming from GoPro
-    private func configureSimplifiedMediaOptions(_ media: VLCMedia) {
-        // Apply enhanced options for better H.264 decoding
-        media.addOption("--verbose=3") // Verbose logging
+    private func configureRTSPMediaOptions(_ media: VLCMedia) {
+        // Core essential options for better streaming
+        media.addOption("--verbose=3")
+        media.addOption(":rtsp-tcp")
+        media.addOption(":network-caching=1000") // Increased for better buffering
+        media.addOption(":live-caching=300")
+        media.addOption(":rtsp-frame-buffer-size=5000000") // Larger buffer
         
-        // SPS/PPS specific options to fix the decoding issues
-        media.addOption(":rtsp-frame-buffer-size=4000000") // Larger buffer for SPS/PPS
-        media.addOption(":rtsp-tcp") // Force TCP (more reliable than UDP)
-        
-        // Increased caching for more reliable SPS/PPS reception
-        media.addOption(":network-caching=300") // Increased from 100 to ensure SPS/PPS receipt
-        media.addOption(":live-caching=100") // Increased from 50 for better buffering
-        media.addOption(":file-caching=200") // Increased from 100 for more reliability
-        
-        // Specific options for robust SPS/PPS handling
-        media.addOption(":sout-mux-caching=0") 
-        media.addOption(":cr-average=10000")
-        media.addOption(":sout-rtp-caching=100")
-        
-        // Add options to improve SPS/PPS handling
-        media.addOption(":no-skip-frames") // Don't skip any frames to ensure we get SPS/PPS
-        media.addOption(":no-hurry-up") // Don't rush decoding which can skip SPS/PPS
-        
-        // Force specific codec settings for GoPro streams
-        media.addOption(":codec=avcodec") 
-        media.addOption(":no-audio") // Disable audio processing
-        
-        // Special H.264 options to handle SPS/PPS
-        media.addOption(":avcodec-skip-frame=0") // Don't skip any frames
-        media.addOption(":avcodec-skip-idct=0") // Don't skip any IDCT steps
-        media.addOption(":avcodec-skiploopfilter=0") // Don't skip loop filtering
-        media.addOption(":avcodec-threads=1") // Reduced thread count for more predictable behavior
-        media.addOption(":avcodec-hw=0") // Disable hardware acceleration for better SPS/PPS handling
-        
-        // Force H.264 specific parameters
-        media.addOption(":demux=h264") // Try to force H264 demuxer
-        media.addOption(":h264-fps=30.0") // Force 30fps parsing
-        
-        // Add special timestamp handling options
-        media.addOption(":clock-jitter=0")
-        media.addOption(":clock-synchro=0")
-        
-        // Longer timeout for better SPS/PPS reception
-        media.addOption(":rtp-timeout=5000") // Increased from 3000 to 5000 ms
-        media.addOption(":network-synchronization")
-        
-        // H.264 specific parameters to improve SPS/PPS handling
-        media.addOption(":rtsp-sps-pps=true") // Force sending SPS/PPS with each key frame
-        media.addOption(":avcodec-hurry-up=0") // Don't rush decoding
-        media.addOption(":avcodec-fast") // Use some optimizations but maintain reliability
-        media.addOption(":avcodec-dr") // Enable direct rendering
-        
-        // Clear cookies
+        // Critical SPS/PPS handling options
+        media.addOption(":h264-fps=30.0")
+        media.addOption(":codec=avcodec")
+        media.addOption(":no-audio")
+        media.addOption(":avcodec-threads=1")
+        media.addOption(":rtsp-sps-pps=true") // Force each keyframe to contain SPS/PPS
+        media.addOption(":rtp-timeout=10000") // Longer timeout (10 seconds)
+                
+        // Clear cookies to ensure fresh connection
         media.clearStoredCookies()
         
-        print("GoPro: Enhanced media options configured for RTSP streaming with improved SPS/PPS handling")
+        print("GoPro: Media options configured for RTSP streaming")
     }
     
     /// Stop RTSP stream
@@ -213,6 +174,7 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
     
     // MARK: - VLC Media Player Delegate Methods
     
+    @MainActor
     func mediaPlayerStateChanged(_ aNotification: Notification!) {
         guard let player = aNotification.object as? VLCMediaPlayer else { return }
         
@@ -244,6 +206,7 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
         }
     }
     
+    @MainActor
     func mediaPlayerTimeChanged(_ aNotification: Notification!) {
         guard let player = aNotification.object as? VLCMediaPlayer else { return }
         
@@ -257,7 +220,7 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
         if !hasReceivedFirstFrame {
             hasReceivedFirstFrame = true
             
-            // Log frame details
+            // Get video size while on the main thread
             let videoSize = player.videoSize
             print("GoPro: VLC Player - Received first frame, size: \(videoSize)")
             
@@ -281,211 +244,112 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
     
     // MARK: - Simple Test Function for RTSP Stream
     
-    /// Simple test function to validate RTSP streaming from GoPro
-    /// Call this function to perform a quick verification of the RTSP stream
+    /// Simplified test function to validate RTSP streaming from GoPro
+    /// Only checks for successful reception of the first frame
     /// - Parameters:
-    ///   - timeout: Timeout in seconds to wait for frames (default 15 seconds)
+    ///   - timeout: Timeout in seconds to wait for first frame (default 15 seconds)
     ///   - completion: Called with success/failure and detailed message
     @MainActor
     func testRTSPStream(timeout: TimeInterval = 15.0, completion: @escaping (Bool, String) -> Void) {
-        var testLog = "Starting GoPro RTSP stream test...\n"
-        testLog += "Initializing video player...\n"
-        
-        // Create a temporary view to serve as the drawable
-        // This is important as some VLC functionality may depend on having a valid drawable
-        let tempView = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
-        
-        // Create a standalone player instance for testing, which won't interfere with the main player
-        let testPlayer = VLCMediaPlayer()
-        testPlayer.delegate = self
-        testPlayer.drawable = tempView // Assign the drawable instead of nil
-        
-        // Strong reference to avoid premature deallocation
-        var strongPlayerRef: VLCMediaPlayer? = testPlayer
-        var strongView: UIView? = tempView
-        
-        // Initialize tracking variables
-        var frameCountDuringTest = 0
-        var hasReceivedFrame = false
+        var testLog = "Starting simplified GoPro RTSP stream test...\n"
         var testCompleted = false
         
-        // Construct RTSP URL
-        let rtspURLString = "rtsp://\(goProIP):\(rtspPort)\(rtspPath)"
-        testLog += "Attempting to connect to RTSP stream at \(rtspURLString)\n"
-        print("GoPro RTSP Test: Trying \(rtspURLString)")
-        
-        guard let url = URL(string: rtspURLString) else {
-            testLog += "ERROR: Invalid URL format\n"
-            testCompleted = true
-            completion(false, "Failed to create valid RTSP URL\n\nLog:\n\(testLog)")
-            return
-        }
-        
-        // Configure media
-        let media = VLCMedia(url: url)
-        
-        // Apply enhanced options for better H.264 decoding
-        media.addOption("--verbose=3") // Verbose logging
-        
-        // Core networking options - set individually to avoid dictionary syntax issues
-        media.addOption(":network-caching=300")
-        media.addOption(":sout-rtp-caching=100")
-        media.addOption(":live-caching=100")
-        media.addOption(":file-caching=300")
-        media.addOption(":codec=avcodec")
-        media.addOption(":no-audio")
-        media.addOption(":rtsp-frame-buffer-size=4000000")
-        media.addOption(":rtsp-tcp")
-        media.addOption(":network-synchronization")
-        
-        // H.264 specific options
-        media.addOption(":avcodec-hw=0")
-        media.addOption(":avcodec-fast")
-        media.addOption(":avcodec-skiploopfilter=0")
-        media.addOption(":avcodec-skip-frame=0")
-        media.addOption(":avcodec-skip-idct=0")
-        media.addOption(":avcodec-dr")
-        media.addOption(":avcodec-threads=0")
-        media.addOption(":avcodec-h264-fps=30.0")
-        
-        // GoPro-specific options
-        media.addOption(":h264-fps=30.0")
-        media.addOption(":rtsp-caching=100")
-        media.addOption(":rtp-timeout=5000")
-        media.addOption(":clock-jitter=0")
-        media.addOption(":clock-synchro=0")
-        
-        // Clear cookies
-        media.clearStoredCookies()
-        
-        testLog += "Enhanced media options configured\n"
-        
-        // Set up player
-        testPlayer.media = media
-        testPlayer.audio?.isMuted = true // Mute audio for test
-        
-        // Set verbosity level
-        testPlayer.libraryInstance.debugLogging = true
-        testPlayer.libraryInstance.debugLoggingLevel = 3
-        
-        // Set up observation token
-        var timeObserverToken: NSObjectProtocol? = nil
-        var stateObserverToken: NSObjectProtocol? = nil
-        
-        // Function to clean up observers
-        @MainActor func cleanupObservers() {
-            if let timeToken = timeObserverToken {
-                NotificationCenter.default.removeObserver(timeToken)
-                timeObserverToken = nil
-            }
+        // Use the main startRTSPStream function for testing
+        startRTSPStream { [weak self] result in
+            guard let self = self else { return }
             
-            if let stateToken = stateObserverToken {
-                NotificationCenter.default.removeObserver(stateToken)
-                stateObserverToken = nil
-            }
-            
-            strongPlayerRef = nil
-            strongView = nil
-        }
-        
-        // Very important: Set up callbacks for frame counting and logging
-        timeObserverToken = NotificationCenter.default.addObserver(
-            forName: NSNotification.Name(rawValue: "VLCMediaPlayerTimeChanged"),
-            object: testPlayer,
-            queue: .main
-        ) { notification in
-            guard let player = notification.object as? VLCMediaPlayer, !testCompleted else { return }
-            
-            // A time change notification indicates we've received a frame
-            frameCountDuringTest += 1
-            
-            // Calculate frame size if this is the first frame
-            if !hasReceivedFrame {
-                hasReceivedFrame = true
+            switch result {
+            case .success:
+                testLog += "RTSP stream started successfully\n"
                 
-                // Try to get video dimensions
-                let videoSize = player.videoSize
-                if videoSize != .zero {
-                    testLog += "First frame received! Size: \(Int(videoSize.width))×\(Int(videoSize.height))\n"
-                } else {
-                    testLog += "First frame received! (Size unavailable)\n"
-                }
-                
-                // Auto-complete test after receiving at least one frame
-                if !testCompleted {
-                    testCompleted = true
-                    
-                    // Clean up
-                    player.stop()
-                    Task { @MainActor in
-                        cleanupObservers()
+                // Set up simple delegate to detect first frame
+                let originalDelegate = self.delegate
+                let testDelegate = TestDelegate(
+                    onFirstFrame: { size in
+                        if !testCompleted {
+                            testCompleted = true
+                            testLog += "First frame received! Size: \(size)\n"
+                            self.stopRTSPStream()
+                            
+                            // Restore original delegate
+                            DispatchQueue.main.async {
+                                self.delegate = originalDelegate
+                            }
+                            
+                            completion(true, "Successfully received first frame\n\nLog:\n\(testLog)")
+                        }
+                    },
+                    onFrame: { _ in /* Not used in simplified test */ },
+                    onError: { error in
+                        if !testCompleted {
+                            testCompleted = true
+                            testLog += "Error: \(error)\n"
+                            self.stopRTSPStream()
+                            
+                            // Restore original delegate
+                            DispatchQueue.main.async {
+                                self.delegate = originalDelegate
+                            }
+                            
+                            completion(false, "Stream error occurred\n\nLog:\n\(testLog)")
+                        }
                     }
-                    
-                    // Success!
-                    testLog += "Test completed successfully: First frame received!\n"
-                    completion(true, "Successfully received video frame\n\nLog:\n\(testLog)")
-                }
-            }
-            
-            // Log every 10th frame during test
-            if frameCountDuringTest % 10 == 0 {
-                print("GoPro RTSP Test: Received \(frameCountDuringTest) frames")
-                testLog += "Received \(frameCountDuringTest) frames\n"
-            }
-        }
-        
-        // Set up callback for state changes
-        stateObserverToken = NotificationCenter.default.addObserver(
-            forName: NSNotification.Name(rawValue: "VLCMediaPlayerStateChanged"),
-            object: testPlayer,
-            queue: .main
-        ) { notification in
-            guard let player = notification.object as? VLCMediaPlayer, !testCompleted else { return }
-            
-            let state = player.state
-            testLog += "Player state changed: \(state.rawValue)\n"
-            
-            // Handle errors
-            if state == .error {
-                testLog += "Player ERROR occurred\n"
+                )
                 
-                if !testCompleted {
-                    testCompleted = true
+                // Set test delegate
+                self.delegate = testDelegate
+                
+                // Set timeout timer
+                Task {
+                    try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                     
-                    // Clean up
-                    player.stop()
-                    Task { @MainActor in
-                        cleanupObservers()
+                    if !testCompleted {
+                        testCompleted = true
+                        self.stopRTSPStream()
+                        
+                        // Restore original delegate
+                        DispatchQueue.main.async {
+                            self.delegate = originalDelegate
+                        }
+                        
+                        testLog += "Timeout: No first frame received\n"
+                        completion(false, "Failed to receive first frame\n\nLog:\n\(testLog)")
                     }
-                    
-                    completion(false, "Stream error occurred\n\nLog:\n\(testLog)")
                 }
+                
+            case .failure(let error):
+                testLog += "Failed to start RTSP stream: \(error.localizedDescription)\n"
+                completion(false, "Failed to start stream\n\nLog:\n\(testLog)")
+            }
+        }
+    }
+    
+    // Helper delegate for testing
+    private class TestDelegate: GoProSourceDelegate {
+        let onFirstFrame: (CGSize) -> Void
+        let onFrame: (Int64) -> Void
+        let onError: (String) -> Void
+        
+        init(onFirstFrame: @escaping (CGSize) -> Void,
+             onFrame: @escaping (Int64) -> Void,
+             onError: @escaping (String) -> Void) {
+            self.onFirstFrame = onFirstFrame
+            self.onFrame = onFrame
+            self.onError = onError
+        }
+        
+        func goProSource(_ source: GoProSource, didUpdateStatus status: GoProStreamingStatus) {
+            if case .error(let error) = status {
+                onError(error)
             }
         }
         
-        // Start playback
-        testPlayer.play()
-        testLog += "Started playback\n"
+        func goProSource(_ source: GoProSource, didReceiveFirstFrame size: CGSize) {
+            onFirstFrame(size)
+        }
         
-        // Set timeout timer
-        Task {
-            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-            
-            if !testCompleted {
-                testCompleted = true
-                
-                // Clean up
-                testPlayer.stop()
-                await cleanupObservers()
-                
-                if hasReceivedFrame {
-                    // Success!
-                    completion(true, "Successfully received \(frameCountDuringTest) frames\n\nLog:\n\(testLog)")
-                } else {
-                    testLog += "Timeout: No frames received after \(Int(timeout)) seconds\n"
-                    completion(false, "Failed to receive any frames\n\nLog:\n\(testLog)")
-                }
-            }
+        func goProSource(_ source: GoProSource, didReceiveFrameWithTime time: Int64) {
+            onFrame(time)
         }
     }
     
