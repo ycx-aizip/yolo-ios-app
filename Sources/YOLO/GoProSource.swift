@@ -148,32 +148,60 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
     
     /// Configure media options for optimal RTSP streaming from GoPro
     private func configureSimplifiedMediaOptions(_ media: VLCMedia) {
-        // Apply the suggested options from the example code
-        media.addOption("-vv") // Verbose logging
+        // Apply enhanced options for better H.264 decoding
+        media.addOption("--verbose=3") // Verbose logging
         
-        media.addOptions([
-            "network-caching": 500,
-            "sout-rtp-caching": 100,
-            "sout-rtp-port-audio": 20000,
-            "sout-rtp-port-video": 20002,
-            ":rtp-timeout": 10000,
-            ":rtsp-tcp": true,
-            ":rtsp-frame-buffer-size": 1024,
-            ":rtsp-caching": 0,
-            ":live-caching": 0,
-        ])
+        // SPS/PPS specific options to fix the decoding issues
+        media.addOption(":rtsp-frame-buffer-size=4000000") // Larger buffer for SPS/PPS
+        media.addOption(":rtsp-tcp") // Force TCP (more reliable than UDP)
         
-        // Add additional codec specifications
-        media.addOption(":codec=avcodec")
-        media.addOption(":vcodec=h264")
-        media.addOption("--file-caching=2000")
-        media.addOption("clock-jitter=0")
-        media.addOption("--rtsp-tcp")
+        // Increased caching for more reliable SPS/PPS reception
+        media.addOption(":network-caching=300") // Increased from 100 to ensure SPS/PPS receipt
+        media.addOption(":live-caching=100") // Increased from 50 for better buffering
+        media.addOption(":file-caching=200") // Increased from 100 for more reliability
+        
+        // Specific options for robust SPS/PPS handling
+        media.addOption(":sout-mux-caching=0") 
+        media.addOption(":cr-average=10000")
+        media.addOption(":sout-rtp-caching=100")
+        
+        // Add options to improve SPS/PPS handling
+        media.addOption(":no-skip-frames") // Don't skip any frames to ensure we get SPS/PPS
+        media.addOption(":no-hurry-up") // Don't rush decoding which can skip SPS/PPS
+        
+        // Force specific codec settings for GoPro streams
+        media.addOption(":codec=avcodec") 
+        media.addOption(":no-audio") // Disable audio processing
+        
+        // Special H.264 options to handle SPS/PPS
+        media.addOption(":avcodec-skip-frame=0") // Don't skip any frames
+        media.addOption(":avcodec-skip-idct=0") // Don't skip any IDCT steps
+        media.addOption(":avcodec-skiploopfilter=0") // Don't skip loop filtering
+        media.addOption(":avcodec-threads=1") // Reduced thread count for more predictable behavior
+        media.addOption(":avcodec-hw=0") // Disable hardware acceleration for better SPS/PPS handling
+        
+        // Force H.264 specific parameters
+        media.addOption(":demux=h264") // Try to force H264 demuxer
+        media.addOption(":h264-fps=30.0") // Force 30fps parsing
+        
+        // Add special timestamp handling options
+        media.addOption(":clock-jitter=0")
+        media.addOption(":clock-synchro=0")
+        
+        // Longer timeout for better SPS/PPS reception
+        media.addOption(":rtp-timeout=5000") // Increased from 3000 to 5000 ms
+        media.addOption(":network-synchronization")
+        
+        // H.264 specific parameters to improve SPS/PPS handling
+        media.addOption(":rtsp-sps-pps=true") // Force sending SPS/PPS with each key frame
+        media.addOption(":avcodec-hurry-up=0") // Don't rush decoding
+        media.addOption(":avcodec-fast") // Use some optimizations but maintain reliability
+        media.addOption(":avcodec-dr") // Enable direct rendering
         
         // Clear cookies
         media.clearStoredCookies()
         
-        print("GoPro: Media options configured for RTSP streaming")
+        print("GoPro: Enhanced media options configured for RTSP streaming with improved SPS/PPS handling")
     }
     
     /// Stop RTSP stream
@@ -296,32 +324,41 @@ class GoProSource: NSObject, VLCMediaPlayerDelegate {
         // Configure media
         let media = VLCMedia(url: url)
         
-        // Apply the more comprehensive options
-        media.addOption("-vv") // Verbose logging
+        // Apply enhanced options for better H.264 decoding
+        media.addOption("--verbose=3") // Verbose logging
         
-        media.addOptions([
-            "network-caching": 500,
-            "sout-rtp-caching": 100,
-            "sout-rtp-port-audio": 20000,
-            "sout-rtp-port-video": 20002,
-            ":rtp-timeout": 10000,
-            ":rtsp-tcp": true,
-            ":rtsp-frame-buffer-size": 1024,
-            ":rtsp-caching": 0,
-            ":live-caching": 0,
-        ])
-        
-        // Add additional codec specifications
+        // Core networking options - set individually to avoid dictionary syntax issues
+        media.addOption(":network-caching=300")
+        media.addOption(":sout-rtp-caching=100")
+        media.addOption(":live-caching=100")
+        media.addOption(":file-caching=300")
         media.addOption(":codec=avcodec")
-        media.addOption(":vcodec=h264")
-        media.addOption("--file-caching=2000")
-        media.addOption("clock-jitter=0")
-        media.addOption("--rtsp-tcp")
+        media.addOption(":no-audio")
+        media.addOption(":rtsp-frame-buffer-size=4000000")
+        media.addOption(":rtsp-tcp")
+        media.addOption(":network-synchronization")
+        
+        // H.264 specific options
+        media.addOption(":avcodec-hw=0")
+        media.addOption(":avcodec-fast")
+        media.addOption(":avcodec-skiploopfilter=0")
+        media.addOption(":avcodec-skip-frame=0")
+        media.addOption(":avcodec-skip-idct=0")
+        media.addOption(":avcodec-dr")
+        media.addOption(":avcodec-threads=0")
+        media.addOption(":avcodec-h264-fps=30.0")
+        
+        // GoPro-specific options
+        media.addOption(":h264-fps=30.0")
+        media.addOption(":rtsp-caching=100")
+        media.addOption(":rtp-timeout=5000")
+        media.addOption(":clock-jitter=0")
+        media.addOption(":clock-synchro=0")
         
         // Clear cookies
         media.clearStoredCookies()
         
-        testLog += "Comprehensive media options configured\n"
+        testLog += "Enhanced media options configured\n"
         
         // Set up player
         testPlayer.media = media
