@@ -66,6 +66,9 @@ class GoProSource: NSObject, @preconcurrency VLCMediaPlayerDelegate {
     // Add a property to store the test delegate to prevent it from being deallocated
     private var testDelegate: TestDelegate?
     
+    // Add frameTimestamps property to the class
+    private var frameTimestamps: [CFTimeInterval] = []
+    
     // Initialize VLC player
     @MainActor
     override init() {
@@ -148,10 +151,11 @@ class GoProSource: NSObject, @preconcurrency VLCMediaPlayerDelegate {
     /// Configure media options for optimal RTSP streaming from GoPro
     private func configureRTSPMediaOptions(_ media: VLCMedia) {
         // Core essential options for better streaming
-        media.addOption("--verbose=3")
-        media.addOption(":rtsp-tcp")
-        media.addOption(":network-caching=1000") // Increased for better buffering
-        media.addOption(":live-caching=300")
+        // media.addOption("--verbose=3")
+        // media.addOption(":rtsp-tcp")
+        media.addOption(":rtsp-udp")
+        media.addOption(":network-caching=500") // Reduced from 1000 for faster startup
+        media.addOption(":live-caching=100") // Reduced from 300 for less latency
         media.addOption(":rtsp-frame-buffer-size=5000000") // Larger buffer
         
         // Critical SPS/PPS handling options
@@ -161,6 +165,13 @@ class GoProSource: NSObject, @preconcurrency VLCMediaPlayerDelegate {
         media.addOption(":avcodec-threads=1")
         media.addOption(":rtsp-sps-pps=true") // Force each keyframe to contain SPS/PPS
         media.addOption(":rtp-timeout=10000") // Longer timeout (10 seconds)
+        media.addOption(":avcodec-hw=videotoolbox") // Use hardware acceleration if available
+
+        // Additional performance options for faster startup
+        media.addOption(":clock-jitter=0")
+        media.addOption(":clock-synchro=0")
+        media.addOption(":no-skip-frames")
+        media.addOption(":no-drop-late-frames")
                 
         // Clear cookies to ensure fresh connection
         media.clearStoredCookies()
@@ -219,6 +230,12 @@ class GoProSource: NSObject, @preconcurrency VLCMediaPlayerDelegate {
         // Store the current media time
         lastFrameTime = Int64(player.time.intValue)
         
+        // Track frame timestamps for FPS calculation - keep last 30 frames
+        frameTimestamps.append(CACurrentMediaTime())
+        while frameTimestamps.count > 30 {
+            frameTimestamps.removeFirst()
+        }
+        
         // Calculate frame size if this is the first frame
         if !hasReceivedFirstFrame {
             hasReceivedFirstFrame = true
@@ -235,242 +252,36 @@ class GoProSource: NSObject, @preconcurrency VLCMediaPlayerDelegate {
         
         // Every 30 frames, report status
         if frameCount % 30 == 0 {
-            // Calculate FPS if stream has been running for at least 1 second
+            // Calculate instantaneous FPS from last several frames if available
+            let instantFps = calculateInstantaneousFps()
+            
+            // Calculate overall FPS if stream has been running for at least 1 second
             if let startTime = streamStartTime {
                 let elapsed = Date().timeIntervalSince(startTime)
-                let fps = Double(frameCount) / elapsed
-                print("GoPro: VLC Player - Receiving frames at \(String(format: "%.2f", fps)) FPS")
+                let overallFps = Double(frameCount) / elapsed
+                print("GoPro: VLC Player - Receiving frames at \(String(format: "%.2f", instantFps)) FPS (avg: \(String(format: "%.2f", overallFps)))")
             }
             
             // Notify about frame reception
             delegate?.goProSource(self, didReceiveFrameWithTime: lastFrameTime)
+        } else {
+            // Still notify delegate about each frame, not just every 30th
+            delegate?.goProSource(self, didReceiveFrameWithTime: lastFrameTime)
         }
     }
     
-    // MARK: - Simple Test Function for RTSP Stream
-    
-    /// Simplified test function to validate RTSP streaming from GoPro
-    /// Only checks for successful reception of the first frame
-    /// - Parameters:
-    ///   - timeout: Timeout in seconds to wait for first frame (default 8 seconds)
-    ///   - completion: Called with success/failure and detailed message
-    @MainActor
-    func testRTSPStream(timeout: TimeInterval = 8.0, completion: @escaping (Bool, String) -> Void) {
-        var testLog = "Starting simplified GoPro RTSP stream test...\n"
-        let testCompleted = Atomic<Bool>(value: false)
+    /// Calculate instantaneous FPS based on recent frame timestamps
+    private func calculateInstantaneousFps() -> Double {
+        guard frameTimestamps.count >= 2 else { return 0 }
         
-        // Store original delegate to restore later
-        let originalDelegate = self.delegate
+        // Calculate time difference between oldest and newest timestamp
+        let timeSpan = frameTimestamps.last! - frameTimestamps.first!
+        if timeSpan <= 0 { return 0 }
         
-        print("GoPro: Test - Setting up test delegate")
-        
-        // IMPORTANT: Create test delegate as STORED property to prevent deallocation
-        // This is critical - a local variable might be released when this function returns
-        self.testDelegate = TestDelegate(
-            onFirstFrame: { [weak self] size in
-                print("GoPro: Test - onFirstFrame callback executing with size: \(size)")
-                
-                guard let self = self else { 
-                    print("GoPro: Test - Self is nil in onFirstFrame")
-                    return 
-                }
-                
-                // Check if test already completed
-                if testCompleted.exchange(true) {
-                    print("GoPro: Test - onFirstFrame - test already completed, returning")
-                    return
-                }
-                
-                testLog += "First frame received! Size: \(size)\n"
-                print("GoPro: Test - First frame received, size: \(size), completing test")
-                
-                // Ensure UI updates happen on main thread
-                DispatchQueue.main.async { [weak self] in
-                    guard let self = self else { return }
-                    
-                    // Stop the stream first
-                    self.stopRTSPStream()
-                    
-                    // Then restore the original delegate
-                    self.delegate = originalDelegate
-                    
-                    // Clear the test delegate reference
-                    self.testDelegate = nil
-                    
-                    // Report success
-                    completion(true, "Successfully received first frame with size \(size)\n\nLog:\n\(testLog)")
-                }
-            },
-            onFrame: { time in
-                print("GoPro: Test - received frame at time: \(time)")
-            },
-            onError: { [weak self] error in
-                print("GoPro: Test - onError callback executing: \(error)")
-                
-                guard let self = self else { 
-                    print("GoPro: Test - Self is nil in onError")
-                    return 
-                }
-                
-                // Check if test already completed
-                if testCompleted.exchange(true) {
-                    print("GoPro: Test - onError - test already completed, returning")
-                    return
-                }
-                
-                testLog += "Error: \(error)\n"
-                print("GoPro: Test - Error received: \(error), completing test")
-                
-                // Ensure UI updates happen on main thread
-                DispatchQueue.main.async { [weak self] in
-                    guard let self = self else { return }
-                    
-                    // Stop the stream first
-                    self.stopRTSPStream()
-                    
-                    // Then restore the original delegate
-                    self.delegate = originalDelegate
-                    
-                    // Clear the test delegate reference
-                    self.testDelegate = nil
-                    
-                    // Report failure
-                    completion(false, "Stream error occurred: \(error)\n\nLog:\n\(testLog)")
-                }
-            }
-        )
-        
-        // Set test delegate BEFORE starting the stream
-        self.delegate = self.testDelegate
-        print("GoPro: Test - Delegate set, starting RTSP stream")
-        
-        // Use the main startRTSPStream function for testing
-        startRTSPStream { [weak self] result in
-            guard let self = self else { 
-                print("GoPro: Test - Self is nil in startRTSPStream completion")
-                return 
-            }
-            
-            switch result {
-            case .success:
-                testLog += "RTSP stream started successfully\n"
-                print("GoPro: Test - RTSP stream started, waiting for frame with \(timeout) sec timeout")
-                
-                // Set timeout timer with shorter timeout for testing
-                Task { @MainActor [weak self] in
-                    // Give time for frames to be received
-                    try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                    
-                    guard let self = self else { 
-                        print("GoPro: Test - Self is nil in timeout handler")
-                        return 
-                    }
-                    
-                    // Check if test already completed
-                    if testCompleted.exchange(true) {
-                        print("GoPro: Test - Timeout handler - test already completed, ignoring timeout")
-                        return
-                    }
-                    
-                    print("GoPro: Test - Timeout reached, no frame received")
-                    testLog += "Timeout: No first frame received within \(timeout) seconds\n"
-                    
-                    // Ensure UI updates happen on main thread
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self = self else { return }
-                        
-                        // Stop the stream
-                        self.stopRTSPStream()
-                        
-                        // Restore original delegate
-                        self.delegate = originalDelegate
-                        
-                        // Clear the test delegate reference
-                        self.testDelegate = nil
-                        
-                        // Report timeout
-                        completion(false, "Failed to receive first frame within timeout\n\nLog:\n\(testLog)")
-                    }
-                }
-                
-            case .failure(let error):
-                // Check if test already completed
-                if testCompleted.exchange(true) {
-                    print("GoPro: Test - startRTSPStream failure - test already completed, ignoring")
-                    return
-                }
-                
-                testLog += "Failed to start RTSP stream: \(error.localizedDescription)\n"
-                print("GoPro: Test - Failed to start RTSP stream: \(error.localizedDescription)")
-                
-                // Ensure UI updates happen on main thread
-                DispatchQueue.main.async { [weak self] in
-                    guard let self = self else { return }
-                    
-                    // Restore original delegate
-                    self.delegate = originalDelegate
-                    
-                    // Clear the test delegate reference
-                    self.testDelegate = nil
-                    
-                    // Report failure
-                    completion(false, "Failed to start stream\n\nLog:\n\(testLog)")
-                }
-            }
-        }
+        // Calculate frames per second
+        return Double(frameTimestamps.count - 1) / timeSpan
     }
-    
-    // Thread-safe boolean wrapper for atomic operations
-    private class Atomic<T> {
-        private let queue = DispatchQueue(label: "com.gopro.atomic")
-        private var _value: T
         
-        init(value: T) {
-            self._value = value
-        }
-        
-        // Atomically exchanges the current value with a new value and returns the old value
-        func exchange(_ newValue: T) -> T {
-            return queue.sync {
-                let oldValue = _value
-                _value = newValue
-                return oldValue
-            }
-        }
-    }
-    
-    // Helper delegate for testing
-    private class TestDelegate: GoProSourceDelegate {
-        let onFirstFrame: (CGSize) -> Void
-        let onFrame: (Int64) -> Void
-        let onError: (String) -> Void
-        
-        init(onFirstFrame: @escaping (CGSize) -> Void,
-             onFrame: @escaping (Int64) -> Void,
-             onError: @escaping (String) -> Void) {
-            self.onFirstFrame = onFirstFrame
-            self.onFrame = onFrame
-            self.onError = onError
-        }
-        
-        func goProSource(_ source: GoProSource, didUpdateStatus status: GoProStreamingStatus) {
-            print("GoPro: TestDelegate - Status update: \(status)")
-            if case .error(let error) = status {
-                print("GoPro: TestDelegate - Calling onError with: \(error)")
-                onError(error)
-            }
-        }
-        
-        func goProSource(_ source: GoProSource, didReceiveFirstFrame size: CGSize) {
-            print("GoPro: TestDelegate - Received first frame with size: \(size)")
-            onFirstFrame(size)
-        }
-        
-        func goProSource(_ source: GoProSource, didReceiveFrameWithTime time: Int64) {
-            onFrame(time)
-        }
-    }
-    
     // MARK: - GoPro HTTP API Methods
     
     /// Check if connected to a GoPro camera by requesting webcam version
@@ -856,6 +667,277 @@ class GoProSource: NSObject, @preconcurrency VLCMediaPlayerDelegate {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - Simple Test Function for RTSP Stream
+    
+    /// Enhanced test function to validate RTSP streaming from GoPro
+    /// Tests for 30 frames and reports size and FPS
+    /// - Parameters:
+    ///   - timeout: Timeout in seconds to wait for frames (default 30 seconds)
+    ///   - completion: Called with success/failure and detailed message
+    @MainActor
+    func testRTSPStream(timeout: TimeInterval = 30.0, completion: @escaping (Bool, String) -> Void) {
+        var testLog = "Starting GoPro RTSP stream test (capturing 30 frames)...\n"
+        let testCompleted = Atomic<Bool>(value: false)
+        
+        // Store original delegate to restore later
+        let originalDelegate = self.delegate
+        
+        // Frame tracking
+        let targetFrameCount = 30
+        let frameStartTime = Date()
+        var framesCaptured = 0
+        
+        print("GoPro: Test - Setting up test delegate")
+        
+        // IMPORTANT: Create test delegate as STORED property to prevent deallocation
+        // This is critical - a local variable might be released when this function returns
+        self.testDelegate = TestDelegate(
+            onFirstFrame: { [weak self] size in
+                print("GoPro: Test - onFirstFrame callback executing with size: \(size)")
+                testLog += "First frame received! Size: \(size)\n"
+            },
+            onFrame: { [weak self, frameStartTime] time in
+                guard let self = self else { return }
+                
+                // Increment our local frame counter
+                framesCaptured += 1
+                
+                // Get current frame count from the GoProSource
+                let currentFrameCount = self.frameCount
+                
+                // Get video size from the video player
+                let videoSize = self.videoPlayer?.videoSize ?? CGSize.zero
+                
+                // Calculate FPS
+                let elapsed = Date().timeIntervalSince(frameStartTime)
+                let fps = elapsed > 0 ? Double(framesCaptured) / elapsed : 0
+                
+                print("GoPro: Test - Frame #\(framesCaptured), Source frame count: \(currentFrameCount), Size: \(videoSize), FPS: \(String(format: "%.2f", fps))")
+                testLog += "Frame #\(framesCaptured), Size: \(videoSize), FPS: \(String(format: "%.2f", fps))\n"
+                
+                // If we've received enough frames, complete the test
+                if framesCaptured >= targetFrameCount {
+                    // Check if test already completed
+                    if testCompleted.exchange(true) {
+                        print("GoPro: Test - Frame count reached target but test already completed")
+                        return
+                    }
+                    
+                    print("GoPro: Test - Received \(framesCaptured) frames, completing test")
+                    
+                    // Calculate final stats
+                    let totalElapsed = Date().timeIntervalSince(frameStartTime)
+                    let avgFPS = Double(framesCaptured) / totalElapsed
+                    
+                    testLog += "\nTest complete:\n"
+                    testLog += "- Total frames captured: \(framesCaptured)\n"
+                    testLog += "- Time elapsed: \(String(format: "%.2f", totalElapsed)) seconds\n"
+                    testLog += "- Average FPS: \(String(format: "%.2f", avgFPS))\n"
+                    
+                    // Use a helper method to complete the test safely
+                    self.completeTest(
+                        originalDelegate: originalDelegate,
+                        success: true,
+                        message: "Successfully received \(framesCaptured) frames\n\nLog:\n\(testLog)",
+                        completion: completion
+                    )
+                }
+            },
+            onError: { [weak self] error in
+                print("GoPro: Test - onError callback executing: \(error)")
+                
+                guard let self = self else { 
+                    print("GoPro: Test - Self is nil in onError")
+                    return 
+                }
+                
+                // Check if test already completed
+                if testCompleted.exchange(true) {
+                    print("GoPro: Test - onError - test already completed, returning")
+                    return
+                }
+                
+                testLog += "Error: \(error)\n"
+                print("GoPro: Test - Error received: \(error), completing test")
+                
+                // Use a helper method to complete the test safely
+                self.completeTest(
+                    originalDelegate: originalDelegate,
+                    success: false,
+                    message: "Stream error occurred: \(error)\n\nLog:\n\(testLog)",
+                    completion: completion
+                )
+            }
+        )
+        
+        // Reset tracking variables for accurate testing
+        frameCount = 0
+        frameTimestamps.removeAll()
+        
+        // Set test delegate BEFORE starting the stream
+        self.delegate = self.testDelegate
+        print("GoPro: Test - Delegate set, starting RTSP stream")
+        
+        // Use the main startRTSPStream function for testing
+        startRTSPStream { [weak self] result in
+            guard let self = self else { 
+                print("GoPro: Test - Self is nil in startRTSPStream completion")
+                return 
+            }
+            
+            switch result {
+            case .success:
+                testLog += "RTSP stream started successfully\n"
+                print("GoPro: Test - RTSP stream started, waiting for \(targetFrameCount) frames with \(timeout) sec timeout")
+                
+                // Set timeout timer with timeout for testing
+                Task { @MainActor [weak self] in
+                    // Give time for frames to be received
+                    try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                    
+                    guard let self = self else { 
+                        print("GoPro: Test - Self is nil in timeout handler")
+                        return 
+                    }
+                    
+                    // Check if test already completed
+                    if testCompleted.exchange(true) {
+                        print("GoPro: Test - Timeout handler - test already completed, ignoring timeout")
+                        return
+                    }
+                    
+                    // Check how many frames we received
+                    let framesReceived = framesCaptured
+                    if framesReceived > 0 {
+                        print("GoPro: Test - Timeout reached, but received \(framesReceived) frames")
+                        testLog += "Timeout: Received \(framesReceived) frames within \(timeout) seconds (target was \(targetFrameCount))\n"
+                        
+                        // Calculate final stats
+                        let totalElapsed = Date().timeIntervalSince(frameStartTime)
+                        let avgFPS = Double(framesReceived) / totalElapsed
+                        
+                        testLog += "\nTest complete (timeout):\n"
+                        testLog += "- Total frames: \(framesReceived)\n"
+                        testLog += "- Time elapsed: \(String(format: "%.2f", totalElapsed)) seconds\n"
+                        testLog += "- Average FPS: \(String(format: "%.2f", avgFPS))\n"
+                        
+                        // Consider partial success if we got some frames
+                        let success = framesReceived >= 5 // At least 5 frames to be considered successful
+                        
+                        // Use helper method to complete test
+                        self.completeTest(
+                            originalDelegate: originalDelegate,
+                            success: success,
+                            message: "Received \(framesReceived)/\(targetFrameCount) frames before timeout\n\nLog:\n\(testLog)",
+                            completion: completion
+                        )
+                    } else {
+                        print("GoPro: Test - Timeout reached, no frames received")
+                        testLog += "Timeout: No frames received within \(timeout) seconds\n"
+                        
+                        // Complete with failure
+                        self.completeTest(
+                            originalDelegate: originalDelegate,
+                            success: false,
+                            message: "Failed to receive any frames within timeout\n\nLog:\n\(testLog)",
+                            completion: completion
+                        )
+                    }
+                }
+                
+            case .failure(let error):
+                // Check if test already completed
+                if testCompleted.exchange(true) {
+                    print("GoPro: Test - startRTSPStream failure - test already completed, ignoring")
+                    return
+                }
+                
+                testLog += "Failed to start RTSP stream: \(error.localizedDescription)\n"
+                print("GoPro: Test - Failed to start RTSP stream: \(error.localizedDescription)")
+                
+                // Complete with failure
+                self.completeTest(
+                    originalDelegate: originalDelegate,
+                    success: false,
+                    message: "Failed to start stream\n\nLog:\n\(testLog)",
+                    completion: completion
+                )
+            }
+        }
+    }
+    
+    /// Helper method to safely complete the test and clean up resources
+    @MainActor
+    private func completeTest(
+        originalDelegate: GoProSourceDelegate?,
+        success: Bool,
+        message: String,
+        completion: @escaping (Bool, String) -> Void
+    ) {
+        // Stop the stream
+        stopRTSPStream()
+        
+        // Restore original delegate
+        self.delegate = originalDelegate
+        
+        // Clear the test delegate reference
+        self.testDelegate = nil
+        
+        // Report result
+        completion(success, message)
+    }
+    
+    // Thread-safe boolean wrapper for atomic operations
+    private class Atomic<T> {
+        private let queue = DispatchQueue(label: "com.gopro.atomic")
+        private var _value: T
+        
+        init(value: T) {
+            self._value = value
+        }
+        
+        // Atomically exchanges the current value with a new value and returns the old value
+        func exchange(_ newValue: T) -> T {
+            return queue.sync {
+                let oldValue = _value
+                _value = newValue
+                return oldValue
+            }
+        }
+    }
+    
+    // Helper delegate for testing
+    private class TestDelegate: GoProSourceDelegate {
+        let onFirstFrame: (CGSize) -> Void
+        let onFrame: (Int64) -> Void
+        let onError: (String) -> Void
+        
+        init(onFirstFrame: @escaping (CGSize) -> Void,
+             onFrame: @escaping (Int64) -> Void,
+             onError: @escaping (String) -> Void) {
+            self.onFirstFrame = onFirstFrame
+            self.onFrame = onFrame
+            self.onError = onError
+        }
+        
+        func goProSource(_ source: GoProSource, didUpdateStatus status: GoProStreamingStatus) {
+            print("GoPro: TestDelegate - Status update: \(status)")
+            if case .error(let error) = status {
+                print("GoPro: TestDelegate - Calling onError with: \(error)")
+                onError(error)
+            }
+        }
+        
+        func goProSource(_ source: GoProSource, didReceiveFirstFrame size: CGSize) {
+            print("GoPro: TestDelegate - Received first frame with size: \(size)")
+            onFirstFrame(size)
+        }
+        
+        func goProSource(_ source: GoProSource, didReceiveFrameWithTime time: Int64) {
+            onFrame(time)
         }
     }
 }
