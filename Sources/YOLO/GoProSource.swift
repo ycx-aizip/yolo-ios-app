@@ -112,6 +112,12 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     // Current orientation of the device
     private var currentOrientation: UIDeviceOrientation = .portrait
     
+    // Store the last frame size for coordinate transformations
+    private var lastFrameSize: CGSize = .zero
+    
+    // Store the current pixel buffer for reference
+    private var currentPixelBuffer: CVPixelBuffer?
+    
     // MARK: - Initialization
     
     override init() {
@@ -177,7 +183,34 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     nonisolated func stop() {
         Task { @MainActor [weak self] in
             guard let self = self else { return }
-            self.stopRTSPStream()
+            print("GoPro: Stopping stream and cleaning up resources")
+            
+            // Stop the VLC player
+            self.videoPlayer?.stop()
+            
+            // Clean up player view from the container
+            if let playerView = self.playerView {
+                // Ensure all constraints are removed first
+                NSLayoutConstraint.deactivate(playerView.constraints)
+                
+                // Remove from superview
+                playerView.removeFromSuperview()
+                
+                print("GoPro: Player view removed from hierarchy")
+            }
+            
+            // Reset all state variables
+            self.hasReceivedFirstFrame = false
+            self.frameCount = 0
+            self.frameTimestamps.removeAll()
+            self.streamStartTime = nil
+            self.lastFrameSize = .zero
+            self.currentPixelBuffer = nil
+            
+            // Notify both delegate types
+            Task { @MainActor in
+                self.goProDelegate?.goProSource(self, didUpdateStatus: .stopped)
+            }
         }
     }
     
@@ -238,9 +271,9 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         playerView?.backgroundColor = .black
         playerView?.layer.masksToBounds = true
         
-        // Add a visual indication that the player view exists but no content is being shown
-        playerView?.layer.borderWidth = 1.0
-        playerView?.layer.borderColor = UIColor.red.cgColor
+        // // Add a visual indication that the player view exists but no content is being shown
+        // playerView?.layer.borderWidth = 1.0
+        // playerView?.layer.borderColor = UIColor.red.cgColor
         
         // This is crucial - use VLCMediaPlayer's drawable property
         videoPlayer?.drawable = playerView
@@ -271,24 +304,64 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         // IMPORTANT: Force main thread for UIGraphics operations
         dispatchPrecondition(condition: .onQueue(.main))
         
-        // Attempt to grab the frame - use a bit larger scale for better quality
-        let scale: CGFloat = 1.0
-        UIGraphicsBeginImageContextWithOptions(viewSize, false, scale)
+        // Try to get the actual video dimensions from the player if available
+        var renderSize = viewSize
+        if let videoSize = videoPlayer?.videoSize, videoSize.width > 0, videoSize.height > 0 {
+            renderSize = videoSize
+        }
+        
+        // Use a consistent scale for better quality and predictable size
+        let scale: CGFloat = 1.0 // Use 1.0 for faster processing, higher values for better quality
+        
+        // Ensure we're getting full video frame not just the visible portion
+        UIGraphicsBeginImageContextWithOptions(renderSize, false, scale)
         defer { UIGraphicsEndImageContext() }
         
         if let context = UIGraphicsGetCurrentContext() {
-            // Try to force the layer to update before rendering
+            // Force the layer to update and render
             playerView.layer.setNeedsDisplay()
+            playerView.layer.displayIfNeeded()
             
-            // Render the layer
-            playerView.layer.render(in: context)
+            // Save current state and transform for correct orientation
+            context.saveGState()
+            context.scaleBy(x: 1.0, y: -1.0)
+            context.translateBy(x: 0, y: -renderSize.height)
+            
+            // Use a bright color background to detect black frames
+            context.setFillColor(UIColor.white.cgColor)
+            context.fill(CGRect(origin: .zero, size: renderSize))
+            
+            // Render the player view layers
+            if let layer = playerView.layer.presentation() {
+                layer.render(in: context)
+            } else {
+                playerView.layer.render(in: context)
+            }
+            
+            context.restoreGState()
             
             // Get the image
             if let image = UIGraphicsGetImageFromCurrentImageContext() {
+                // Track frame dimensions for proper coordinate transformation
+                self.lastFrameSize = image.size
+                
+                // Log image details to help diagnose issues
+                if frameCount % 30 == 0 { // Log every 30 frames to avoid spam
+                    print("GoPro: Frame extracted - size: \(image.size), scale: \(image.scale), orientation: \(image.imageOrientation.rawValue)")
+                }
+                
                 // Check if image is all black or invalid
                 if isBlackImage(image) {
                     print("GoPro: Warning - Extracted all-black frame from player view")
-                    // Return the image anyway, as we can use it for debugging
+                    
+                    // Try an alternative approach using snapshot
+                    if let snapshotImage = playerView.snapshotImage() {
+                        print("GoPro: Using snapshot image instead - size: \(snapshotImage.size)")
+                        return snapshotImage
+                    }
+                    
+                    // Return the black frame as a last resort - at least it's a frame
+                    return image
                 }
                 return image
             } else {
@@ -298,7 +371,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             print("GoPro: Failed to get graphics context")
         }
         
-        return nil
+        // Try snapshot method as a fallback
+        return playerView.snapshotImage()
     }
     
     // Helper to check if an image is entirely or almost entirely black
@@ -324,6 +398,81 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         return brightness < 10
     }
     
+    // Process the extracted frame into YOLO-compatible format
+    private func processExtractedFrame(_ image: UIImage) -> CMSampleBuffer? {
+        // First create a pixel buffer from the image using standard conversion
+        guard let pixelBuffer = createStandardPixelBuffer(from: image, forSourceType: sourceType) else {
+            print("GoPro: Failed to create pixel buffer from frame")
+            return nil
+        }
+        
+        // Then create a sample buffer using standard conversion
+        guard let sampleBuffer = createStandardSampleBuffer(from: pixelBuffer) else {
+            print("GoPro: Failed to create sample buffer from pixel buffer")
+            return nil
+        }
+        
+        // Track this buffer as the current one
+        self.currentPixelBuffer = pixelBuffer
+        
+        return sampleBuffer
+    }
+    
+    // Process the current frame for either inference or calibration
+    @MainActor
+    private func processCurrentFrame() {
+        guard let frameImage = extractCurrentFrame() else {
+            print("GoPro: Failed to extract frame for processing")
+            return
+        }
+        
+        // Always send the frame to the delegate for display
+        delegate?.frameSource(self, didOutputImage: frameImage)
+        
+        // Check if we're in calibration mode
+        let shouldProcessForCalibration = !inferenceOK && predictor is TrackingDetector
+        
+        if shouldProcessForCalibration {
+            // Process for auto-calibration
+            guard let trackingDetector = predictor as? TrackingDetector else {
+                print("GoPro: Cannot process for calibration - predictor is not TrackingDetector")
+                return
+            }
+            
+            // Clear boxes when starting calibration (first frame)
+            if trackingDetector.getCalibrationFrameCount() == 0 {
+                print("GoPro: Starting calibration, clearing boxes")
+                self.videoCaptureDelegate?.onClearBoxes()
+            }
+            
+            // Convert UIImage to CVPixelBuffer for calibration
+            if let pixelBufferForCalibration = createStandardPixelBuffer(from: frameImage, forSourceType: sourceType) {
+                // Process the frame for calibration
+                trackingDetector.processFrame(pixelBufferForCalibration)
+                
+                // Print calibration progress by using frame count
+                let frameCount = trackingDetector.getCalibrationFrameCount()
+                if frameCount > 0 {
+                    // Estimate progress as percentage of expected frames (assume 100 frames needed)
+                    let estimatedProgress = min(Double(frameCount) / 100.0, 1.0)
+                    print("GoPro: Calibration progress: \(Int(estimatedProgress * 100))% (frame \(frameCount))")
+                }
+            }
+            
+            // Skip regular inference during calibration
+            return
+        }
+        
+        // Process with predictor if inference is enabled
+        if inferenceOK, let predictor = self.predictor, let sampleBuffer = processExtractedFrame(frameImage) {
+            predictor.predict(
+                sampleBuffer: sampleBuffer,
+                onResultsListener: self,
+                onInferenceTime: self
+            )
+        }
+    }
+    
     // MARK: - Improved Delegate Management
     
     /// Sets both goProDelegate and FrameSource delegate to ensure complete integration
@@ -343,6 +492,9 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         if let goProDelegate = view as? GoProSourceDelegate {
             self.goProDelegate = goProDelegate
         }
+        
+        // Ensure video capture delegate is properly typed and connected
+        print("GoPro: Setting up integration with YOLOView")
         
         // Get the container view where we'll display the video
         if let containerView = view.viewForDrawing {
@@ -390,13 +542,30 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             // Force layout to apply the new constraints
             containerView.layoutIfNeeded()
             
-            // Ensure the player view is properly connected to the VLC player
+            // CRITICAL: Ensure the player view is properly connected to the VLC player
             videoPlayer?.drawable = playerView
             
             print("GoPro: Successfully integrated player view with container: \(containerView.bounds.size)")
         } else {
             print("GoPro: Error - No container view available for integration")
         }
+        
+        // Fix for detection results handling
+        if let predictor = self.predictor {
+            print("GoPro: Using predictor of type \(type(of: predictor))")
+        } else {
+            print("GoPro: Error - No predictor available for integration")
+            
+            // Try to get predictor from YOLOView if possible
+            if let yoloView = view as? YOLOView, 
+               let currentPredictor = yoloView.getCurrentPredictor() {
+                print("GoPro: Obtained predictor from YOLOView")
+                self.predictor = currentPredictor
+            }
+        }
+        
+        // Debug delegate chain
+        print("GoPro: Delegate chain set up: delegate=\(String(describing: type(of: delegate))), videoCaptureDelegate=\(String(describing: type(of: videoCaptureDelegate)))")
     }
     
     // MARK: - Layout Management
@@ -664,7 +833,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                     // Update player view layout now that we have a valid video size
                     self.updatePlayerViewLayout()
                     
-                    // Notify first frame received with size - add extra debugging
+                    // Notify first frame received with size
                     print("GoPro: Calling delegate didReceiveFirstFrame with size: \(videoSize)")
                     self.goProDelegate?.goProSource(self, didReceiveFirstFrame: videoSize)
                     print("GoPro: Delegate didReceiveFirstFrame call completed")
@@ -674,31 +843,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                 }
             }
             
-            // Extract current frame for FrameSource delegate and predictor
-            guard let frameImage = self.extractCurrentFrame() else {
-                print("GoPro: Failed to extract frame")
-                return
-            }
-            
-            // Send to FrameSource delegate for display and processing
-            self.delegate?.frameSource(self, didOutputImage: frameImage)
-            
-            // Process with predictor if inference is enabled
-            if self.inferenceOK, let predictor = self.predictor {
-                if let pixelBuffer = self.createStandardPixelBuffer(from: frameImage, forSourceType: self.sourceType) {
-                    if let sampleBuffer = self.createStandardSampleBuffer(from: pixelBuffer) {
-                        predictor.predict(
-                            sampleBuffer: sampleBuffer,
-                            onResultsListener: self,
-                            onInferenceTime: self
-                        )
-                    } else {
-                        print("GoPro: Failed to create sample buffer")
-                    }
-                } else {
-                    print("GoPro: Failed to create pixel buffer")
-                }
-            }
+            // Use our enhanced frame processing method
+            self.processCurrentFrame()
             
             // Calculate and report performance metrics
             let instantFps = self.calculateInstantaneousFps()
@@ -1419,8 +1565,15 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
         Task { @MainActor [weak self] in
             guard let self = self else { return }
             
+            // Forward to both delegate types to ensure complete integration
             self.delegate?.frameSource(self, didUpdateWithSpeed: inferenceTime, fps: fpsRate)
-            self.videoCaptureDelegate?.onInferenceTime(speed: inferenceTime, fps: fpsRate)
+            
+            // Also forward to video capture delegate for YOLOView integration
+            if let videoCaptureDelegate = self.videoCaptureDelegate {
+                videoCaptureDelegate.onInferenceTime(speed: inferenceTime, fps: fpsRate)
+            } else {
+                print("GoPro: Warning - videoCaptureDelegate is nil for inferenceTime update")
+            }
         }
     }
     
@@ -1429,8 +1582,96 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
         Task { @MainActor [weak self] in
             guard let self = self else { return }
             
-            self.videoCaptureDelegate?.onPredict(result: result)
+            // Transform coordinates based on source vs display dimensions
+            var transformedResult = result
+            
+            // Apply coordinate transformation here if needed
+            // This ensures the coordinates match the display view
+            transformedResult = self.transformResultCoordinates(result)
+            
+            // Forward to video capture delegate for YOLOView integration
+            if let videoCaptureDelegate = self.videoCaptureDelegate {
+                videoCaptureDelegate.onPredict(result: transformedResult)
+            } else {
+                print("GoPro: Warning - videoCaptureDelegate is nil for prediction result")
+            }
         }
+    }
+    
+    // Transform coordinates from source space to display space
+    private func transformResultCoordinates(_ result: YOLOResult) -> YOLOResult {
+        // Create a new array of boxes with transformed coordinates
+        var transformedBoxes: [Box] = []
+        
+        // Only transform coordinates if we have valid dimensions
+        if lastFrameSize.width > 0 && lastFrameSize.height > 0,
+           let containerView = containerView, 
+           containerView.bounds.width > 0 && containerView.bounds.height > 0 {
+            
+            // Calculate aspect ratios
+            let videoAspectRatio = lastFrameSize.width / lastFrameSize.height
+            let viewAspectRatio = containerView.bounds.width / containerView.bounds.height
+            
+            // For each box, create a new version with transformed coordinates
+            for box in result.boxes {
+                // The original boxes are in normalized coordinates (0-1)
+                let originalBox = box.xywhn
+                
+                // We need to adjust for letterboxing/pillarboxing
+                var adjustedBox = originalBox
+                
+                if videoAspectRatio > viewAspectRatio {
+                    // Letterboxing (bars on top and bottom)
+                    // Adjust y coordinates to account for letterboxing
+                    let scaleFactor = viewAspectRatio / videoAspectRatio
+                    let offsetY = (1 - scaleFactor) / 2
+                    
+                    adjustedBox.origin.y = offsetY + originalBox.origin.y * scaleFactor
+                    adjustedBox.size.height = originalBox.size.height * scaleFactor
+                } else if videoAspectRatio < viewAspectRatio {
+                    // Pillarboxing (bars on left and right)
+                    // Adjust x coordinates to account for pillarboxing
+                    let scaleFactor = videoAspectRatio / viewAspectRatio
+                    let offsetX = (1 - scaleFactor) / 2
+                    
+                    adjustedBox.origin.x = offsetX + originalBox.origin.x * scaleFactor
+                    adjustedBox.size.width = originalBox.size.width * scaleFactor
+                }
+                
+                // Create a new Box with adjusted coordinates
+                // We need to recreate the box entirely since xywhn is immutable
+                let transformedBox = Box(
+                    index: box.index,
+                    cls: box.cls,
+                    conf: box.conf,
+                    xywh: box.xywh,
+                    xywhn: adjustedBox
+                )
+                
+                transformedBoxes.append(transformedBox)
+            }
+        } else {
+            // If we don't have valid dimensions, just use the original boxes
+            transformedBoxes = result.boxes
+        }
+        
+        // Create a new YOLOResult with all the original properties but the transformed boxes
+        // Note: We can't directly modify result.boxes since it's immutable, so we create a completely new YOLOResult
+        let transformedResult = YOLOResult(
+            orig_shape: result.orig_shape,
+            boxes: transformedBoxes,
+            masks: result.masks,
+            probs: result.probs,
+            keypointsList: result.keypointsList,
+            obb: result.obb,
+            annotatedImage: result.annotatedImage,
+            speed: result.speed,
+            fps: result.fps,
+            originalImage: result.originalImage,
+            names: result.names
+        )
+        
+        return transformedResult
     }
 }
 
@@ -1459,5 +1700,30 @@ extension VideoCaptureDelegate {
     var viewForDrawing: UIView? {
         // Try to get the view from self if it's a UIView
         return self as? UIView
+    }
+}
+
+// Extension to YOLOView to access predictor
+// Removed since YOLOView now has a built-in getCurrentPredictor method
+
+// Add an extension to UIView for snapshot method
+extension UIView {
+    func snapshotImage() -> UIImage? {
+        // Begin image context
+        UIGraphicsBeginImageContextWithOptions(bounds.size, false, 0)
+        defer { UIGraphicsEndImageContext() }
+        
+        // Draw view hierarchy into context
+        if let context = UIGraphicsGetCurrentContext() {
+            // Save a solid white background to detect if the frame is empty
+            context.setFillColor(UIColor.white.cgColor)
+            context.fill(bounds)
+            
+            // Render the view
+            drawHierarchy(in: bounds, afterScreenUpdates: true)
+        }
+        
+        // Get the snapshot image
+        return UIGraphicsGetImageFromCurrentImageContext()
     }
 }

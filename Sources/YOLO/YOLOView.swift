@@ -536,6 +536,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       // Use the session preset from the active frame source (only CameraVideoSource has this)
       if currentFrameSource.sourceType == .camera && videoCapture.captureSession.sessionPreset == .photo {
         ratio = (height / width) / (4.0 / 3.0)
+      } else if currentFrameSource.sourceType == .goPro {
+        // For GoPro source, use a special handling
+        ratio = (height / width) / (16.0 / 9.0) // Most GoPros use 16:9
       } else {
         ratio = (height / width) / (16.0 / 9.0)
       }
@@ -662,6 +665,21 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             let screenRect = albumSource.convertNormalizedRectToScreenRect(normalizedRect)
             
             // Set the box with the converted rect
+            boundingBoxViews[i].show(
+              frame: screenRect, label: label, color: boxColor, alpha: alpha)
+          } else if frameSourceType == .goPro {
+            // For GoPro source, use special handling for coordinate transformation
+            // The coordinates are already transformed in the GoProSource, so we just need to map to screen space
+            let xScale = width
+            let yScale = height
+            
+            let screenRect = CGRect(
+              x: displayRect.minX * xScale,
+              y: displayRect.minY * yScale,
+              width: displayRect.width * xScale,
+              height: displayRect.height * yScale
+            )
+            
             boundingBoxViews[i].show(
               frame: screenRect, label: label, color: boxColor, alpha: alpha)
           } else {
@@ -838,6 +856,18 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             let screenRect = albumSource.convertNormalizedRectToScreenRect(normalizedRect)
             
             // Set the box with the converted rect
+            boundingBoxViews[i].show(
+              frame: screenRect, label: label, color: boxColor, alpha: alpha)
+          } else if frameSourceType == .goPro {
+            // For GoPro source, use special handling for landscape mode
+            // Scale the normalized coordinates directly to screen space
+            let screenRect = CGRect(
+              x: rect.minX * width,
+              y: rect.minY * height,
+              width: rect.width * width,
+              height: rect.height * height
+            )
+            
             boundingBoxViews[i].show(
               frame: screenRect, label: label, color: boxColor, alpha: alpha)
           } else {
@@ -2344,7 +2374,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
                                             // Add Stream button that will start real fish counting with GoPro source
                                             startedAlert.addAction(UIAlertAction(title: "Stream", style: .default) { [weak self] _ in
                                                 guard let self = self else { return }
-                                                // Initialize a proper GoProSource for fish counting
+                                                // Use our new optimized method to initialize GoPro fish counting
                                                 self.initializeGoProFishCounting(viewController: viewController)
                                             })
                                             
@@ -2435,6 +2465,57 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     }
   }
   
+  // Improved method for handling GoPro streams
+  @MainActor
+  func optimizeForGoProSource(_ goProSource: GoProSource) {
+    // Ensure the view is prepared for GoPro-specific display
+    print("YOLOView: Optimizing for GoPro source")
+    
+    // Stop current source first
+    if frameSourceType != .goPro {
+      print("YOLOView: Stopping previous source: \(frameSourceType)")
+      currentFrameSource.stop()
+      
+      // Remove any existing album video player layer
+      if let albumSource = albumVideoSource, let playerLayer = albumSource.playerLayer {
+        playerLayer.removeFromSuperlayer()
+      }
+      
+      // Hide camera preview layer if visible
+      if let previewLayer = videoCapture.previewLayer {
+        previewLayer.isHidden = true
+      }
+      
+      // Clear existing bounding boxes
+      boundingBoxViews.forEach { $0.hide() }
+      
+      // Update frame source type
+      frameSourceType = .goPro
+      
+      // Reset the fish counter if using tracking detector
+      if let trackingDetector = videoCapture.predictor as? TrackingDetector {
+        trackingDetector.resetCount()
+        fishCount = 0
+        updateFishCountDisplay()
+      }
+    } else {
+      print("YOLOView: Already using GoPro source")
+    }
+    
+    // Setup GoPro as the current source
+    currentFrameSource = goProSource
+    
+    // Share the predictor with the GoProSource
+    goProSource.predictor = videoCapture.predictor
+    print("YOLOView: Shared predictor of type \(type(of: videoCapture.predictor)) with GoPro source")
+    
+    // Setup GoPro integration with this view
+    goProSource.integrateWithYOLOView(view: self)
+    
+    // Start the GoPro source
+    goProSource.start()
+  }
+  
   // Method to initialize GoProSource for fish counting
   private func initializeGoProFishCounting(viewController: UIViewController) {
     // Create loading alert
@@ -2497,31 +2578,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
           await MainActor.run {
             switch result {
             case .success:
-              // Stream started successfully
-              
-              // Stop current frame source and clear boxes
-              self.currentFrameSource.stop()
-              self.boundingBoxViews.forEach { $0.hide() }
-              
-              // Hide camera preview layer if visible
-              if let previewLayer = self.videoCapture.previewLayer {
-                previewLayer.isHidden = true
-              }
-              
-              // Remove any existing album video player layer
-              if let albumSource = self.albumVideoSource, let playerLayer = albumSource.playerLayer {
-                playerLayer.removeFromSuperlayer()
-              }
-              
-              // Integrate with YOLOView - this will set up delegates and predictor
-              goProSource.integrateWithYOLOView(view: self)
-              
-              // Set as current frame source
-              self.currentFrameSource = goProSource
-              self.frameSourceType = .goPro
-              
-              // Ensure inferenceOK is set to true
-              self.currentFrameSource.inferenceOK = true
+              // Stream started successfully - use our optimized method
+              self.optimizeForGoProSource(goProSource)
               
               // Dismiss loading indicator
               loadingAlert.dismiss(animated: true) {
@@ -2720,6 +2778,17 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     // Re-draw the threshold lines for the new direction
     updateThresholdLinesForDirection(direction)
+  }
+
+  /// Get the current predictor from the active frame source
+  func getCurrentPredictor() -> Predictor? {
+    return currentFrameSource.predictor
+  }
+
+  // Helper method to update the fish count display
+  private func updateFishCountDisplay() {
+    // Update the fish count label with the current count
+    labelFishCount.text = "Fish Count: \(fishCount)"
   }
 }
 
