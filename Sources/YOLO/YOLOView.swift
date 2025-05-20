@@ -2043,8 +2043,23 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         self.currentFrameSource.inferenceOK = true
       }
       
+    case .goPro:
+      // Find the current view controller to present alerts
+      var topViewController = UIApplication.shared.windows.first?.rootViewController
+      while let presentedViewController = topViewController?.presentedViewController {
+        topViewController = presentedViewController
+      }
+      
+      guard let viewController = topViewController else {
+        print("Could not find a view controller to present alerts")
+        return
+      }
+      
+      // Show GoPro connection prompt - this will handle the full setup flow
+      self.showGoProConnectionPrompt(viewController: viewController)
+      
     default:
-      // For future source types
+      // For other future source types
       break
     }
   }
@@ -2326,11 +2341,11 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
                                                 }
                                             })
                                             
-                                            // Add Stream button (will implement RTSP streaming in next step)
+                                            // Add Stream button that will start real fish counting with GoPro source
                                             startedAlert.addAction(UIAlertAction(title: "Stream", style: .default) { [weak self] _ in
                                                 guard let self = self else { return }
-                                                // Test RTSP streaming
-                                                self.testGoProRTSPStream(viewController: viewController)
+                                                // Initialize a proper GoProSource for fish counting
+                                                self.initializeGoProFishCounting(viewController: viewController)
                                             })
                                             
                                             viewController.present(startedAlert, animated: true)
@@ -2415,6 +2430,147 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
           // Clean up
           goProSource.stopRTSPStream()
           self.tempGoProSource = nil
+        }
+      }
+    }
+  }
+  
+  // Method to initialize GoProSource for fish counting
+  private func initializeGoProFishCounting(viewController: UIViewController) {
+    // Create loading alert
+    let loadingAlert = UIAlertController(
+      title: "Starting GoPro Stream",
+      message: "Connecting to GoPro RTSP stream for fish counting...",
+      preferredStyle: .alert
+    )
+    
+    // Show cancel button
+    loadingAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in
+      // Create a GoPro source just to stop any streams
+      let goProSource = GoProSource()
+      goProSource.stopRTSPStream()
+    })
+    
+    viewController.present(loadingAlert, animated: true)
+    
+    // Create a fresh GoPro source for fish counting
+    let goProSource = GoProSource()
+    
+    // Set up the GoProSource
+    goProSource.predictor = videoCapture.predictor
+    goProSource.setUp { success in
+      if !success {
+        DispatchQueue.main.async {
+          loadingAlert.dismiss(animated: true) {
+            // Show error
+            let errorAlert = UIAlertController(
+              title: "Setup Failed",
+              message: "Failed to set up GoPro stream.",
+              preferredStyle: .alert
+            )
+            errorAlert.addAction(UIAlertAction(title: "OK", style: .default))
+            viewController.present(errorAlert, animated: true)
+          }
+        }
+        return
+      }
+      
+      // Setup successful, now start the RTSP stream
+      Task {
+        do {
+          // Create a callback Task to handle the result asynchronously
+          let streamResultTask = Task<Result<Void, Error>, Never> { 
+            return await withCheckedContinuation { continuation in
+              // Need to call via MainActor.run since goProSource.startRTSPStream is @MainActor isolated
+              Task { @MainActor in
+                goProSource.startRTSPStream { result in
+                  continuation.resume(returning: result)
+                }
+              }
+            }
+          }
+          
+          // Wait for the result with a timeout
+          let result = await streamResultTask.value
+          
+          // Now we can safely run UI updates on the main actor
+          await MainActor.run {
+            switch result {
+            case .success:
+              // Stream started successfully
+              
+              // Stop current frame source and clear boxes
+              self.currentFrameSource.stop()
+              self.boundingBoxViews.forEach { $0.hide() }
+              
+              // Hide camera preview layer if visible
+              if let previewLayer = self.videoCapture.previewLayer {
+                previewLayer.isHidden = true
+              }
+              
+              // Remove any existing album video player layer
+              if let albumSource = self.albumVideoSource, let playerLayer = albumSource.playerLayer {
+                playerLayer.removeFromSuperlayer()
+              }
+              
+              // Integrate with YOLOView - this will set up delegates and predictor
+              goProSource.integrateWithYOLOView(view: self)
+              
+              // Set as current frame source
+              self.currentFrameSource = goProSource
+              self.frameSourceType = .goPro
+              
+              // Ensure inferenceOK is set to true
+              self.currentFrameSource.inferenceOK = true
+              
+              // Dismiss loading indicator
+              loadingAlert.dismiss(animated: true) {
+                // Show success message
+                let successAlert = UIAlertController(
+                  title: "GoPro Stream Active",
+                  message: "GoPro RTSP stream is now connected and ready for fish counting!",
+                  preferredStyle: .alert
+                )
+                successAlert.addAction(UIAlertAction(title: "OK", style: .default))
+                viewController.present(successAlert, animated: true)
+              }
+              
+              // Save reference to prevent deallocation
+              self.tempGoProSource = goProSource
+              
+            case .failure(let error):
+              // Stream failed to start
+              loadingAlert.dismiss(animated: true) {
+                // Show error
+                let errorAlert = UIAlertController(
+                  title: "Stream Failed",
+                  message: "Failed to start GoPro stream: \(error.localizedDescription)",
+                  preferredStyle: .alert
+                )
+                
+                // Add option to retry
+                errorAlert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
+                  self?.initializeGoProFishCounting(viewController: viewController)
+                })
+                
+                errorAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+                viewController.present(errorAlert, animated: true)
+              }
+            }
+          }
+        } catch {
+          await MainActor.run {
+            loadingAlert.dismiss(animated: true) {
+              // Show error for any exceptions
+              let errorAlert = UIAlertController(
+                title: "Error",
+                message: "An unexpected error occurred: \(error.localizedDescription)",
+                preferredStyle: .alert
+              )
+              errorAlert.addAction(UIAlertAction(title: "OK", style: .default))
+              viewController.present(errorAlert, animated: true)
+            }
+          }
         }
       }
     }
