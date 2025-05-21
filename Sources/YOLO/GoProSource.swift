@@ -186,8 +186,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             print("GoPro: Stopping stream and cleaning up resources")
             
             // Stop the VLC player
-            self.videoPlayer?.stop()
-            
+                    self.videoPlayer?.stop()
+                    
             // Clean up player view from the container
             if let playerView = self.playerView {
                 // Ensure all constraints are removed first
@@ -256,6 +256,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     private func setupVLCPlayer() {
         videoPlayer = VLCMediaPlayer()
         videoPlayer?.delegate = self
+        
+        // Enable debugging
         videoPlayer?.libraryInstance.debugLogging = true
         videoPlayer?.libraryInstance.debugLoggingLevel = 3
         
@@ -271,9 +273,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         playerView?.backgroundColor = .black
         playerView?.layer.masksToBounds = true
         
-        // // Add a visual indication that the player view exists but no content is being shown
-        // playerView?.layer.borderWidth = 1.0
-        // playerView?.layer.borderColor = UIColor.red.cgColor
+        // Make sure we're on the main thread for view operations
+        dispatchPrecondition(condition: .onQueue(.main))
         
         // This is crucial - use VLCMediaPlayer's drawable property
         videoPlayer?.drawable = playerView
@@ -282,6 +283,9 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         videoPlayer?.videoAspectRatio = UnsafeMutablePointer<Int8>(mutating: "16:9")
         videoPlayer?.videoCropGeometry = UnsafeMutablePointer<Int8>(mutating: "")
         
+        // Set additional properties for better snapshot capability
+        videoPlayer?.audio?.volume = 0  // Mute audio
+        
         print("GoPro: VLC player view initialized with size: \(playerView?.bounds.size ?? .zero)")
     }
     
@@ -289,90 +293,155 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     @MainActor
     private func extractCurrentFrame() -> UIImage? {
-        guard let playerView = playerView else { 
-            print("GoPro: Cannot extract frame - player view is nil")
+        guard let videoPlayer = videoPlayer else { 
+            print("GoPro: Cannot extract frame - video player is nil")
             return nil 
         }
         
-        // Check for valid size - prevent crash with zero-sized frame
-        let viewSize = playerView.bounds.size
-        if viewSize.width <= 0 || viewSize.height <= 0 {
-            print("GoPro: Cannot extract frame - invalid view size: \(viewSize)")
-            return nil
-        }
+        // Check if VLC player is ready (playing or paused or buffering)
+        let playerState = videoPlayer.state
+        let validStates: [VLCMediaPlayerState] = [.playing, .paused, .buffering]
+        let isPlayerReady = validStates.contains(playerState)
         
-        // IMPORTANT: Force main thread for UIGraphics operations
-        dispatchPrecondition(condition: .onQueue(.main))
-        
-        // Try to get the actual video dimensions from the player if available
-        var renderSize = viewSize
-        if let videoSize = videoPlayer?.videoSize, videoSize.width > 0, videoSize.height > 0 {
-            renderSize = videoSize
-        }
-        
-        // Use a consistent scale for better quality and predictable size
-        let scale: CGFloat = 1.0 // Use 1.0 for faster processing, higher values for better quality
-        
-        // Ensure we're getting full video frame not just the visible portion
-        UIGraphicsBeginImageContextWithOptions(renderSize, false, scale)
-        defer { UIGraphicsEndImageContext() }
-        
-        if let context = UIGraphicsGetCurrentContext() {
-            // Force the layer to update and render
-            playerView.layer.setNeedsDisplay()
-            playerView.layer.displayIfNeeded()
-            
-            // Save current state and transform for correct orientation
-            context.saveGState()
-            context.scaleBy(x: 1.0, y: -1.0)
-            context.translateBy(x: 0, y: -renderSize.height)
-            
-            // Use a bright color background to detect black frames
-            context.setFillColor(UIColor.white.cgColor)
-            context.fill(CGRect(origin: .zero, size: renderSize))
-            
-            // Render the player view layers
-            if let layer = playerView.layer.presentation() {
-                layer.render(in: context)
-            } else {
-                playerView.layer.render(in: context)
+        if isPlayerReady {
+            // Only log occasionally to reduce console spam
+            if frameCount % 30 == 0 {
+                print("GoPro: Taking snapshot with player in state: \(playerState.rawValue)")
             }
             
-            context.restoreGState()
+            // Get actual video dimensions
+            let videoSize = videoPlayer.videoSize
+            if videoSize.width <= 0 || videoSize.height <= 0 {
+                print("GoPro: Invalid video dimensions: \(videoSize)")
+                return fallbackSnapshot()
+            }
             
-            // Get the image
-            if let image = UIGraphicsGetImageFromCurrentImageContext() {
-                // Track frame dimensions for proper coordinate transformation
-                self.lastFrameSize = image.size
-                
-                // Log image details to help diagnose issues
-                if frameCount % 30 == 0 { // Log every 30 frames to avoid spam
-                    print("GoPro: Frame extracted - size: \(image.size), scale: \(image.scale), orientation: \(image.imageOrientation.rawValue)")
-                }
-                
-                // Check if image is all black or invalid
-                if isBlackImage(image) {
-                    print("GoPro: Warning - Extracted all-black frame from player view")
+            // Use a temporary file path for the snapshot
+            // This is required by VLC's API but we'll clean it up immediately
+            let tempDir = NSTemporaryDirectory()
+            let tempFilename = "gopro_snapshot_\(Date().timeIntervalSince1970).png"
+            let tempPath = (tempDir as NSString).appendingPathComponent(tempFilename)
+            
+            // Use VLC's saveVideoSnapshotAt method to capture the current frame
+            // This operates directly on the video frame buffer, not the UI
+            videoPlayer.saveVideoSnapshot(at: tempPath, withWidth: Int32(videoSize.width), andHeight: Int32(videoSize.height))
+            
+            // Check if file was created successfully
+            if FileManager.default.fileExists(atPath: tempPath) {
+                // Load the image from the saved file
+                if let image = UIImage(contentsOfFile: tempPath) {
+                    // Update last frame size
+                    self.lastFrameSize = image.size
                     
-                    // Try an alternative approach using snapshot
-                    if let snapshotImage = playerView.snapshotImage() {
-                        print("GoPro: Using snapshot image instead - size: \(snapshotImage.size)")
-                        return snapshotImage
+                    // Log occasional success for monitoring
+                    if frameCount % 300 == 0 {
+                        print("GoPro: Successfully captured frame using VLC snapshot - size: \(image.size)")
                     }
                     
-                    // Return the black frame as a last resort - at least it's a frame
+                    // Clean up the temporary file immediately
+                    try? FileManager.default.removeItem(atPath: tempPath)
+                    
                     return image
+                } else {
+                    print("GoPro: Failed to load snapshot from temporary file")
+                    // Ensure cleanup even on failure
+                    try? FileManager.default.removeItem(atPath: tempPath)
                 }
-                return image
             } else {
-                print("GoPro: Failed to get image from graphics context")
+                print("GoPro: VLC snapshot file was not created at: \(tempPath)")
             }
         } else {
-            print("GoPro: Failed to get graphics context")
+            print("GoPro: Cannot take snapshot - video player state: \(playerState.rawValue) not in valid states")
         }
         
-        // Try snapshot method as a fallback
-        return playerView.snapshotImage()
+        // Fallback options if VLC snapshot fails
+        return fallbackSnapshot()
+    }
+    
+    // This is a fallback method that tries several approaches if the main VLC snapshot fails
+    @MainActor
+    private func fallbackSnapshot() -> UIImage? {
+        print("GoPro: Using fallback snapshot methods")
+        
+        // Approach 1: Try to get direct snapshot from player view
+        if let playerView = playerView, 
+           playerView.bounds.size.width > 0, 
+           playerView.bounds.size.height > 0 {
+            
+            // Try to get a snapshot of the player view
+            if let snapshotImage = playerView.snapshotImage(), !isBlackImage(snapshotImage) {
+                print("GoPro: Using player view snapshot - size: \(snapshotImage.size)")
+                self.lastFrameSize = snapshotImage.size
+                return snapshotImage
+            }
+        }
+        
+        // Approach 2: Create test pattern as last resort for debugging
+        print("GoPro: All capture methods failed, using test pattern")
+        let patternSize = CGSize(width: 1280, height: 720)
+        let testImage = createTestPatternImage(size: patternSize)
+        self.lastFrameSize = patternSize
+        return testImage
+    }
+    
+    // Create a test pattern image for debugging when actual frame capture fails
+    private func createTestPatternImage(size: CGSize) -> UIImage {
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let img = renderer.image { ctx in
+            // Draw a recognizable pattern
+            let context = ctx.cgContext
+            
+            // Fill with dark gray
+            context.setFillColor(UIColor.darkGray.cgColor)
+            context.fill(CGRect(origin: .zero, size: size))
+            
+            // Draw red border
+            context.setStrokeColor(UIColor.red.cgColor)
+            context.setLineWidth(20)
+            context.stroke(CGRect(x: 10, y: 10, width: size.width - 20, height: size.height - 20))
+            
+            // Draw crosshairs
+            context.setStrokeColor(UIColor.yellow.cgColor)
+            context.setLineWidth(5)
+            context.move(to: CGPoint(x: 0, y: 0))
+            context.addLine(to: CGPoint(x: size.width, y: size.height))
+            context.move(to: CGPoint(x: size.width, y: 0))
+            context.addLine(to: CGPoint(x: 0, y: size.height))
+            context.strokePath()
+            
+            // Draw grid lines
+            context.setStrokeColor(UIColor.green.cgColor)
+            context.setLineWidth(2)
+            let gridSize: CGFloat = 100
+            for x in stride(from: gridSize, to: size.width, by: gridSize) {
+                context.move(to: CGPoint(x: x, y: 0))
+                context.addLine(to: CGPoint(x: x, y: size.height))
+            }
+            for y in stride(from: gridSize, to: size.height, by: gridSize) {
+                context.move(to: CGPoint(x: 0, y: y))
+                context.addLine(to: CGPoint(x: size.width, y: y))
+            }
+            context.strokePath()
+            
+            // Add timestamp for tracking when this test pattern was generated
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "HH:mm:ss.SSS"
+            let timestamp = dateFormatter.string(from: Date())
+            
+            // Add error text with timestamp
+            let text = "FRAME ERROR - \(timestamp)" as NSString
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.boldSystemFont(ofSize: 40),
+                .foregroundColor: UIColor.white
+            ]
+            text.draw(at: CGPoint(x: size.width/2 - 200, y: size.height/2 - 20), withAttributes: attributes)
+            
+            // Add count of failed attempts
+            let countText = "Frame #\(self.frameCount)" as NSString
+            countText.draw(at: CGPoint(x: size.width/2 - 50, y: size.height/2 + 40), withAttributes: attributes)
+        }
+        
+        return img
     }
     
     // Helper to check if an image is entirely or almost entirely black
@@ -426,8 +495,19 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             return
         }
         
-        // Always send the frame to the delegate for display
+        // Check if the extracted image is our test pattern
+        let isTestPattern = (frameImage.size.width == 1280 && frameImage.size.height == 720)
+        
+        // Always send the frame to the delegate for display, even if it's a test pattern
         delegate?.frameSource(self, didOutputImage: frameImage)
+        
+        // Skip inference if this is just a test pattern
+        if isTestPattern {
+            if frameCount % 60 == 0 {  // Log only occasionally to avoid spam
+                print("GoPro: Skipping inference on test pattern frame")
+            }
+            return
+        }
         
         // Check if we're in calibration mode
         let shouldProcessForCalibration = !inferenceOK && predictor is TrackingDetector
@@ -464,12 +544,27 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         }
         
         // Process with predictor if inference is enabled
-        if inferenceOK, let predictor = self.predictor, let sampleBuffer = processExtractedFrame(frameImage) {
-            predictor.predict(
-                sampleBuffer: sampleBuffer,
-                onResultsListener: self,
-                onInferenceTime: self
-            )
+        if inferenceOK, let predictor = self.predictor {
+            if let sampleBuffer = processExtractedFrame(frameImage) {
+                // Log detection attempt occasionally
+                if frameCount % 60 == 0 {
+                    print("GoPro: Running detection on frame #\(frameCount), size: \(frameImage.size)")
+                }
+                
+                // Ensure the delegate is set up correctly
+                if self.videoCaptureDelegate == nil {
+                    print("GoPro: Warning - videoCaptureDelegate is nil, detection results will be lost")
+                }
+                
+                // Run inference on the sample buffer
+                predictor.predict(
+                    sampleBuffer: sampleBuffer,
+                    onResultsListener: self,
+                    onInferenceTime: self
+                )
+            } else {
+                print("GoPro: Failed to create sample buffer from frame image")
+            }
         }
     }
     
@@ -505,6 +600,9 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                 print("GoPro: Error - No player view available for integration")
                 return
             }
+            
+            // Make sure we're on the main thread for UI operations
+            dispatchPrecondition(condition: .onQueue(.main))
             
             // Make sure the player view is not in any view hierarchy
             playerView.removeFromSuperview()
@@ -565,7 +663,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         }
         
         // Debug delegate chain
-        print("GoPro: Delegate chain set up: delegate=\(String(describing: type(of: delegate))), videoCaptureDelegate=\(String(describing: type(of: videoCaptureDelegate)))")
+        print("GoPro: Delegate chain set up: delegate=\(String(describing: delegate)), videoCaptureDelegate=\(String(describing: videoCaptureDelegate))")
     }
     
     // MARK: - Layout Management
@@ -653,37 +751,48 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         // Critical options for RTSP
         media.addOption(":rtsp-tcp")  // Force TCP for more reliable streaming
         
-        // Don't set a fixed size to allow the video to match actual stream dimensions
-        // media.addOption(":video-filter=crops{width=1280,height=720}")
-        
         // Reduced caching for lower latency
-        media.addOption(":network-caching=100")  // Lower for less latency
-        media.addOption(":live-caching=100")     // Lower for less latency
+        media.addOption(":network-caching=0")   // Set to 0 for lower latency (was 50)
+        media.addOption(":live-caching=0")      // Set to 0 for lower latency (was 50)
+        media.addOption(":file-caching=0")      // Set to 0 for all file caching
         
         // Hardware acceleration (when available)
-        media.addOption(":avcodec-hw=any")  // Let VLC choose best hardware option
+        media.addOption(":avcodec-hw=any")      // Let VLC choose best hardware option
         
-        // Keep audio enabled for better synchronization
-        // media.addOption(":no-audio")
+        // Keep audio enabled but muted (audio helps sync)
+        media.addOption(":audio-track=0")       // Audio enabled but track 0
         
         // Improve H.264 handling 
-        media.addOption(":rtsp-frame-buffer-size=1000000")  // Smaller buffer for less latency
+        media.addOption(":rtsp-frame-buffer-size=3000000")  // Larger buffer for better frame quality (was 1000000)
         
         // SPS/PPS handling (critical for H.264)
-        media.addOption(":rtsp-sps-pps=true")    // Force SPS/PPS with each keyframe
+        media.addOption(":rtsp-sps-pps=true")   // Force SPS/PPS with each keyframe
         
         // Timeout settings
-        media.addOption(":rtp-timeout=5000")     // 5 second timeout
+        media.addOption(":rtp-timeout=2000")    // 2 second timeout (was 5000)
         
         // Optimize for low latency
-        media.addOption(":clock-jitter=0")       // Disable clock jitter detection
-        media.addOption(":clock-synchro=0")      // Disable clock synchro
+        media.addOption(":clock-jitter=0")      // Disable clock jitter detection
+        media.addOption(":clock-synchro=0")     // Disable clock synchro
         
         // Force decoding threads to 4 for better performance
         media.addOption(":avcodec-threads=4")
         
         // Disable subtitles
         media.addOption(":no-sub-autodetect-file")
+        
+        // Options for better frame extraction
+        media.addOption(":video-filter=scene")
+        media.addOption(":scene-format=png")
+        media.addOption(":scene-ratio=1")       // Save every frame
+        media.addOption(":scene-prefix=gopro_snapshot")
+        media.addOption(":scene-path=\(NSTemporaryDirectory())")
+        
+        // Improved video configuration
+        media.addOption(":avcodec-skip-frame=0") // Don't skip frames
+        media.addOption(":avcodec-skip-idct=0")  // Don't skip IDCT
+        media.addOption(":avcodec-dr=1")         // Enable direct rendering
+        media.addOption(":sout-x264-keyint=1")   // Force keyframe every frame
         
         // Clear cookies to ensure fresh connection
         media.clearStoredCookies()
@@ -759,38 +868,46 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     nonisolated func mediaPlayerStateChanged(_ aNotification: Notification!) {
         guard let player = aNotification.object as? VLCMediaPlayer else { return }
         
-        // Capture state locally to avoid data races with self
-        let state = player.state
+        // Capture state safely
+        let playerState = player.state
+        let playerVideoSize = player.videoSize
         
-        // The state changes need to be processed on the main thread
-        Task { @MainActor [weak self] in
-            guard let self = self else { return }
+        // Create main actor task to process this on main thread
+                    Task { @MainActor in
+            // Note: Since we're not using [weak self], we don't need the guard let
             
-            switch state {
-            case .opening:
-                print("GoPro: VLC Player - Opening stream")
-            
-            case .buffering:
-                print("GoPro: VLC Player - Buffering stream")
+            switch playerState {
+                case .opening:
+                    print("GoPro: VLC Player - Opening stream")
                 
-            case .playing:
-                print("GoPro: VLC Player - Stream is playing")
-                self.goProDelegate?.goProSource(self, didUpdateStatus: .playing)
-                
-            case .error:
-                print("GoPro: VLC Player - Error streaming")
-                self.goProDelegate?.goProSource(self, didUpdateStatus: .error("Playback error"))
-                
-            case .ended:
-                print("GoPro: VLC Player - Stream ended")
-                self.goProDelegate?.goProSource(self, didUpdateStatus: .stopped)
-                
-            case .stopped:
-                print("GoPro: VLC Player - Stream stopped")
-                self.goProDelegate?.goProSource(self, didUpdateStatus: .stopped)
-                
-            default:
-                print("GoPro: VLC Player - State: \(state.rawValue)")
+                case .buffering:
+                    print("GoPro: VLC Player - Buffering stream")
+                    
+                case .playing:
+                    print("GoPro: VLC Player - Stream is playing")
+                    self.goProDelegate?.goProSource(self, didUpdateStatus: .playing)
+                    
+                    // Get video dimensions and notify about frame size
+                    if playerVideoSize.width > 0 && playerVideoSize.height > 0 {
+                        self.lastFrameSize = playerVideoSize
+                        // Notify observers about frame size change
+                        self.broadcastFrameSizeChange(playerVideoSize)
+                    }
+                    
+                case .error:
+                    print("GoPro: VLC Player - Error streaming")
+                    self.goProDelegate?.goProSource(self, didUpdateStatus: .error("Playback error"))
+                    
+                case .ended:
+                    print("GoPro: VLC Player - Stream ended")
+                    self.goProDelegate?.goProSource(self, didUpdateStatus: .stopped)
+                    
+                case .stopped:
+                    print("GoPro: VLC Player - Stream stopped")
+                    self.goProDelegate?.goProSource(self, didUpdateStatus: .stopped)
+                    
+                default:
+                    print("GoPro: VLC Player - State: \(playerState.rawValue)")
             }
         }
     }
@@ -798,19 +915,19 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     nonisolated func mediaPlayerTimeChanged(_ aNotification: Notification!) {
         guard let player = aNotification.object as? VLCMediaPlayer else { return }
         
-        // Capture values locally to avoid data races
-        let time = Int64(player.time.intValue)
+        // Capture values safely - don't use self here
+        let timeValue = Int64(player.time.intValue)
         let videoSize = player.videoSize
         
-        // Process frame updates on the main thread
-        Task { @MainActor [weak self] in
-            guard let self = self else { return }
+        // Create main actor task to process this on main thread
+        Task { @MainActor in
+            // Note: Since we're not using [weak self], we don't need the guard let
             
             // Increment frame count
             self.frameCount += 1
             
             // Store the current media time
-            self.lastFrameTime = time
+            self.lastFrameTime = timeValue
             
             // Track frame timestamps for FPS calculation - keep last 30 frames
             self.frameTimestamps.append(CACurrentMediaTime())
@@ -829,6 +946,10 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                     // Update frame dimensions for FrameSource protocol
                     self.longSide = max(videoSize.width, videoSize.height)
                     self.shortSide = min(videoSize.width, videoSize.height)
+                    
+                    // Store the frame size and broadcast it
+                    self.lastFrameSize = videoSize
+                    self.broadcastFrameSizeChange(videoSize)
                     
                     // Update player view layout now that we have a valid video size
                     self.updatePlayerViewLayout()
@@ -868,6 +989,17 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         }
     }
     
+    /// Helper method to broadcast frame size changes to observers
+    @MainActor
+    private func broadcastFrameSizeChange(_ size: CGSize) {
+        // Post a notification with the new frame size
+        NotificationCenter.default.post(
+            name: NSNotification.Name("GoProFrameSizeChanged"),
+            object: self,
+            userInfo: ["frameSize": size]
+        )
+    }
+    
     /// Calculate instantaneous FPS based on recent frame timestamps
     private func calculateInstantaneousFps() -> Double {
         guard frameTimestamps.count >= 2 else { return 0 }
@@ -891,7 +1023,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         guard let url = URL(string: urlString) else {
             print("GoPro: Invalid URL format")
             DispatchQueue.main.async {
-                completion(.failure(NSError(domain: "GoProSource", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])))
+            completion(.failure(NSError(domain: "GoProSource", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])))
             }
             return
         }
@@ -1004,7 +1136,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         guard let url = URL(string: urlString) else {
             print("GoPro: Invalid preview URL format")
             DispatchQueue.main.async {
-                completion(.failure(NSError(domain: "GoProSource", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid preview URL"])))
+            completion(.failure(NSError(domain: "GoProSource", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid preview URL"])))
             }
             return
         }
@@ -1064,7 +1196,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         guard let url = URL(string: urlString) else {
             print("GoPro: Invalid start URL format")
             DispatchQueue.main.async {
-                completion(.failure(NSError(domain: "GoProSource", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid start URL"])))
+            completion(.failure(NSError(domain: "GoProSource", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid start URL"])))
             }
             return
         }
@@ -1122,7 +1254,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         guard let url = URL(string: urlString) else {
             print("GoPro: Invalid stop URL format")
             DispatchQueue.main.async {
-                completion(.failure(NSError(domain: "GoProSource", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid stop URL"])))
+            completion(.failure(NSError(domain: "GoProSource", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid stop URL"])))
             }
             return
         }
@@ -1180,7 +1312,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         guard let url = URL(string: urlString) else {
             print("GoPro: Invalid exit URL format")
             DispatchQueue.main.async {
-                completion(.failure(NSError(domain: "GoProSource", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid exit URL"])))
+            completion(.failure(NSError(domain: "GoProSource", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid exit URL"])))
             }
             return
         }
@@ -1249,12 +1381,12 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                     case .success:
                         print("GoPro: Graceful exit completed successfully")
                         DispatchQueue.main.async {
-                            completion(.success(()))
+                        completion(.success(()))
                         }
                     case .failure(let error):
                         print("GoPro: Exit command failed: \(error.localizedDescription)")
                         DispatchQueue.main.async {
-                            completion(.failure(error))
+                        completion(.failure(error))
                         }
                     }
                 }
@@ -1266,7 +1398,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                     case .success:
                         // If exit succeeds, still report the stop error
                         DispatchQueue.main.async {
-                            completion(.failure(error))
+                        completion(.failure(error))
                         }
                     case .failure(let exitError):
                         // Report both errors
@@ -1278,11 +1410,11 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                             ]
                         )
                         DispatchQueue.main.async {
-                            completion(.failure(combinedError))
-                        }
+                        completion(.failure(combinedError))
                     }
                 }
             }
+        }
         }
     }
 
@@ -1582,6 +1714,9 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
         Task { @MainActor [weak self] in
             guard let self = self else { return }
             
+            // Ensure we're on the main thread for UI operations
+            dispatchPrecondition(condition: .onQueue(.main))
+            
             // Transform coordinates based on source vs display dimensions
             var transformedResult = result
             
@@ -1637,6 +1772,7 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
                     adjustedBox.origin.x = offsetX + originalBox.origin.x * scaleFactor
                     adjustedBox.size.width = originalBox.size.width * scaleFactor
                 }
+                // else - aspect ratios match, no adjustment needed
                 
                 // Create a new Box with adjusted coordinates
                 // We need to recreate the box entirely since xywhn is immutable

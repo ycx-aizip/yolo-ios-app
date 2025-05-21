@@ -182,6 +182,12 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   // Add property for GoPro stream test reference
   private var tempGoProSource: GoProSource?
 
+  // Add property to store last frame size for GoPro source
+  private var goProLastFrameSize: CGSize = CGSize(width: 1920, height: 1080)
+  
+  // Add property to store reference to GoPro source
+  private var goProSource: GoProSource?
+
   public init(
     frame: CGRect,
     modelPathOrName: String,
@@ -669,19 +675,48 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
               frame: screenRect, label: label, color: boxColor, alpha: alpha)
           } else if frameSourceType == .goPro {
             // For GoPro source, use special handling for coordinate transformation
-            // The coordinates are already transformed in the GoProSource, so we just need to map to screen space
-            let xScale = width
-            let yScale = height
+            // that properly accounts for aspect ratio differences
+            let sourceWidth = goProLastFrameSize.width > 0 ? goProLastFrameSize.width : 1920
+            let sourceHeight = goProLastFrameSize.height > 0 ? goProLastFrameSize.height : 1080
+            
+            // Calculate aspect ratios
+            let sourceAspect = sourceWidth / sourceHeight
+            let viewAspect = width / height
+            
+            // Calculate scaling factors and offsets to maintain aspect ratio
+            var xScale: CGFloat = 1.0
+            var yScale: CGFloat = 1.0
+            var xOffset: CGFloat = 0.0
+            var yOffset: CGFloat = 0.0
+            
+            if sourceAspect > viewAspect {
+                // Source is wider than view - letterboxing (black bars on top/bottom)
+                yScale = width / sourceWidth
+                xScale = yScale
+                yOffset = (height - (sourceHeight * yScale)) / 2
+            } else {
+                // Source is taller than view - pillarboxing (black bars on sides)
+                xScale = height / sourceHeight
+                yScale = xScale
+                xOffset = (width - (sourceWidth * xScale)) / 2
+            }
+            
+            // Transform normalized coordinates to screen space, maintaining aspect ratio
+            let screenX = rect.minX * sourceWidth * xScale + xOffset
+            let screenY = rect.minY * sourceHeight * yScale + yOffset
+            let screenWidth = rect.width * sourceWidth * xScale
+            let screenHeight = rect.height * sourceHeight * yScale
             
             let screenRect = CGRect(
-              x: displayRect.minX * xScale,
-              y: displayRect.minY * yScale,
-              width: displayRect.width * xScale,
-              height: displayRect.height * yScale
+                x: screenX,
+                y: screenY,
+                width: screenWidth,
+                height: screenHeight
             )
             
+            // Show the box with correct coordinates
             boundingBoxViews[i].show(
-              frame: screenRect, label: label, color: boxColor, alpha: alpha)
+                frame: screenRect, label: label, color: boxColor, alpha: alpha)
           } else {
             // Original camera frame handling
           if ratio >= 1 {
@@ -859,17 +894,49 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             boundingBoxViews[i].show(
               frame: screenRect, label: label, color: boxColor, alpha: alpha)
           } else if frameSourceType == .goPro {
-            // For GoPro source, use special handling for landscape mode
-            // Scale the normalized coordinates directly to screen space
+            // For GoPro source, use special handling for coordinate transformation
+            // that properly accounts for aspect ratio differences
+            let sourceWidth = goProLastFrameSize.width > 0 ? goProLastFrameSize.width : 1920
+            let sourceHeight = goProLastFrameSize.height > 0 ? goProLastFrameSize.height : 1080
+            
+            // Calculate aspect ratios
+            let sourceAspect = sourceWidth / sourceHeight
+            let viewAspect = width / height
+            
+            // Calculate scaling factors and offsets to maintain aspect ratio
+            var xScale: CGFloat = 1.0
+            var yScale: CGFloat = 1.0
+            var xOffset: CGFloat = 0.0
+            var yOffset: CGFloat = 0.0
+            
+            if sourceAspect > viewAspect {
+                // Source is wider than view - letterboxing (black bars on top/bottom)
+                yScale = width / sourceWidth
+                xScale = yScale
+                yOffset = (height - (sourceHeight * yScale)) / 2
+            } else {
+                // Source is taller than view - pillarboxing (black bars on sides)
+                xScale = height / sourceHeight
+                yScale = xScale
+                xOffset = (width - (sourceWidth * xScale)) / 2
+            }
+            
+            // Transform normalized coordinates to screen space, maintaining aspect ratio
+            let screenX = rect.minX * sourceWidth * xScale + xOffset
+            let screenY = rect.minY * sourceHeight * yScale + yOffset
+            let screenWidth = rect.width * sourceWidth * xScale
+            let screenHeight = rect.height * sourceHeight * yScale
+            
             let screenRect = CGRect(
-              x: rect.minX * width,
-              y: rect.minY * height,
-              width: rect.width * width,
-              height: rect.height * height
+                x: screenX,
+                y: screenY,
+                width: screenWidth,
+                height: screenHeight
             )
             
+            // Show the box with correct coordinates
             boundingBoxViews[i].show(
-              frame: screenRect, label: label, color: boxColor, alpha: alpha)
+                frame: screenRect, label: label, color: boxColor, alpha: alpha)
           } else {
             // Original camera frame handling
             // Transform rectangle to screen coordinates - use currentFrameSource
@@ -2485,35 +2552,57 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       if let previewLayer = videoCapture.previewLayer {
         previewLayer.isHidden = true
       }
-      
-      // Clear existing bounding boxes
-      boundingBoxViews.forEach { $0.hide() }
-      
-      // Update frame source type
-      frameSourceType = .goPro
-      
-      // Reset the fish counter if using tracking detector
-      if let trackingDetector = videoCapture.predictor as? TrackingDetector {
-        trackingDetector.resetCount()
-        fishCount = 0
-        updateFishCountDisplay()
-      }
-    } else {
-      print("YOLOView: Already using GoPro source")
     }
     
-    // Setup GoPro as the current source
+    // Update frameSourceType
+    frameSourceType = .goPro
     currentFrameSource = goProSource
     
-    // Share the predictor with the GoProSource
-    goProSource.predictor = videoCapture.predictor
-    print("YOLOView: Shared predictor of type \(type(of: videoCapture.predictor)) with GoPro source")
+    // Get the predictor from the previously active source, if available
+    let previousPredictor = getCurrentPredictor()
     
-    // Setup GoPro integration with this view
+    // Store reference to source
+    self.goProSource = goProSource
+    
+    // Share the predictor between sources for consistent detection
+    if let existingPredictor = previousPredictor {
+      print("YOLOView: Shared predictor of type \(type(of: existingPredictor)) with GoPro source")
+      goProSource.predictor = existingPredictor
+    }
+    
+    // Configure for fish counting if needed
+    if task == .fishCount, let trackingDetector = goProSource.predictor as? TrackingDetector {
+      print("YOLOView: Configuring TrackingDetector for GoPro source")
+      // Set detection thresholds - use thresholds array format
+      let minThreshold = CGFloat(threshold1Slider.value)
+      let maxThreshold = CGFloat(threshold2Slider.value)
+      trackingDetector.setThresholds([minThreshold, maxThreshold])
+      
+      // Set counting direction
+      trackingDetector.setCountingDirection(countingDirection)
+      print("YOLOView: TrackingDetector configured with thresholds [\(minThreshold), \(maxThreshold)], direction: \(countingDirection)")
+    }
+    
+    // Set up integration with proper delegates
     goProSource.integrateWithYOLOView(view: self)
     
-    // Start the GoPro source
+    // Register to receive frame size updates
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(updateGoProFrameSize(_:)),
+      name: NSNotification.Name("GoProFrameSizeChanged"),
+      object: nil
+    )
+    
+    // Start streaming
     goProSource.start()
+  }
+  
+  // Method to receive frame size updates from GoPro source
+  @objc func updateGoProFrameSize(_ notification: Notification) {
+    if let frameSize = notification.userInfo?["frameSize"] as? CGSize {
+      self.goProLastFrameSize = frameSize
+    }
   }
   
   // Method to initialize GoProSource for fish counting
