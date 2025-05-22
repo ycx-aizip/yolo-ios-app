@@ -670,4 +670,46 @@ class TrackingDetector: ObjectDetector {
             return .left
         }
     }
+    
+    // MARK: - Enhanced Threshold Management
+    
+    /// Gets the current threshold values
+    ///
+    /// - Returns: Array of threshold values (usually 2 values)
+    @MainActor
+    func getThresholds() -> [CGFloat] {
+        return thresholds
+    }
+    
+    /// Check if auto-calibration is currently enabled
+    ///
+    /// - Returns: True if auto-calibration is active
+    @MainActor
+    func getAutoCalibrationEnabled() -> Bool {
+        return isAutoCalibrationEnabled
+    }
+    
+    /// Check if calibration has been completed
+    ///
+    /// - Returns: True if calibration has finished
+    @MainActor
+    func getCalibrationStatus() -> Bool {
+        return isCalibrated
+    }
+    
+    /// Get the target number of frames for calibration
+    ///
+    /// - Returns: The total number of frames needed for calibration
+    @MainActor
+    func getTargetCalibrationFrames() -> Int {
+        return targetCalibrationFrames
+    }
+    
+    /// Set the target number of frames for calibration
+    ///
+    /// - Parameter count: The number of frames to use for calibration
+    @MainActor
+    func setTargetCalibrationFrames(_ count: Int) {
+        targetCalibrationFrames = max(30, count) // Ensure at least 30 frames
+    }
 }

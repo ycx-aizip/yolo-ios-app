@@ -34,47 +34,47 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   func onPredict(result: YOLOResult) {
     // Skip showing boxes if we're in calibration mode
     if !isCalibrating {
-      // Use the standard showBoxes method for all tasks including fish counting
-      showBoxes(predictions: result)
-      onDetection?(result)
+    // Use the standard showBoxes method for all tasks including fish counting
+    showBoxes(predictions: result)
+    onDetection?(result)
 
-      if task == .segment {
-        DispatchQueue.main.async {
-          if let maskImage = result.masks?.combinedMask {
-            guard let maskLayer = self.maskLayer else { return }
-            maskLayer.isHidden = false
-            maskLayer.frame = self.overlayLayer.bounds
-            maskLayer.contents = maskImage
-            self.videoCapture.predictor.isUpdating = false
-          } else {
-            self.videoCapture.predictor.isUpdating = false
-          }
+    if task == .segment {
+      DispatchQueue.main.async {
+        if let maskImage = result.masks?.combinedMask {
+          guard let maskLayer = self.maskLayer else { return }
+          maskLayer.isHidden = false
+          maskLayer.frame = self.overlayLayer.bounds
+          maskLayer.contents = maskImage
+          self.videoCapture.predictor.isUpdating = false
+        } else {
+          self.videoCapture.predictor.isUpdating = false
         }
-      } else if task == .classify {
-        self.overlayYOLOClassificationsCALayer(on: self, result: result)
-      } else if task == .pose {
-        self.removeAllSubLayers(parentLayer: poseLayer)
-        var keypointList = [[(x: Float, y: Float)]]()
-        var confsList = [[Float]]()
+      }
+    } else if task == .classify {
+      self.overlayYOLOClassificationsCALayer(on: self, result: result)
+    } else if task == .pose {
+      self.removeAllSubLayers(parentLayer: poseLayer)
+      var keypointList = [[(x: Float, y: Float)]]()
+      var confsList = [[Float]]()
 
-        for keypoint in result.keypointsList {
-          keypointList.append(keypoint.xyn)
-          confsList.append(keypoint.conf)
-        }
-        guard let poseLayer = poseLayer else { return }
-        drawKeypoints(
-          keypointsList: keypointList, confsList: confsList, boundingBoxes: result.boxes,
-          on: poseLayer, imageViewSize: overlayLayer.frame.size, originalImageSize: result.orig_shape)
-      } else if task == .obb {
-        guard let obbLayer = self.obbLayer else { return }
-        let obbDetections = result.obb
-        self.obbRenderer.drawObbDetectionsWithReuse(
-          obbDetections: obbDetections,
-          on: obbLayer,
-          imageViewSize: self.overlayLayer.frame.size,
-          originalImageSize: result.orig_shape,
-          lineWidth: 3
-        )
+      for keypoint in result.keypointsList {
+        keypointList.append(keypoint.xyn)
+        confsList.append(keypoint.conf)
+      }
+      guard let poseLayer = poseLayer else { return }
+      drawKeypoints(
+        keypointsList: keypointList, confsList: confsList, boundingBoxes: result.boxes,
+        on: poseLayer, imageViewSize: overlayLayer.frame.size, originalImageSize: result.orig_shape)
+    } else if task == .obb {
+      guard let obbLayer = self.obbLayer else { return }
+      let obbDetections = result.obb
+      self.obbRenderer.drawObbDetectionsWithReuse(
+        obbDetections: obbDetections,
+        on: obbLayer,
+        imageViewSize: self.overlayLayer.frame.size,
+        originalImageSize: result.orig_shape,
+        lineWidth: 3
+      )
       }
     }
   }
@@ -163,7 +163,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   
   /// Action delegate to communicate with ViewController
   public weak var actionDelegate: YOLOViewActionDelegate?
-  
+
   let selection = UISelectionFeedbackGenerator()
   private var overlayLayer = CALayer()
   private var maskLayer: CALayer?
@@ -395,15 +395,15 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         success in
         // .hd4K3840x2160 or .photo (4032x3024)  Warning: 4k may not work on all devices i.e. 2019 iPod
         if success {
-          // Add the video preview into the UI.
-          if let previewLayer = self.videoCapture.previewLayer {
-            self.layer.insertSublayer(previewLayer, at: 0)
-            self.videoCapture.previewLayer?.frame = self.bounds  // resize preview layer
-            for box in self.boundingBoxViews {
-              box.addToLayer(previewLayer)
-            }
-          }
-          self.videoCapture.previewLayer?.addSublayer(self.overlayLayer)
+          // Use the new integration method
+          self.videoCapture.integrateWithYOLOView(view: self)
+          
+          // Add bounding box views to the frame source
+          self.videoCapture.addBoundingBoxViews(self.boundingBoxViews)
+          
+          // Add overlay layer to the frame source
+          self.videoCapture.addOverlayLayer(self.overlayLayer)
+          
           // Once everything is set up, we can start capturing live video.
           self.videoCapture.start()
 
@@ -535,7 +535,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     var resultCount = 0
 
     resultCount = predictions.boxes.count
-    
+
     // CRITICAL FIX: First hide all boxes, then only show the ones that are active
     // This ensures boxes are cleared when no fish are present
     boundingBoxViews.forEach { box in
@@ -547,23 +547,16 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       return
     }
 
-    if UIDevice.current.orientation == .portrait {
-      var ratio: CGFloat = 1.0
-
-      // Use the session preset from the active frame source (only CameraVideoSource has this)
-      if currentFrameSource.sourceType == .camera && videoCapture.captureSession.sessionPreset == .photo {
-        ratio = (height / width) / (4.0 / 3.0)
-      } else if currentFrameSource.sourceType == .goPro {
-        // For GoPro source, use a special handling
-        ratio = (height / width) / (16.0 / 9.0) // Most GoPros use 16:9
-      } else {
-        ratio = (height / width) / (16.0 / 9.0)
-      }
-
+    // Get the current device orientation
+    let orientation = UIDevice.current.orientation
+    
+    // Update the UI with the number of items
       self.labelSliderNumItems.text =
         String(resultCount) + " items (max " + String(Int(sliderNumItems.value)) + ")"
+    
+    // Process each detection box
       for i in 0..<boundingBoxViews.count {
-        if i < (resultCount) && i < 50 {
+      if i < resultCount && i < 50 {
           var rect = CGRect.zero
           var label = ""
           var boxColor: UIColor = .white
@@ -592,7 +585,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             bestClass = prediction.cls
             confidence = CGFloat(prediction.conf)
             
-            // Check tracking status to determine color - need to ensure this works with current frame source
+          // Check tracking status to determine color
             if let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
               let isTracked = trackingDetector.isObjectTracked(box: prediction)
               let isCounted = trackingDetector.isObjectCounted(box: prediction)
@@ -640,268 +633,18 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             boxColor = ultralyticsColors[colorIndex]
             alpha = CGFloat((confidence - 0.2) / (1.0 - 0.2) * 0.9)
           }
-          var displayRect = rect
-          switch UIDevice.current.orientation {
-          case .portraitUpsideDown:
-            displayRect = CGRect(
-              x: 1.0 - rect.origin.x - rect.width,
-              y: 1.0 - rect.origin.y - rect.height,
-              width: rect.width,
-              height: rect.height)
-          case .landscapeLeft:
-            displayRect = CGRect(
-              x: rect.origin.x,
-              y: rect.origin.y,
-              width: rect.width,
-              height: rect.height)
-          case .landscapeRight:
-            displayRect = CGRect(
-              x: rect.origin.x,
-              y: rect.origin.y,
-              width: rect.width,
-              height: rect.height)
-          case .unknown:
-            print("The device orientation is unknown, the predictions may be affected")
-            fallthrough
-          default: break
-          }
-          
-          // For video source, use the special conversion to handle letterboxing/pillarboxing
-          if frameSourceType == .videoFile, let albumSource = albumVideoSource {
-            // Make sure we're using the right coordinates for video source
-            // For video sources, we need to invert the y-axis transformation
-            // since it's already been inverted in the construction of displayRect
-            let normalizedRect = CGRect(
-              x: displayRect.minX,
-              y: displayRect.minY,
-              width: displayRect.width,
-              height: displayRect.height
-            )
-            
-            // Convert normalized coordinates to screen coordinates based on video content rect
-            let screenRect = albumSource.convertNormalizedRectToScreenRect(normalizedRect)
-            
-            // Set the box with the converted rect
-            boundingBoxViews[i].show(
-              frame: screenRect, label: label, color: boxColor, alpha: alpha)
-          } else if frameSourceType == .goPro {
-            // NOTE: We no longer need this special handling in YOLOView 
-            // because GoProSource now handles the coordinate transformation properly
-            // We'll keep this code as a fallback, but it should rarely be used
-            
-            // Get the transformed coordinates from the GoPro source directly
-            // The coordinates should already be properly transformed by GoProSource.transformResultCoordinates
-            let displayRect = VNImageRectForNormalizedRect(rect, Int(width), Int(height))
-            
-            boundingBoxViews[i].show(
-                frame: displayRect, label: label, color: boxColor, alpha: alpha)
-          } else {
-            // Original camera frame handling
-          if ratio >= 1 {
-            let offset = (1 - ratio) * (0.5 - displayRect.minX)
-            if task == .detect || task == .fishCount {
-              let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: offset, y: -1)
-              displayRect = displayRect.applying(transform)
-            } else {
-              let transform = CGAffineTransform(translationX: offset, y: 0)
-              displayRect = displayRect.applying(transform)
-            }
-            displayRect.size.width *= ratio
-          } else {
-            if task == .detect || task == .fishCount {
-              let offset = (ratio - 1) * (0.5 - displayRect.maxY)
-
-              let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: 0, y: offset - 1)
-              displayRect = displayRect.applying(transform)
-            } else {
-              let offset = (ratio - 1) * (0.5 - displayRect.minY)
-              let transform = CGAffineTransform(translationX: 0, y: offset)
-              displayRect = displayRect.applying(transform)
-            }
-            ratio = (height / width) / (3.0 / 4.0)
-            displayRect.size.height /= ratio
-          }
-          displayRect = VNImageRectForNormalizedRect(displayRect, Int(width), Int(height))
-
+        
+        // Use the frame source's coordinate transformation method
+        let displayRect = currentFrameSource.transformDetectionToScreenCoordinates(
+          rect: rect,
+          viewBounds: self.bounds,
+          orientation: orientation
+        )
+        
+        // Show the bounding box with the transformed coordinates
           boundingBoxViews[i].show(
             frame: displayRect, label: label, color: boxColor, alpha: alpha)
           }
-        }
-      }
-    } else {
-      // Landscape mode
-      resultCount = predictions.boxes.count
-      self.labelSliderNumItems.text =
-        String(resultCount) + " items (max " + String(Int(sliderNumItems.value)) + ")"
-
-      // Use longSide and shortSide from the current frame source (important fix)
-      let frameAspectRatio = currentFrameSource.longSide / currentFrameSource.shortSide
-      let viewAspectRatio = width / height
-      var scaleX: CGFloat = 1.0
-      var scaleY: CGFloat = 1.0
-      var offsetX: CGFloat = 0.0
-      var offsetY: CGFloat = 0.0
-
-      if frameAspectRatio > viewAspectRatio {
-        scaleY = height / currentFrameSource.shortSide
-        scaleX = scaleY
-        offsetX = (currentFrameSource.longSide * scaleX - width) / 2
-      } else {
-        scaleX = width / currentFrameSource.longSide
-        scaleY = scaleX
-        offsetY = (currentFrameSource.shortSide * scaleY - height) / 2
-      }
-
-      // Then show only the active boxes
-      for i in 0..<resultCount {
-        if i < 50 { // Limit to maximum 50 boxes
-          var rect = CGRect.zero
-          var label = ""
-          var boxColor: UIColor = .white
-          var confidence: CGFloat = 0
-          var alpha: CGFloat = 0.9
-          var bestClass = ""
-
-          switch task {
-          case .detect:
-            let prediction = predictions.boxes[i]
-            // For the detect task, invert y using "1 - maxY" as before
-            rect = CGRect(
-              x: prediction.xywhn.minX,
-              y: 1 - prediction.xywhn.maxY,
-              width: prediction.xywhn.width,
-              height: prediction.xywhn.height
-            )
-            bestClass = prediction.cls
-            confidence = CGFloat(prediction.conf)
-            let colorIndex = prediction.index % ultralyticsColors.count
-            boxColor = ultralyticsColors[colorIndex]
-            
-          case .fishCount:
-            // For fish count task, use custom colors based on tracking status
-            let prediction = predictions.boxes[i]
-            rect = CGRect(
-              x: prediction.xywhn.minX,
-              y: 1 - prediction.xywhn.maxY,
-              width: prediction.xywhn.width,
-              height: prediction.xywhn.height
-            )
-            bestClass = prediction.cls
-            confidence = CGFloat(prediction.conf)
-            
-            // Check tracking status to determine color - need to ensure this works with current frame source
-            if let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
-              let isTracked = trackingDetector.isObjectTracked(box: prediction)
-              let isCounted = trackingDetector.isObjectCounted(box: prediction)
-              
-              // Color scheme:
-              // Green: Counted fish
-              // Light blue: Tracked but not counted fish
-              // Dark blue: Newly tracked fish
-              if isCounted {
-                boxColor = .green 
-              } else if isTracked {
-                boxColor = UIColor(red: 0.4, green: 0.7, blue: 1.0, alpha: 1.0) // Light blue
-              } else {
-                boxColor = UIColor(red: 0.0, green: 0.0, blue: 0.8, alpha: 1.0) // Dark blue
-              }
-              
-              alpha = isTracked ? 0.7 : 0.5 // More transparent if newly tracked
-              
-              // Display tracking ID for tracked fish, empty label for untracked
-              if isTracked {
-                // Get the tracking ID and display it
-                if let trackInfo = trackingDetector.getTrackInfo(for: prediction) {
-                  label = "#\(trackInfo.trackId)"
-                } else {
-                  label = "#?"
-                }
-              } else {
-                // No label for untracked fish
-                label = ""
-              }
-            } else {
-              let colorIndex = prediction.index % ultralyticsColors.count
-              boxColor = ultralyticsColors[colorIndex]
-              label = bestClass
-            }
-
-          default:
-            let prediction = predictions.boxes[i]
-            rect = CGRect(
-              x: prediction.xywhn.minX,
-              y: 1 - prediction.xywhn.maxY,
-              width: prediction.xywhn.width,
-              height: prediction.xywhn.height
-            )
-            bestClass = prediction.cls
-            confidence = CGFloat(prediction.conf)
-            let colorIndex = prediction.index % ultralyticsColors.count
-            boxColor = ultralyticsColors[colorIndex]
-          }
-
-          // For non-fishCount tasks, use standard label format
-          if task != .fishCount {
-          label = String(format: "%@ %.1f", bestClass, confidence * 100)
-          alpha = CGFloat((confidence - 0.2) / (1.0 - 0.2) * 0.9)
-          }
-          
-          // For video source, use the special conversion to handle letterboxing/pillarboxing
-          if frameSourceType == .videoFile, let albumSource = albumVideoSource {
-            // Make sure we're using the right coordinates for video source
-            // For video sources, we need to invert the y-axis transformation
-            // since it's already been inverted in the construction of displayRect
-            let normalizedRect = CGRect(
-              x: rect.minX,
-              y: rect.minY,
-              width: rect.width,
-              height: rect.height
-            )
-            
-            // Convert normalized coordinates to screen coordinates based on video content rect
-            let screenRect = albumSource.convertNormalizedRectToScreenRect(normalizedRect)
-            
-            // Set the box with the converted rect
-            boundingBoxViews[i].show(
-              frame: screenRect, label: label, color: boxColor, alpha: alpha)
-          } else if frameSourceType == .goPro {
-            // NOTE: We no longer need this special handling in YOLOView for landscape mode
-            // because GoProSource now handles the coordinate transformation properly
-            // We'll keep this code as a fallback, but it should rarely be used
-            
-            // Get the transformed coordinates from the GoPro source directly
-            // The coordinates should already be properly transformed by GoProSource.transformResultCoordinates
-            let displayRect = VNImageRectForNormalizedRect(rect, Int(width), Int(height))
-            
-            if i < 3 { // Only log first few boxes to avoid spam
-              print("YOLOView(Landscape): GoPro box \(i) - Using simplified coordinate transformation")
-              print("YOLOView(Landscape): Original rect: \(rect), Display rect: \(displayRect)")
-            }
-            
-            boundingBoxViews[i].show(
-              frame: displayRect, label: label, color: boxColor, alpha: alpha
-            )
-          } else {
-            // Original camera frame handling
-            // Transform rectangle to screen coordinates - use currentFrameSource
-            rect.origin.x = rect.origin.x * currentFrameSource.longSide * scaleX - offsetX
-          rect.origin.y =
-            height
-              - (rect.origin.y * currentFrameSource.shortSide * scaleY
-              - offsetY
-                + rect.size.height * currentFrameSource.shortSide * scaleY)
-            rect.size.width *= currentFrameSource.longSide * scaleX
-            rect.size.height *= currentFrameSource.shortSide * scaleY
-
-          boundingBoxViews[i].show(
-            frame: rect,
-            label: label,
-            color: boxColor,
-            alpha: alpha
-          )
-          }
-        }
-      }
     }
 
     // Update fish count display if we're in fish count mode
@@ -1156,7 +899,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     toolbar.addSubview(switchSourceButton)
     toolbar.addSubview(modelsButton)
     toolbar.addSubview(directionButton)
-    
+
     self.addGestureRecognizer(UIPinchGestureRecognizer(target: self, action: #selector(pinch)))
   }
 
@@ -1171,7 +914,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     if isLandscape {
       // Toolbar background should be completely transparent
       // toolbar.backgroundColor = .black.withAlphaComponent(0.4)
-      
+
       let width = bounds.width
       let height = bounds.height
 
@@ -1359,7 +1102,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     } else {
       // Toolbar background should be completely transparent
       // toolbar.backgroundColor = .black.withAlphaComponent(0.4)
-      
+
       let width = bounds.width
       let height = bounds.height
 
@@ -1653,7 +1396,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       }
     } else {
       // Camera source - standard behavior
-      self.videoCapture.start()
+    self.videoCapture.start()
     }
     
     playButton.isEnabled = false
@@ -1801,7 +1544,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
 
   @objc func resetFishCount() {
     // Reset the fish count in tracking detector
-    if task == .fishCount, let trackingDetector = videoCapture.predictor as? TrackingDetector {
+    if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
       trackingDetector.resetCount()
       labelFishCount.text = "Fish Count: 0"
     }
@@ -1809,11 +1552,17 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
 
   // Toggle auto calibration
   @objc func toggleAutoCalibration() {
-    if isCalibrating {
+    // Check if we have a TrackingDetector
+    guard task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector else {
+      return
+    }
+
+    // Get current calibration state from the detector
+    let isCurrentlyCalibrating = trackingDetector.getAutoCalibrationEnabled()
+    
+    if isCurrentlyCalibrating {
       // If currently calibrating, cancel it
-      if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
-        trackingDetector.setAutoCalibration(enabled: false)
-      }
+      trackingDetector.setAutoCalibration(enabled: false)
       
       // Resume video processing by setting inferenceOK to true
       currentFrameSource.inferenceOK = true
@@ -1845,13 +1594,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         box.hide()
       }
       
-      // Explicitly call onClearBoxes on the video capture delegate to ensure boxes are cleared
+      // Explicitly call onClearBoxes to ensure boxes are cleared
       // This ensures that sources respond to the clearing request
-      if let cameraSource = currentFrameSource as? CameraVideoSource {
-          cameraSource.videoCaptureDelegate?.onClearBoxes()
-      } else if let albumSource = currentFrameSource as? AlbumVideoSource {
-          albumSource.videoCaptureDelegate?.onClearBoxes()
-      }
+      onClearBoxes()
       
       // Show initial progress percentage
       let progressText = NSAttributedString(
@@ -1865,81 +1610,79 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       autoCalibrationButton.setAttributedTitle(progressText, for: .normal)
       
       // Set up callbacks for calibration progress and completion
-      if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
-        // Set up progress callback
-        trackingDetector.onCalibrationProgress = { [weak self] progress, total in
-          guard let self = self else { return }
-          
-          // Calculate percentage
-          let percentage = Int(Double(progress) / Double(total) * 100.0)
-          
-          // Update button text with progress percentage
-          DispatchQueue.main.async {
-            let progressText = NSAttributedString(
-              string: "\(percentage)%",
-              attributes: [
-                .foregroundColor: UIColor.white.withAlphaComponent(0.5),
-                .font: UIFont.systemFont(ofSize: 14, weight: .bold)
-              ]
-            )
-            
-            self.autoCalibrationButton.setAttributedTitle(progressText, for: .normal)
-          }
-        }
+      // Set up progress callback
+      trackingDetector.onCalibrationProgress = { [weak self] progress, total in
+        guard let self = self else { return }
         
-        // Set up completion callback
-        trackingDetector.onCalibrationComplete = { [weak self] thresholds in
-          guard let self = self else { return }
-          
-          // Update UI on the main thread
-          DispatchQueue.main.async {
-            // Update threshold sliders with new values
-            if thresholds.count >= 2 {
-              self.threshold1Slider.value = Float(thresholds[0])
-              self.threshold2Slider.value = Float(thresholds[1])
-              
-              // Update threshold labels
-              self.labelThreshold1.text = "Threshold 1: " + String(format: "%.2f", thresholds[0])
-              self.labelThreshold2.text = "Threshold 2: " + String(format: "%.2f", thresholds[1])
-              
-              // Update threshold lines
-              self.updateThresholdLayer(self.threshold1Layer, position: thresholds[0])
-              self.updateThresholdLayer(self.threshold2Layer, position: thresholds[1])
-              
-              // Store the new threshold values
-              self.threshold1 = thresholds[0]
-              self.threshold2 = thresholds[1]
-            }
-            
-            // Reset calibration state
-            self.isCalibrating = false
-            
-            // Restore the AUTO button text
-            let autoAttributedText = NSMutableAttributedString()
-            let auAttributes: [NSAttributedString.Key: Any] = [
-              .foregroundColor: UIColor.red.withAlphaComponent(0.5),
+        // Calculate percentage
+        let percentage = Int(Double(progress) / Double(total) * 100.0)
+        
+        // Update button text with progress percentage
+        DispatchQueue.main.async {
+          let progressText = NSAttributedString(
+            string: "\(percentage)%",
+            attributes: [
+              .foregroundColor: UIColor.white.withAlphaComponent(0.5),
               .font: UIFont.systemFont(ofSize: 14, weight: .bold)
             ]
-            let toAttributes: [NSAttributedString.Key: Any] = [
-              .foregroundColor: UIColor.yellow.withAlphaComponent(0.5),
-              .font: UIFont.systemFont(ofSize: 14, weight: .bold)
-            ]
-            autoAttributedText.append(NSAttributedString(string: "AU", attributes: auAttributes))
-            autoAttributedText.append(NSAttributedString(string: "TO", attributes: toAttributes))
-            
-            self.autoCalibrationButton.setAttributedTitle(autoAttributedText, for: .normal)
-            
-            // IMPORTANT: Resume normal inference
-            self.currentFrameSource.inferenceOK = true
-          }
+          )
+          
+          self.autoCalibrationButton.setAttributedTitle(progressText, for: .normal)
         }
-        
-        // Start auto-calibration
-        trackingDetector.setAutoCalibration(enabled: true)
-        
-        // Pause normal inference during calibration
-        currentFrameSource.inferenceOK = false
       }
+      
+      // Set up completion callback
+      trackingDetector.onCalibrationComplete = { [weak self] thresholds in
+        guard let self = self else { return }
+        
+        // Update UI on the main thread
+        DispatchQueue.main.async {
+          // Update threshold sliders with new values
+          if thresholds.count >= 2 {
+            self.threshold1Slider.value = Float(thresholds[0])
+            self.threshold2Slider.value = Float(thresholds[1])
+            
+            // Update threshold labels
+            self.labelThreshold1.text = "Threshold 1: " + String(format: "%.2f", thresholds[0])
+            self.labelThreshold2.text = "Threshold 2: " + String(format: "%.2f", thresholds[1])
+            
+            // Update threshold lines
+            self.updateThresholdLayer(self.threshold1Layer, position: thresholds[0])
+            self.updateThresholdLayer(self.threshold2Layer, position: thresholds[1])
+            
+            // Store the new threshold values
+            self.threshold1 = thresholds[0]
+            self.threshold2 = thresholds[1]
+          }
+          
+          // Reset calibration state
+          self.isCalibrating = false
+          
+          // Restore the AUTO button text
+          let autoAttributedText = NSMutableAttributedString()
+          let auAttributes: [NSAttributedString.Key: Any] = [
+            .foregroundColor: UIColor.red.withAlphaComponent(0.5),
+            .font: UIFont.systemFont(ofSize: 14, weight: .bold)
+          ]
+          let toAttributes: [NSAttributedString.Key: Any] = [
+            .foregroundColor: UIColor.yellow.withAlphaComponent(0.5),
+            .font: UIFont.systemFont(ofSize: 14, weight: .bold)
+          ]
+          autoAttributedText.append(NSAttributedString(string: "AU", attributes: auAttributes))
+          autoAttributedText.append(NSAttributedString(string: "TO", attributes: toAttributes))
+          
+          self.autoCalibrationButton.setAttributedTitle(autoAttributedText, for: .normal)
+          
+          // IMPORTANT: Resume normal inference
+          self.currentFrameSource.inferenceOK = true
+        }
+      }
+      
+      // Start auto-calibration
+      trackingDetector.setAutoCalibration(enabled: true)
+      
+      // Pause normal inference during calibration
+      currentFrameSource.inferenceOK = false
     }
   }
 

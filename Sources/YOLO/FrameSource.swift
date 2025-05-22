@@ -128,6 +128,38 @@ protocol FrameSource: AnyObject {
     /// - Parameter completion: Called when the selection is complete.
     @MainActor
     func showContentSelectionUI(from viewController: UIViewController, completion: @escaping (Bool) -> Void)
+    
+    // MARK: - New methods for coordinate transformation
+    
+    /// Transforms normalized detection coordinates to screen coordinates based on the source's specific characteristics
+    /// - Parameters:
+    ///   - rect: The normalized detection rectangle (0.0-1.0)
+    ///   - viewBounds: The bounds of the view where the detection will be displayed
+    ///   - orientation: The current device orientation
+    /// - Returns: A rectangle in screen coordinates
+    @MainActor
+    func transformDetectionToScreenCoordinates(
+        rect: CGRect, 
+        viewBounds: CGRect, 
+        orientation: UIDeviceOrientation
+    ) -> CGRect
+    
+    // MARK: - New methods for UI integration
+    
+    /// Integrates the source with a YOLOView for proper display and interaction
+    /// - Parameter view: The YOLOView to integrate with
+    @MainActor
+    func integrateWithYOLOView(view: UIView)
+    
+    /// Adds a layer to the source's display hierarchy
+    /// - Parameter layer: The layer to add
+    @MainActor
+    func addOverlayLayer(_ layer: CALayer)
+    
+    /// Adds bounding box views to the source's display hierarchy
+    /// - Parameter boxViews: The bounding box views to add
+    @MainActor
+    func addBoundingBoxViews(_ boxViews: [BoundingBoxView])
 }
 
 /// Enumeration of available frame source types.
@@ -296,5 +328,38 @@ extension FrameSource {
     func capturePhoto(completion: @escaping @Sendable (UIImage?) -> Void) {
         // Default implementation does nothing and returns nil
         completion(nil)
+    }
+    
+    // Default implementations for new coordinate transformation method
+    @MainActor
+    func transformDetectionToScreenCoordinates(
+        rect: CGRect, 
+        viewBounds: CGRect, 
+        orientation: UIDeviceOrientation
+    ) -> CGRect {
+        // Default implementation just returns the input rect scaled to view bounds
+        // Each source should override this with its specific transformation logic
+        return VNImageRectForNormalizedRect(rect, Int(viewBounds.width), Int(viewBounds.height))
+    }
+    
+    // Default implementation for UI integration
+    @MainActor
+    func integrateWithYOLOView(view: UIView) {
+        // Default implementation does nothing
+        // Each source should override this with its specific integration logic
+    }
+    
+    // Default implementation for adding overlay layer
+    @MainActor
+    func addOverlayLayer(_ layer: CALayer) {
+        // Default implementation does nothing
+        // Each source should override this with its specific layer addition logic
+    }
+    
+    // Default implementation for adding bounding box views
+    @MainActor
+    func addBoundingBoxViews(_ boxViews: [BoundingBoxView]) {
+        // Default implementation does nothing
+        // Each source should override this with its specific bounding box view addition logic
     }
 } 

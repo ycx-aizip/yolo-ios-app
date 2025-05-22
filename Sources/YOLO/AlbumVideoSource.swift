@@ -802,6 +802,48 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
             }
         }
     }
+    
+    // MARK: - FrameSource Protocol Implementation for UI Integration
+    
+    @MainActor
+    func integrateWithYOLOView(view: UIView) {
+        // For video source, we need to add the player layer to the view's layer
+        if let playerLayer = self._previewLayer {
+            playerLayer.frame = view.bounds
+            view.layer.insertSublayer(playerLayer, at: 0)
+        }
+    }
+    
+    @MainActor
+    func addOverlayLayer(_ layer: CALayer) {
+        // Add the overlay layer to the player layer
+        if let playerLayer = self._previewLayer {
+            playerLayer.addSublayer(layer)
+        }
+    }
+    
+    @MainActor
+    func addBoundingBoxViews(_ boxViews: [BoundingBoxView]) {
+        // Add bounding box views to the player layer
+        if let playerLayer = self._previewLayer {
+            for box in boxViews {
+                box.addToLayer(playerLayer)
+            }
+        }
+    }
+    
+    // MARK: - Coordinate Transformation
+    
+    @MainActor
+    func transformDetectionToScreenCoordinates(
+        rect: CGRect,
+        viewBounds: CGRect,
+        orientation: UIDeviceOrientation
+    ) -> CGRect {
+        // For video source, we need to use the videoContentRect to account for letterboxing/pillarboxing
+        // Use our existing method that already handles this conversion
+        return convertNormalizedRectToScreenRect(rect)
+    }
 }
 
 // MARK: - UIImagePickerControllerDelegate

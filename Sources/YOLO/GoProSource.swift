@@ -627,10 +627,17 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     /// Sets all required delegates to properly integrate with YOLOView
     @MainActor
-    func integrateWithYOLOView(view: VideoCaptureDelegate & FrameSourceDelegate) {
+    func integrateWithYOLOView(view: UIView) {
+        // We need the view to conform to both VideoCaptureDelegate and FrameSourceDelegate
+        guard let captureDelegate = view as? VideoCaptureDelegate,
+              let frameDelegate = view as? FrameSourceDelegate else {
+            print("GoPro: Error - View does not conform to required delegate protocols")
+            return
+        }
+        
         // Set both delegate types
-        self.delegate = view
-        self.videoCaptureDelegate = view
+        self.delegate = frameDelegate
+        self.videoCaptureDelegate = captureDelegate
         
         // If the view also conforms to GoProSourceDelegate, set that too
         if let goProDelegate = view as? GoProSourceDelegate {
@@ -641,77 +648,80 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         print("GoPro: Setting up integration with YOLOView")
         
         // Get the container view where we'll display the video
-        if let containerView = view.viewForDrawing {
-            self.containerView = containerView
-            
-            // Make sure we have a valid player view
-            guard let playerView = playerView else {
-                print("GoPro: Error - No player view available for integration")
-                return
-            }
-            
-            // Make sure we're on the main thread for UI operations
-            dispatchPrecondition(condition: .onQueue(.main))
-            
-            // Make sure the player view is not in any view hierarchy
-            playerView.removeFromSuperview()
-            
-            // Add player view to the container with a clear visual hierarchy
-            playerView.translatesAutoresizingMaskIntoConstraints = false
-            
-            // IMPORTANT: Add as subview with proper z-index - ensure it's at the bottom
-            if containerView.subviews.isEmpty {
-                containerView.addSubview(playerView)
-            } else {
-                containerView.insertSubview(playerView, at: 0)
-            }
-            
-            print("GoPro: Adding player view to container with size: \(containerView.bounds.size)")
-            
-            // Clear existing constraints
-            NSLayoutConstraint.deactivate(playerView.constraints)
-            
-            // Setup clear edge constraints to fill the container
-            let constraints = [
-                playerView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-                playerView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-                playerView.topAnchor.constraint(equalTo: containerView.topAnchor),
-                playerView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
-            ]
-            
-            // Add identifiers to constraints for debugging
-            for (index, constraint) in constraints.enumerated() {
-                constraint.identifier = "playerView-container-\(index)"
-            }
-            
-            NSLayoutConstraint.activate(constraints)
-            
-            // Force layout to apply the new constraints
-            containerView.layoutIfNeeded()
-            
-            // CRITICAL: Ensure the player view is properly connected to the VLC player
-            videoPlayer?.drawable = playerView
-            
-            // NEW: Add the boundingBoxViews to the player view or its parent
-            // This is critical for making the bounding boxes visible
-            if let yoloView = view as? YOLOView {
-                print("GoPro: Setting up bounding box views on player view layer")
-                
-                // Access the boundingBoxViews from YOLOView and add them to our player view
-                for box in yoloView.boundingBoxViews {
-                    box.addToLayer(playerView.layer)
-                }
-                
-                // Access and setup overlay layer
-                if let overlayLayer = yoloView.layer.sublayers?.first(where: { $0.name == "overlayLayer" }) {
-                    playerView.layer.addSublayer(overlayLayer)
-                }
-            }
-            
-            print("GoPro: Successfully integrated player view with container: \(containerView.bounds.size)")
+        let containerView: UIView
+        if let viewForDrawing = captureDelegate.viewForDrawing {
+            containerView = viewForDrawing
         } else {
-            print("GoPro: Error - No container view available for integration")
+            containerView = view
         }
+        
+        self.containerView = containerView
+        
+        // Make sure we have a valid player view
+        guard let playerView = playerView else {
+            print("GoPro: Error - No player view available for integration")
+            return
+        }
+        
+        // Make sure we're on the main thread for UI operations
+        dispatchPrecondition(condition: .onQueue(.main))
+        
+        // Make sure the player view is not in any view hierarchy
+        playerView.removeFromSuperview()
+        
+        // Add player view to the container with a clear visual hierarchy
+        playerView.translatesAutoresizingMaskIntoConstraints = false
+        
+        // IMPORTANT: Add as subview with proper z-index - ensure it's at the bottom
+        if containerView.subviews.isEmpty {
+            containerView.addSubview(playerView)
+        } else {
+            containerView.insertSubview(playerView, at: 0)
+        }
+        
+        print("GoPro: Adding player view to container with size: \(containerView.bounds.size)")
+        
+        // Clear existing constraints
+        NSLayoutConstraint.deactivate(playerView.constraints)
+        
+        // Setup clear edge constraints to fill the container
+        let constraints = [
+            playerView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            playerView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            playerView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            playerView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
+        ]
+        
+        // Add identifiers to constraints for debugging
+        for (index, constraint) in constraints.enumerated() {
+            constraint.identifier = "playerView-container-\(index)"
+        }
+        
+        NSLayoutConstraint.activate(constraints)
+        
+        // Force layout to apply the new constraints
+        containerView.layoutIfNeeded()
+        
+        // CRITICAL: Ensure the player view is properly connected to the VLC player
+        videoPlayer?.drawable = playerView
+        
+        // NEW: Add the boundingBoxViews to the player view or its parent
+        // This is critical for making the bounding boxes visible
+        if let yoloView = view as? YOLOView {
+            print("GoPro: Setting up bounding box views on player view layer")
+            
+            // Access the boundingBoxViews from YOLOView and add them to our player view
+            for box in yoloView.boundingBoxViews {
+                box.addToLayer(playerView.layer)
+            }
+            
+            // Access and setup overlay layer
+            if let overlayLayer = yoloView.layer.sublayers?.first(where: { $0.name == "overlayLayer" }) {
+                playerView.layer.addSublayer(overlayLayer)
+            }
+        }
+        
+        print("GoPro: Successfully integrated player view with container: \(containerView.bounds.size)")
         
         // Fix for detection results handling
         if let predictor = self.predictor {
@@ -823,6 +833,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     /// Configure media options for optimal RTSP streaming from GoPro
     private func configureRTSPMediaOptions(_ media: VLCMedia) {
+        media.addOption(":verbose=0")
+
         // Critical options for RTSP
         media.addOption(":rtsp-tcp")  // Force TCP for more reliable streaming
         
@@ -1836,6 +1848,127 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         // Calculate frames per second
         return timeInterval > 0 ? Double(frameTimestamps.count - 1) / timeInterval : 0
     }
+
+    // MARK: - FrameSource Protocol Implementation for UI Integration and Coordinate Transformation
+
+    @MainActor
+    func transformDetectionToScreenCoordinates(
+        rect: CGRect, 
+        viewBounds: CGRect, 
+        orientation: UIDeviceOrientation
+    ) -> CGRect {
+        // Get the container view dimensions
+        guard let containerView = containerView, 
+              containerView.bounds.width > 0, 
+              containerView.bounds.height > 0,
+              lastFrameSize.width > 0, 
+              lastFrameSize.height > 0 else {
+            // Fallback to basic transformation if we don't have valid dimensions
+            return VNImageRectForNormalizedRect(rect, Int(viewBounds.width), Int(viewBounds.height))
+        }
+        
+        // Calculate aspect ratios
+        let videoAspectRatio = lastFrameSize.width / lastFrameSize.height
+        let viewAspectRatio = containerView.bounds.width / containerView.bounds.height
+        
+        // Get the current orientation
+        let isPortrait = orientation.isPortrait || 
+                        (!orientation.isLandscape && containerView.bounds.height > containerView.bounds.width)
+        
+        // Start with the original normalized rect
+        var adjustedBox = rect
+        
+        // Calculate container dimensions
+        let containerWidth = containerView.bounds.width
+        let containerHeight = containerView.bounds.height
+        
+        // CRITICAL FIX: Separate handling for portrait and landscape modes
+        if isPortrait {
+            // PORTRAIT MODE HANDLING
+            if videoAspectRatio > viewAspectRatio {
+                // Video is wider than container (letterboxing - black bars on top/bottom)
+                // Calculate scaled height and vertical offset
+                let scaledHeight = containerWidth / videoAspectRatio
+                let verticalOffset = (containerHeight - scaledHeight) / 2
+                
+                // Scale and offset y-coordinates
+                let yScale = scaledHeight / containerHeight
+                let normalizedOffset = verticalOffset / containerHeight
+                
+                // Adjust y-coordinates - FIXED for portrait mode
+                adjustedBox.origin.y = (rect.origin.y * yScale) + normalizedOffset
+                adjustedBox.size.height = rect.size.height * yScale
+            } else if videoAspectRatio < viewAspectRatio {
+                // Video is taller than container (pillarboxing - black bars on sides)
+                // Calculate scaled width and horizontal offset
+                let scaledWidth = containerHeight * videoAspectRatio
+                let horizontalOffset = (containerWidth - scaledWidth) / 2
+                
+                // Scale and offset x-coordinates
+                let xScale = scaledWidth / containerWidth
+                let normalizedOffset = horizontalOffset / containerWidth
+                
+                // Adjust x-coordinates - FIXED for portrait mode
+                adjustedBox.origin.x = (rect.origin.x * xScale) + normalizedOffset
+                adjustedBox.size.width = rect.size.width * xScale
+            }
+        } else {
+            // LANDSCAPE MODE HANDLING
+            if videoAspectRatio > viewAspectRatio {
+                // Video is wider than container (letterboxing - black bars on top/bottom)
+                // Calculate scaled height and vertical offset
+                let scaledHeight = containerWidth / videoAspectRatio
+                let verticalOffset = (containerHeight - scaledHeight) / 2
+                
+                // Scale and offset y-coordinates
+                let yScale = scaledHeight / containerHeight
+                let normalizedOffset = verticalOffset / containerHeight
+                
+                // Adjust y-coordinates for landscape
+                adjustedBox.origin.y = (rect.origin.y * yScale) + normalizedOffset
+                adjustedBox.size.height = rect.size.height * yScale
+            } else if videoAspectRatio < viewAspectRatio {
+                // Video is taller than container (pillarboxing - black bars on sides)
+                // Calculate scaled width and horizontal offset
+                let scaledWidth = containerHeight * videoAspectRatio
+                let horizontalOffset = (containerWidth - scaledWidth) / 2
+                
+                // Scale and offset x-coordinates
+                let xScale = scaledWidth / containerWidth
+                let normalizedOffset = horizontalOffset / containerWidth
+                
+                // Adjust x-coordinates for landscape
+                adjustedBox.origin.x = (rect.origin.x * xScale) + normalizedOffset
+                adjustedBox.size.width = rect.size.width * xScale
+            }
+        }
+        
+        // Handle Y-coordinate inversion for both portrait and landscape modes
+        // Y=0 in the model output is the top of the image,
+        // but Y=0 in the display is the bottom of the image
+        adjustedBox.origin.y = 1.0 - adjustedBox.origin.y - adjustedBox.size.height
+        
+        // Convert normalized coordinates to screen coordinates
+        return VNImageRectForNormalizedRect(adjustedBox, Int(containerWidth), Int(containerHeight))
+    }
+
+    @MainActor
+    func addOverlayLayer(_ layer: CALayer) {
+        // Add the overlay layer to the player view layer
+        if let playerView = playerView {
+            playerView.layer.addSublayer(layer)
+        }
+    }
+
+    @MainActor
+    func addBoundingBoxViews(_ boxViews: [BoundingBoxView]) {
+        // Add bounding box views to the player view layer
+        if let playerView = playerView {
+            for box in boxViews {
+                box.addToLayer(playerView.layer)
+            }
+        }
+    }
 }
 
 // MARK: - ResultsListener and InferenceTimeListener Implementation
@@ -1893,8 +2026,8 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
         // IMPORTANT: Always notify the delegate about the result, even if there are no boxes
         // This ensures boxes are cleared when no fish are present
         if let videoCaptureDelegate = self.videoCaptureDelegate {
-            // Transform result coordinates to match the view's coordinate space
-            let transformedResult = self.transformResultCoordinates(result)
+            // REFACTORED: Pass the original result directly
+            // YOLOView will use transformDetectionToScreenCoordinates for each box
             
             // Log detection information (only if there are boxes to avoid spam)
             if result.boxes.count > 0 {
@@ -1903,7 +2036,7 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
             
             // Forward to video capture delegate for YOLOView integration
             // This will trigger box clearing if there are no boxes
-            videoCaptureDelegate.onPredict(result: transformedResult)
+            videoCaptureDelegate.onPredict(result: result)
             
             // CRITICAL FIX: Force a redraw of the container view to ensure boxes are visible/hidden
             if let containerView = self.containerView {
@@ -1930,193 +2063,14 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
                 print("GoPro: Attempting to recover by connecting to delegate")
                 self.videoCaptureDelegate = view
                 
-                // Transform result coordinates and forward
-                let transformedResult = self.transformResultCoordinates(result)
-                view.onPredict(result: transformedResult)
+                // Pass the original result directly
+                view.onPredict(result: result)
             }
         }
     }
 }
     
-    // Transform coordinates from source space to display space
-    private func transformResultCoordinates(_ result: YOLOResult) -> YOLOResult {
-        // Create a new array of boxes with transformed coordinates
-        var transformedBoxes: [Box] = []
-        
-        // Log debugging information for coordinate transformation
-        let frameLogPrefix = "GoPro Coord Debug:"
-        
-        // Only transform coordinates if we have valid dimensions
-        if lastFrameSize.width > 0 && lastFrameSize.height > 0,
-           let containerView = containerView, 
-           containerView.bounds.width > 0 && containerView.bounds.height > 0 {
-            
-            // Calculate aspect ratios
-            let videoAspectRatio = lastFrameSize.width / lastFrameSize.height
-            let viewAspectRatio = containerView.bounds.width / containerView.bounds.height
-            
-            // Get the current orientation
-            let isPortrait = UIDevice.current.orientation.isPortrait || 
-                            (!UIDevice.current.orientation.isLandscape && containerView.bounds.height > containerView.bounds.width)
-            
-            // Log the dimensions and aspect ratios for debugging
-            print("\(frameLogPrefix) Frame size: \(lastFrameSize), Container size: \(containerView.bounds.size)")
-            print("\(frameLogPrefix) Video aspect: \(videoAspectRatio), View aspect: \(viewAspectRatio), isPortrait: \(isPortrait)")
-            
-            // For each box, create a new version with transformed coordinates
-            for (i, box) in result.boxes.enumerated() {
-                // The original boxes are in normalized coordinates (0-1)
-                let originalBox = box.xywhn
-                
-                // Log original box coordinates
-                if i < 3 || frameCount % 60 == 0 { // Only log first 3 boxes or occasionally
-                    print("\(frameLogPrefix) Box \(i) original: \(originalBox)")
-                }
-                
-                // We need to adjust for letterboxing/pillarboxing
-                var adjustedBox = originalBox
-                
-                // Calculate scaling factors and offsets - corrected logic
-                let containerWidth = containerView.bounds.width
-                let containerHeight = containerView.bounds.height
-                
-                // CRITICAL FIX: Separate handling for portrait and landscape modes
-                if isPortrait {
-                    // PORTRAIT MODE HANDLING
-                    if videoAspectRatio > viewAspectRatio {
-                        // Video is wider than container (letterboxing - black bars on top/bottom)
-                        // Calculate scaled height and vertical offset
-                        let scaledHeight = containerWidth / videoAspectRatio
-                        let verticalOffset = (containerHeight - scaledHeight) / 2
-                        
-                        // Scale and offset y-coordinates
-                        let yScale = scaledHeight / containerHeight
-                        let normalizedOffset = verticalOffset / containerHeight
-                        
-                        // Adjust y-coordinates - FIXED for portrait mode
-                        adjustedBox.origin.y = (originalBox.origin.y * yScale) + normalizedOffset
-                        adjustedBox.size.height = originalBox.size.height * yScale
-                        
-                        // Log transformation factors
-                        if i < 3 || frameCount % 60 == 0 {
-                            print("\(frameLogPrefix) Portrait Letterboxing: yScale=\(yScale), normalizedOffset=\(normalizedOffset)")
-                        }
-                    } else if videoAspectRatio < viewAspectRatio {
-                        // Video is taller than container (pillarboxing - black bars on sides)
-                        // Calculate scaled width and horizontal offset
-                        let scaledWidth = containerHeight * videoAspectRatio
-                        let horizontalOffset = (containerWidth - scaledWidth) / 2
-                        
-                        // Scale and offset x-coordinates
-                        let xScale = scaledWidth / containerWidth
-                        let normalizedOffset = horizontalOffset / containerWidth
-                        
-                        // Adjust x-coordinates - FIXED for portrait mode
-                        adjustedBox.origin.x = (originalBox.origin.x * xScale) + normalizedOffset
-                        adjustedBox.size.width = originalBox.size.width * xScale
-                        
-                        // Log transformation factors
-                        if i < 3 || frameCount % 60 == 0 {
-                            print("\(frameLogPrefix) Portrait Pillarboxing: xScale=\(xScale), normalizedOffset=\(normalizedOffset)")
-                        }
-                    }
-                } else {
-                    // LANDSCAPE MODE HANDLING
-                    if videoAspectRatio > viewAspectRatio {
-                        // Video is wider than container (letterboxing - black bars on top/bottom)
-                        // Calculate scaled height and vertical offset
-                        let scaledHeight = containerWidth / videoAspectRatio
-                        let verticalOffset = (containerHeight - scaledHeight) / 2
-                        
-                        // Scale and offset y-coordinates
-                        let yScale = scaledHeight / containerHeight
-                        let normalizedOffset = verticalOffset / containerHeight
-                        
-                        // Adjust y-coordinates for landscape
-                        adjustedBox.origin.y = (originalBox.origin.y * yScale) + normalizedOffset
-                        adjustedBox.size.height = originalBox.size.height * yScale
-                        
-                        // Log transformation factors
-                        if i < 3 || frameCount % 60 == 0 {
-                            print("\(frameLogPrefix) Landscape Letterboxing: yScale=\(yScale), normalizedOffset=\(normalizedOffset)")
-                        }
-                    } else if videoAspectRatio < viewAspectRatio {
-                        // Video is taller than container (pillarboxing - black bars on sides)
-                        // Calculate scaled width and horizontal offset
-                        let scaledWidth = containerHeight * videoAspectRatio
-                        let horizontalOffset = (containerWidth - scaledWidth) / 2
-                        
-                        // Scale and offset x-coordinates
-                        let xScale = scaledWidth / containerWidth
-                        let normalizedOffset = horizontalOffset / containerWidth
-                        
-                        // Adjust x-coordinates for landscape
-                        adjustedBox.origin.x = (originalBox.origin.x * xScale) + normalizedOffset
-                        adjustedBox.size.width = originalBox.size.width * xScale
-                        
-                        // Log transformation factors
-                        if i < 3 || frameCount % 60 == 0 {
-                            print("\(frameLogPrefix) Landscape Pillarboxing: xScale=\(xScale), normalizedOffset=\(normalizedOffset)")
-                        }
-                    }
-                }
-                // else - aspect ratios match, no adjustment needed
-                
-                // Handle Y-coordinate inversion for both portrait and landscape modes
-                // Y=0 in the model output is the top of the image,
-                // but Y=0 in the display is the bottom of the image
-                // CRITICAL FIX: We need to invert Y coordinates in both orientations
-                // Invert Y coordinate for both portrait and landscape modes
-                adjustedBox.origin.y = 1.0 - adjustedBox.origin.y - adjustedBox.size.height
-                
-                // Log adjusted coordinates
-                if i < 3 || frameCount % 60 == 0 {
-                    print("\(frameLogPrefix) Box \(i) adjusted: \(adjustedBox)")
-                }
-                
-                // Create a new Box with adjusted coordinates
-                // We need to recreate the box entirely since xywhn is immutable
-                let transformedBox = Box(
-                    index: box.index,
-                    cls: box.cls,
-                    conf: box.conf,
-                    xywh: box.xywh,
-                    xywhn: adjustedBox
-                )
-                
-                transformedBoxes.append(transformedBox)
-            }
-        } else {
-            // Log the issue with dimensions
-            print("\(frameLogPrefix) Cannot transform coordinates - invalid dimensions:")
-            print("\(frameLogPrefix) Frame size: \(lastFrameSize)")
-            print("\(frameLogPrefix) Container view: \(containerView != nil ? "exists" : "nil")")
-            if let containerView = containerView {
-                print("\(frameLogPrefix) Container bounds: \(containerView.bounds)")
-            }
-            
-            // If we don't have valid dimensions, just use the original boxes
-            transformedBoxes = result.boxes
-        }
-        
-        // Create a new YOLOResult with all the original properties but the transformed boxes
-        // Note: We can't directly modify result.boxes since it's immutable, so we create a completely new YOLOResult
-        let transformedResult = YOLOResult(
-            orig_shape: result.orig_shape,
-            boxes: transformedBoxes,
-            masks: result.masks,
-            probs: result.probs,
-            keypointsList: result.keypointsList,
-            obb: result.obb,
-            annotatedImage: result.annotatedImage,
-            speed: result.speed,
-            fps: result.fps,
-            originalImage: result.originalImage,
-            names: result.names
-        )
-        
-        return transformedResult
-    }
+
 }
 
 // MARK: - Backward Compatibility

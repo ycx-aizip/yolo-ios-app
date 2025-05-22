@@ -378,6 +378,123 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
     self.updateVideoOrientation(orientation: orientation)
     self.captureSession.commitConfiguration()
   }
+  
+  // MARK: - FrameSource Protocol Implementation for UI Integration
+  
+  @MainActor
+  func integrateWithYOLOView(view: UIView) {
+    // For camera source, we need to add the preview layer to the view's layer
+    if let previewLayer = self.previewLayer {
+      view.layer.insertSublayer(previewLayer, at: 0)
+      previewLayer.frame = view.bounds
+    }
+  }
+  
+  @MainActor
+  func addOverlayLayer(_ layer: CALayer) {
+    // Add the overlay layer to the preview layer
+    if let previewLayer = self.previewLayer {
+      previewLayer.addSublayer(layer)
+    }
+  }
+  
+  @MainActor
+  func addBoundingBoxViews(_ boxViews: [BoundingBoxView]) {
+    // Add bounding box views to the preview layer
+    if let previewLayer = self.previewLayer {
+      for box in boxViews {
+        box.addToLayer(previewLayer)
+      }
+    }
+  }
+  
+  // MARK: - Coordinate Transformation
+  
+  @MainActor
+  func transformDetectionToScreenCoordinates(
+    rect: CGRect,
+    viewBounds: CGRect,
+    orientation: UIDeviceOrientation
+  ) -> CGRect {
+    let width = viewBounds.width
+    let height = viewBounds.height
+    
+    // Start with the original normalized rect
+    var displayRect = rect
+    
+    // Handle orientation-specific transformations
+    switch orientation {
+    case .portraitUpsideDown:
+      displayRect = CGRect(
+        x: 1.0 - rect.origin.x - rect.width,
+        y: 1.0 - rect.origin.y - rect.height,
+        width: rect.width,
+        height: rect.height)
+    case .landscapeLeft, .landscapeRight:
+      // In landscape mode, no additional transformation needed here
+      break
+    case .unknown:
+      print("The device orientation is unknown, the predictions may be affected")
+      fallthrough
+    default:
+      break
+    }
+    
+    // For portrait orientation
+    if orientation == .portrait || orientation == .portraitUpsideDown || orientation == .unknown {
+      var ratio: CGFloat = 1.0
+      
+      if captureSession.sessionPreset == .photo {
+        ratio = (height / width) / (4.0 / 3.0)
+      } else {
+        ratio = (height / width) / (16.0 / 9.0)
+      }
+      
+      if ratio >= 1 {
+        let offset = (1 - ratio) * (0.5 - displayRect.minX)
+        let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: offset, y: -1)
+        displayRect = displayRect.applying(transform)
+        displayRect.size.width *= ratio
+      } else {
+        let offset = (ratio - 1) * (0.5 - displayRect.maxY)
+        let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: 0, y: offset - 1)
+        displayRect = displayRect.applying(transform)
+        ratio = (height / width) / (3.0 / 4.0)
+        displayRect.size.height /= ratio
+      }
+      
+      // Convert normalized coordinates to screen coordinates
+      return VNImageRectForNormalizedRect(displayRect, Int(width), Int(height))
+    } else {
+      // Landscape mode
+      let frameAspectRatio = longSide / shortSide
+      let viewAspectRatio = width / height
+      var scaleX: CGFloat = 1.0
+      var scaleY: CGFloat = 1.0
+      var offsetX: CGFloat = 0.0
+      var offsetY: CGFloat = 0.0
+      
+      if frameAspectRatio > viewAspectRatio {
+        scaleY = height / shortSide
+        scaleX = scaleY
+        offsetX = (longSide * scaleX - width) / 2
+      } else {
+        scaleX = width / longSide
+        scaleY = scaleX
+        offsetY = (shortSide * scaleY - height) / 2
+      }
+      
+      // Transform rectangle to screen coordinates
+      let screenRect = CGRect(
+        x: displayRect.origin.x * longSide * scaleX - offsetX,
+        y: height - (displayRect.origin.y * shortSide * scaleY - offsetY + displayRect.size.height * shortSide * scaleY),
+        width: displayRect.size.width * longSide * scaleX,
+        height: displayRect.size.height * shortSide * scaleY
+      )
+      
+      return screenRect
+    }
+  }
 }
 
 extension CameraVideoSource: AVCaptureVideoDataOutputSampleBufferDelegate {
