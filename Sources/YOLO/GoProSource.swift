@@ -104,7 +104,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     private var frameTimestamps: [CFTimeInterval] = []
     
     // VLC player view for frame extraction - maintains reference to the drawable
-    private var playerView: UIView?
+    // Internal access to allow YOLOView to access it
+    var playerView: UIView?
     
     // Container view that will hold the player view
     private weak var containerView: UIView?
@@ -186,8 +187,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             print("GoPro: Stopping stream and cleaning up resources")
             
             // Stop the VLC player
-            self.videoPlayer?.stop()
-            
+                    self.videoPlayer?.stop()
+                    
             // Clean up player view from the container
             if let playerView = self.playerView {
                 // Make sure we're on the main thread
@@ -297,7 +298,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         let defaultHeight: CGFloat = 720
         
         // Create a view to use as the drawable for frame extraction
-        playerView = UIView(frame: CGRect(x: 0, y: 0, width: defaultWidth, height: defaultHeight))
+        playerView = createPlayerView()
+        playerView?.frame = CGRect(x: 0, y: 0, width: defaultWidth, height: defaultHeight)
         
         // Set critical properties for proper rendering
         playerView?.backgroundColor = .black
@@ -689,6 +691,22 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             
             // CRITICAL: Ensure the player view is properly connected to the VLC player
             videoPlayer?.drawable = playerView
+            
+            // NEW: Add the boundingBoxViews to the player view or its parent
+            // This is critical for making the bounding boxes visible
+            if let yoloView = view as? YOLOView {
+                print("GoPro: Setting up bounding box views on player view layer")
+                
+                // Access the boundingBoxViews from YOLOView and add them to our player view
+                for box in yoloView.boundingBoxViews {
+                    box.addToLayer(playerView.layer)
+                }
+                
+                // Access and setup overlay layer
+                if let overlayLayer = yoloView.layer.sublayers?.first(where: { $0.name == "overlayLayer" }) {
+                    playerView.layer.addSublayer(overlayLayer)
+                }
+            }
             
             print("GoPro: Successfully integrated player view with container: \(containerView.bounds.size)")
         } else {
@@ -1771,6 +1789,40 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             onFrame(time)
         }
     }
+    
+    // MARK: - FPS Calculation Methods
+    
+    /// Calculate current FPS based on recent frame timestamps
+    @MainActor
+    private func calculateCurrentFPS() -> Double {
+        guard frameTimestamps.count >= 2 else {
+            return 0
+        }
+        
+        // Calculate FPS based on last 10 frames or all available frames
+        let framesToConsider = min(10, frameTimestamps.count)
+        let recentTimestamps = Array(frameTimestamps.suffix(framesToConsider))
+        
+        // Calculate time difference between first and last frame
+        let timeInterval = recentTimestamps.last! - recentTimestamps.first!
+        
+        // Calculate frames per second
+        return timeInterval > 0 ? Double(framesToConsider - 1) / timeInterval : 0
+    }
+    
+    /// Get average FPS over all recorded frames
+    @MainActor
+    var averageFPS: Double {
+        guard frameTimestamps.count >= 2 else {
+            return 0
+        }
+        
+        // Calculate time difference between first and last frame
+        let timeInterval = frameTimestamps.last! - frameTimestamps.first!
+        
+        // Calculate frames per second
+        return timeInterval > 0 ? Double(frameTimestamps.count - 1) / timeInterval : 0
+    }
 }
 
 // MARK: - ResultsListener and InferenceTimeListener Implementation
@@ -1793,22 +1845,44 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
     }
     
     nonisolated func on(result: YOLOResult) {
-        // Since this is nonisolated, we need to dispatch to the main actor
-        Task { @MainActor [weak self] in
-            guard let self = self else { return }
+    // Since this is nonisolated, we need to dispatch to the main actor
+    Task { @MainActor [weak self] in
+        guard let self = self else { return }
+        
+        // Ensure we're on the main thread for UI operations
+        dispatchPrecondition(condition: .onQueue(.main))
+        
+        // Increment the frame counter
+        self.frameCount += 1
+        
+        // Record timestamp for performance monitoring
+        let timestamp = CACurrentMediaTime()
+        self.frameTimestamps.append(timestamp)
+        
+        // Only keep the last 60 timestamps for rolling performance calculation
+        if self.frameTimestamps.count > 60 {
+            self.frameTimestamps.removeFirst()
+        }
+        
+        // Calculate FPS
+        let currentFPS = self.calculateCurrentFPS()
+        
+        // Log occasionally
+        if self.frameCount % 30 == 0 {
+            print("GoPro: VLC Player - Receiving frames at \(String(format: "%.2f", currentFPS)) FPS (avg: \(String(format: "%.2f", self.averageFPS)))")
+        }
+        
+        // Update FPS delegate
+        if let delegate = self.delegate {
+            delegate.frameSource(self, didUpdateWithSpeed: result.speed, fps: currentFPS)
+        }
             
-            // Ensure we're on the main thread for UI operations
-            dispatchPrecondition(condition: .onQueue(.main))
-            
-            // Log that we received detection results
+                    // Log detection information (only if there are boxes to avoid spam)
+        if result.boxes.count > 0 {
             print("GoPro: Received detection result with \(result.boxes.count) boxes")
             
-            // Transform coordinates based on source vs display dimensions
-            var transformedResult = result
-            
-            // Apply coordinate transformation here if needed
-            // This ensures the coordinates match the display view
-            transformedResult = self.transformResultCoordinates(result)
+            // Transform result coordinates to match the view's coordinate space
+            let transformedResult = self.transformResultCoordinates(result)
             
             // Verify the delegate chain
             if let videoCaptureDelegate = self.videoCaptureDelegate {
@@ -1816,15 +1890,33 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
                 
                 // Forward to video capture delegate for YOLOView integration
                 videoCaptureDelegate.onPredict(result: transformedResult)
-            } else {
-                print("GoPro: WARNING - videoCaptureDelegate is nil for prediction result")
-                print("GoPro: Detection results are being LOST!")
                 
-                // Try to reestablish the delegate connection if possible
-                if let view = self.delegate as? VideoCaptureDelegate {
-                    print("GoPro: Attempting to recover by connecting to delegate")
-                    self.videoCaptureDelegate = view
-                    view.onPredict(result: transformedResult)
+                // CRITICAL FIX: Force a redraw of the container view to ensure boxes are visible
+                if let containerView = self.containerView {
+                    containerView.setNeedsDisplay()
+                    containerView.layoutIfNeeded()
+                }
+                
+                // If the containerView is a YOLOView, make sure bounding boxes are visible
+                if let yoloView = self.containerView as? YOLOView {
+                    for box in yoloView.boundingBoxViews {
+                        if !box.shapeLayer.isHidden {
+                            // Ensure the box layer is not hidden and has the right z-position
+                            box.shapeLayer.zPosition = 1000
+                            box.textLayer.zPosition = 1001
+                        }
+                    }
+                }
+                } else {
+                    print("GoPro: WARNING - videoCaptureDelegate is nil for prediction result")
+                    print("GoPro: Detection results are being LOST!")
+                    
+                    // Try to reestablish the delegate connection if possible
+                    if let view = self.delegate as? VideoCaptureDelegate {
+                        print("GoPro: Attempting to recover by connecting to delegate")
+                        self.videoCaptureDelegate = view
+                        view.onPredict(result: transformedResult)
+                    }
                 }
             }
         }
@@ -2008,4 +2100,28 @@ extension UIView {
         // Get the snapshot image
         return UIGraphicsGetImageFromCurrentImageContext()
     }
+}
+
+/// Creates a player view for displaying the VLC video output
+@MainActor
+private func createPlayerView() -> UIView {
+    let view = UIView()
+    view.backgroundColor = .black
+    view.translatesAutoresizingMaskIntoConstraints = false
+    
+    // Add tag for easier identification in the view hierarchy
+    view.tag = 9876
+    
+    // CRITICAL: Ensure this view correctly handles CALayer drawing for bounding boxes
+    view.layer.shouldRasterize = false
+    view.layer.drawsAsynchronously = false
+    
+    // Ensure the view's layer can properly display sublayers
+    view.layer.masksToBounds = false
+    view.clipsToBounds = false
+    
+    // Name the layer for easier debugging
+    view.layer.name = "goProPlayerLayer"
+    
+    return view
 }

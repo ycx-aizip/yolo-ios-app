@@ -728,10 +728,10 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             let screenHeight = pixelHeight * scaleY
             
             let screenRect = CGRect(
-              x: screenX, 
-              y: screenY,
-              width: screenWidth,
-              height: screenHeight
+                x: screenX,
+                y: screenY,
+                width: screenWidth,
+                height: screenHeight
             )
             
             print("YOLOView: GoPro box \(i) - Transformed to screen rect: \(screenRect)")
@@ -739,7 +739,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             
             // Set the box with the calculated screen coordinates
             boundingBoxViews[i].show(
-              frame: screenRect, label: label, color: boxColor, alpha: alpha)
+                frame: screenRect, label: label, color: boxColor, alpha: alpha)
           } else {
             // Original camera frame handling
           if ratio >= 1 {
@@ -977,10 +977,10 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             let screenHeight = pixelHeight * scaleY
             
             let screenRect = CGRect(
-              x: screenX, 
-              y: screenY,
-              width: screenWidth,
-              height: screenHeight
+                x: screenX,
+                y: screenY,
+                width: screenWidth,
+                height: screenHeight
             )
             
             if i < 3 {
@@ -2640,6 +2640,27 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     // Set up integration with proper delegates
     goProSource.integrateWithYOLOView(view: self)
+    
+    // CRITICAL FIX: Ensure bounding box views are properly set up for GoPro source
+    print("YOLOView: Setting up bounding box views for GoPro source")
+    
+    // Reset all bounding box views
+    boundingBoxViews.forEach { box in
+      box.hide()
+    }
+    
+    // Setup overlay layer
+    setupOverlayLayer()
+    
+    // Ensure all bounding box views are added to the right layer
+    if let goProPlayerView = goProSource.playerView {
+      boundingBoxViews.forEach { box in
+        box.addToLayer(goProPlayerView.layer)
+      }
+      
+      // Add overlay layer to the player view
+      goProPlayerView.layer.addSublayer(overlayLayer)
+    }
     
     // Register to receive frame size updates
     NotificationCenter.default.addObserver(
