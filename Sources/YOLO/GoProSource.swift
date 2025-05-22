@@ -1086,6 +1086,15 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     private func broadcastFrameSizeChange(_ size: CGSize) {
         // Post a notification with the new frame size
         print("GoPro: Broadcasting frame size change: \(size)")
+        
+        // Store the frame size locally
+        self.lastFrameSize = size
+        
+        // Update frame dimensions for FrameSource protocol
+        self.longSide = max(size.width, size.height)
+        self.shortSide = min(size.width, size.height)
+        
+        // Broadcast to all observers
         NotificationCenter.default.post(
             name: NSNotification.Name("GoProFrameSizeChanged"),
             object: self,
@@ -1095,9 +1104,13 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         // Also try to directly update YOLOView if we can find it
         if let yoloView = self.videoCaptureDelegate as? YOLOView {
             print("GoPro: Directly updating YOLOView with frame size: \(size)")
+            yoloView.goProLastFrameSize = size
             
-            // Just log that we found the YOLOView - the notification above will handle the update
-            print("GoPro: Found YOLOView, notification should update its frame size")
+            // Force layout update to ensure proper coordinate transformation
+            DispatchQueue.main.async {
+                yoloView.setNeedsLayout()
+                yoloView.layoutIfNeeded()
+            }
         }
     }
     
@@ -1942,9 +1955,13 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
             let videoAspectRatio = lastFrameSize.width / lastFrameSize.height
             let viewAspectRatio = containerView.bounds.width / containerView.bounds.height
             
+            // Get the current orientation
+            let isPortrait = UIDevice.current.orientation.isPortrait || 
+                            (!UIDevice.current.orientation.isLandscape && containerView.bounds.height > containerView.bounds.width)
+            
             // Log the dimensions and aspect ratios for debugging
             print("\(frameLogPrefix) Frame size: \(lastFrameSize), Container size: \(containerView.bounds.size)")
-            print("\(frameLogPrefix) Video aspect: \(videoAspectRatio), View aspect: \(viewAspectRatio)")
+            print("\(frameLogPrefix) Video aspect: \(videoAspectRatio), View aspect: \(viewAspectRatio), isPortrait: \(isPortrait)")
             
             // For each box, create a new version with transformed coordinates
             for (i, box) in result.boxes.enumerated() {
@@ -1963,44 +1980,95 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
                 let containerWidth = containerView.bounds.width
                 let containerHeight = containerView.bounds.height
                 
-                if videoAspectRatio > viewAspectRatio {
-                    // Video is wider than container (letterboxing - black bars on top/bottom)
-                    // Calculate scaled height and vertical offset
-                    let scaledHeight = containerWidth / videoAspectRatio
-                    let verticalOffset = (containerHeight - scaledHeight) / 2
-                    
-                    // Scale and offset y-coordinates
-                    let yScale = scaledHeight / containerHeight
-                    let normalizedOffset = verticalOffset / containerHeight
-                    
-                    // Adjust y-coordinates
-                    adjustedBox.origin.y = (originalBox.origin.y * yScale) + normalizedOffset
-                    adjustedBox.size.height = originalBox.size.height * yScale
-                    
-                    // Log transformation factors
-                    if i < 3 || frameCount % 60 == 0 {
-                        print("\(frameLogPrefix) Letterboxing: yScale=\(yScale), normalizedOffset=\(normalizedOffset)")
+                // CRITICAL FIX: Separate handling for portrait and landscape modes
+                if isPortrait {
+                    // PORTRAIT MODE HANDLING
+                    if videoAspectRatio > viewAspectRatio {
+                        // Video is wider than container (letterboxing - black bars on top/bottom)
+                        // Calculate scaled height and vertical offset
+                        let scaledHeight = containerWidth / videoAspectRatio
+                        let verticalOffset = (containerHeight - scaledHeight) / 2
+                        
+                        // Scale and offset y-coordinates
+                        let yScale = scaledHeight / containerHeight
+                        let normalizedOffset = verticalOffset / containerHeight
+                        
+                        // Adjust y-coordinates - FIXED for portrait mode
+                        adjustedBox.origin.y = (originalBox.origin.y * yScale) + normalizedOffset
+                        adjustedBox.size.height = originalBox.size.height * yScale
+                        
+                        // Log transformation factors
+                        if i < 3 || frameCount % 60 == 0 {
+                            print("\(frameLogPrefix) Portrait Letterboxing: yScale=\(yScale), normalizedOffset=\(normalizedOffset)")
+                        }
+                    } else if videoAspectRatio < viewAspectRatio {
+                        // Video is taller than container (pillarboxing - black bars on sides)
+                        // Calculate scaled width and horizontal offset
+                        let scaledWidth = containerHeight * videoAspectRatio
+                        let horizontalOffset = (containerWidth - scaledWidth) / 2
+                        
+                        // Scale and offset x-coordinates
+                        let xScale = scaledWidth / containerWidth
+                        let normalizedOffset = horizontalOffset / containerWidth
+                        
+                        // Adjust x-coordinates - FIXED for portrait mode
+                        adjustedBox.origin.x = (originalBox.origin.x * xScale) + normalizedOffset
+                        adjustedBox.size.width = originalBox.size.width * xScale
+                        
+                        // Log transformation factors
+                        if i < 3 || frameCount % 60 == 0 {
+                            print("\(frameLogPrefix) Portrait Pillarboxing: xScale=\(xScale), normalizedOffset=\(normalizedOffset)")
+                        }
                     }
-                } else if videoAspectRatio < viewAspectRatio {
-                    // Video is taller than container (pillarboxing - black bars on sides)
-                    // Calculate scaled width and horizontal offset
-                    let scaledWidth = containerHeight * videoAspectRatio
-                    let horizontalOffset = (containerWidth - scaledWidth) / 2
-                    
-                    // Scale and offset x-coordinates
-                    let xScale = scaledWidth / containerWidth
-                    let normalizedOffset = horizontalOffset / containerWidth
-                    
-                    // Adjust x-coordinates
-                    adjustedBox.origin.x = (originalBox.origin.x * xScale) + normalizedOffset
-                    adjustedBox.size.width = originalBox.size.width * xScale
-                    
-                    // Log transformation factors
-                    if i < 3 || frameCount % 60 == 0 {
-                        print("\(frameLogPrefix) Pillarboxing: xScale=\(xScale), normalizedOffset=\(normalizedOffset)")
+                } else {
+                    // LANDSCAPE MODE HANDLING
+                    if videoAspectRatio > viewAspectRatio {
+                        // Video is wider than container (letterboxing - black bars on top/bottom)
+                        // Calculate scaled height and vertical offset
+                        let scaledHeight = containerWidth / videoAspectRatio
+                        let verticalOffset = (containerHeight - scaledHeight) / 2
+                        
+                        // Scale and offset y-coordinates
+                        let yScale = scaledHeight / containerHeight
+                        let normalizedOffset = verticalOffset / containerHeight
+                        
+                        // Adjust y-coordinates for landscape
+                        adjustedBox.origin.y = (originalBox.origin.y * yScale) + normalizedOffset
+                        adjustedBox.size.height = originalBox.size.height * yScale
+                        
+                        // Log transformation factors
+                        if i < 3 || frameCount % 60 == 0 {
+                            print("\(frameLogPrefix) Landscape Letterboxing: yScale=\(yScale), normalizedOffset=\(normalizedOffset)")
+                        }
+                    } else if videoAspectRatio < viewAspectRatio {
+                        // Video is taller than container (pillarboxing - black bars on sides)
+                        // Calculate scaled width and horizontal offset
+                        let scaledWidth = containerHeight * videoAspectRatio
+                        let horizontalOffset = (containerWidth - scaledWidth) / 2
+                        
+                        // Scale and offset x-coordinates
+                        let xScale = scaledWidth / containerWidth
+                        let normalizedOffset = horizontalOffset / containerWidth
+                        
+                        // Adjust x-coordinates for landscape
+                        adjustedBox.origin.x = (originalBox.origin.x * xScale) + normalizedOffset
+                        adjustedBox.size.width = originalBox.size.width * xScale
+                        
+                        // Log transformation factors
+                        if i < 3 || frameCount % 60 == 0 {
+                            print("\(frameLogPrefix) Landscape Pillarboxing: xScale=\(xScale), normalizedOffset=\(normalizedOffset)")
+                        }
                     }
                 }
                 // else - aspect ratios match, no adjustment needed
+                
+                // IMPORTANT: For portrait mode, we need to handle the Y-coordinate inversion
+                // In portrait mode, Y=0 in the model output is the top of the image,
+                // but Y=0 in the display is the bottom of the image
+                if isPortrait {
+                    // Invert Y coordinate for portrait mode
+                    adjustedBox.origin.y = 1.0 - adjustedBox.origin.y - adjustedBox.size.height
+                }
                 
                 // Log adjusted coordinates
                 if i < 3 || frameCount % 60 == 0 {
