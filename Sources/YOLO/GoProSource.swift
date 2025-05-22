@@ -186,18 +186,48 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             print("GoPro: Stopping stream and cleaning up resources")
             
             // Stop the VLC player
-                    self.videoPlayer?.stop()
-                    
+            self.videoPlayer?.stop()
+            
             // Clean up player view from the container
             if let playerView = self.playerView {
-                // Ensure all constraints are removed first
-                NSLayoutConstraint.deactivate(playerView.constraints)
+                // Make sure we're on the main thread
+                dispatchPrecondition(condition: .onQueue(.main))
                 
-                // Remove from superview
+                // First make the view invisible to prevent flicker
+                playerView.isHidden = true
+                
+                // CRITICAL FIX: Before removing from hierarchy, store references to all constraints
+                let playerViewConstraints = playerView.constraints
+                let playerSuperview = playerView.superview
+                var superviewConstraints: [NSLayoutConstraint] = []
+                
+                // Find and collect all constraints in the superview that reference our player view
+                if let superview = playerSuperview {
+                    superviewConstraints = superview.constraints.filter { constraint in
+                        return (constraint.firstItem === playerView || constraint.secondItem === playerView)
+                    }
+                    
+                    // Deactivate superview constraints that reference the player view
+                    if !superviewConstraints.isEmpty {
+                        print("GoPro: Deactivating \(superviewConstraints.count) superview constraints")
+                        NSLayoutConstraint.deactivate(superviewConstraints)
+                    }
+                }
+                
+                // Deactivate the player view's own constraints
+                if !playerViewConstraints.isEmpty {
+                    print("GoPro: Deactivating \(playerViewConstraints.count) player view constraints")
+                    NSLayoutConstraint.deactivate(playerViewConstraints)
+                }
+                
+                // Now it's safe to remove from superview
                 playerView.removeFromSuperview()
                 
                 print("GoPro: Player view removed from hierarchy")
             }
+            
+            // Break circular references 
+            self.containerView = nil
             
             // Reset all state variables
             self.hasReceivedFirstFrame = false
@@ -490,16 +520,27 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     // Process the current frame for either inference or calibration
     @MainActor
     private func processCurrentFrame() {
+        // Measure frame extraction time
+        let extractionStartTime = CACurrentMediaTime()
+        
         guard let frameImage = extractCurrentFrame() else {
             print("GoPro: Failed to extract frame for processing")
             return
         }
+        
+        // Calculate and log extraction time
+        let extractionTime = (CACurrentMediaTime() - extractionStartTime) * 1000 // in ms
         
         // Check if the extracted image is our test pattern
         let isTestPattern = (frameImage.size.width == 1280 && frameImage.size.height == 720)
         
         // Always send the frame to the delegate for display, even if it's a test pattern
         delegate?.frameSource(self, didOutputImage: frameImage)
+        
+        // Log extraction performance occasionally
+        if frameCount % 60 == 0 {
+            print("GoPro: Frame #\(frameCount) extraction took \(String(format: "%.1f", extractionTime))ms, size: \(frameImage.size), isTestPattern: \(isTestPattern)")
+        }
         
         // Skip inference if this is just a test pattern
         if isTestPattern {
@@ -545,10 +586,16 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         
         // Process with predictor if inference is enabled
         if inferenceOK, let predictor = self.predictor {
+            // Measure sample buffer creation time
+            let bufferStartTime = CACurrentMediaTime()
+            
             if let sampleBuffer = processExtractedFrame(frameImage) {
-                // Log detection attempt occasionally
+                let bufferTime = (CACurrentMediaTime() - bufferStartTime) * 1000 // in ms
+                
+                // Log inference attempt details periodically
                 if frameCount % 60 == 0 {
                     print("GoPro: Running detection on frame #\(frameCount), size: \(frameImage.size)")
+                    print("GoPro: Buffer creation took \(String(format: "%.1f", bufferTime))ms")
                 }
                 
                 // Ensure the delegate is set up correctly
@@ -685,6 +732,12 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             return
         }
         
+        // CRITICAL FIX: Verify the player view is still in the view hierarchy
+        guard playerView.superview === containerView else {
+            print("GoPro: Warning - Player view is not in the container's hierarchy")
+            return
+        }
+        
         // Remove any aspect constraints we've previously added
         containerView.constraints.forEach { constraint in
             if constraint.identifier?.contains("aspect") == true && 
@@ -723,12 +776,16 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         topConstraint.identifier = "playerViewTop"
         bottomConstraint.identifier = "playerViewBottom"
         
-        NSLayoutConstraint.activate([
+        // CRITICAL FIX: Store references to the constraints we're activating
+        let constraints = [
             leadingConstraint,
             trailingConstraint,
             topConstraint,
             bottomConstraint
-        ])
+        ]
+        
+        // Activate constraints and store references
+        NSLayoutConstraint.activate(constraints)
         
         // Force immediate layout
         containerView.layoutIfNeeded()
@@ -962,6 +1019,23 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                     print("GoPro: Received invalid frame size: \(videoSize). Waiting for valid frame...")
                     return // Skip processing this frame
                 }
+            } else if frameCount % 60 == 0 {
+                // Periodically check if the video size has changed and broadcast updates
+                if videoSize.width > 0 && videoSize.height > 0 && 
+                   (self.lastFrameSize.width != videoSize.width || self.lastFrameSize.height != videoSize.height) {
+                    print("GoPro: Frame size changed from \(self.lastFrameSize) to \(videoSize)")
+                    
+                    // Update our stored dimensions
+                    self.longSide = max(videoSize.width, videoSize.height)
+                    self.shortSide = min(videoSize.width, videoSize.height)
+                    self.lastFrameSize = videoSize
+                    
+                    // Broadcast the size change
+                    self.broadcastFrameSizeChange(videoSize)
+                    
+                    // Update layout if needed
+                    self.updatePlayerViewLayout()
+                }
             }
             
             // Use our enhanced frame processing method
@@ -993,11 +1067,20 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     @MainActor
     private func broadcastFrameSizeChange(_ size: CGSize) {
         // Post a notification with the new frame size
+        print("GoPro: Broadcasting frame size change: \(size)")
         NotificationCenter.default.post(
             name: NSNotification.Name("GoProFrameSizeChanged"),
             object: self,
             userInfo: ["frameSize": size]
         )
+        
+        // Also try to directly update YOLOView if we can find it
+        if let yoloView = self.videoCaptureDelegate as? YOLOView {
+            print("GoPro: Directly updating YOLOView with frame size: \(size)")
+            
+            // Just log that we found the YOLOView - the notification above will handle the update
+            print("GoPro: Found YOLOView, notification should update its frame size")
+        }
     }
     
     /// Calculate instantaneous FPS based on recent frame timestamps
@@ -1717,6 +1800,9 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
             // Ensure we're on the main thread for UI operations
             dispatchPrecondition(condition: .onQueue(.main))
             
+            // Log that we received detection results
+            print("GoPro: Received detection result with \(result.boxes.count) boxes")
+            
             // Transform coordinates based on source vs display dimensions
             var transformedResult = result
             
@@ -1724,11 +1810,22 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
             // This ensures the coordinates match the display view
             transformedResult = self.transformResultCoordinates(result)
             
-            // Forward to video capture delegate for YOLOView integration
+            // Verify the delegate chain
             if let videoCaptureDelegate = self.videoCaptureDelegate {
+                print("GoPro: Sending \(transformedResult.boxes.count) boxes to videoCaptureDelegate")
+                
+                // Forward to video capture delegate for YOLOView integration
                 videoCaptureDelegate.onPredict(result: transformedResult)
             } else {
-                print("GoPro: Warning - videoCaptureDelegate is nil for prediction result")
+                print("GoPro: WARNING - videoCaptureDelegate is nil for prediction result")
+                print("GoPro: Detection results are being LOST!")
+                
+                // Try to reestablish the delegate connection if possible
+                if let view = self.delegate as? VideoCaptureDelegate {
+                    print("GoPro: Attempting to recover by connecting to delegate")
+                    self.videoCaptureDelegate = view
+                    view.onPredict(result: transformedResult)
+                }
             }
         }
     }
@@ -1737,6 +1834,9 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
     private func transformResultCoordinates(_ result: YOLOResult) -> YOLOResult {
         // Create a new array of boxes with transformed coordinates
         var transformedBoxes: [Box] = []
+        
+        // Log debugging information for coordinate transformation
+        let frameLogPrefix = "GoPro Coord Debug:"
         
         // Only transform coordinates if we have valid dimensions
         if lastFrameSize.width > 0 && lastFrameSize.height > 0,
@@ -1747,32 +1847,70 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
             let videoAspectRatio = lastFrameSize.width / lastFrameSize.height
             let viewAspectRatio = containerView.bounds.width / containerView.bounds.height
             
+            // Log the dimensions and aspect ratios for debugging
+            print("\(frameLogPrefix) Frame size: \(lastFrameSize), Container size: \(containerView.bounds.size)")
+            print("\(frameLogPrefix) Video aspect: \(videoAspectRatio), View aspect: \(viewAspectRatio)")
+            
             // For each box, create a new version with transformed coordinates
-            for box in result.boxes {
+            for (i, box) in result.boxes.enumerated() {
                 // The original boxes are in normalized coordinates (0-1)
                 let originalBox = box.xywhn
+                
+                // Log original box coordinates
+                if i < 3 || frameCount % 60 == 0 { // Only log first 3 boxes or occasionally
+                    print("\(frameLogPrefix) Box \(i) original: \(originalBox)")
+                }
                 
                 // We need to adjust for letterboxing/pillarboxing
                 var adjustedBox = originalBox
                 
+                // Calculate scaling factors and offsets - corrected logic
+                let containerWidth = containerView.bounds.width
+                let containerHeight = containerView.bounds.height
+                
                 if videoAspectRatio > viewAspectRatio {
-                    // Letterboxing (bars on top and bottom)
-                    // Adjust y coordinates to account for letterboxing
-                    let scaleFactor = viewAspectRatio / videoAspectRatio
-                    let offsetY = (1 - scaleFactor) / 2
+                    // Video is wider than container (letterboxing - black bars on top/bottom)
+                    // Calculate scaled height and vertical offset
+                    let scaledHeight = containerWidth / videoAspectRatio
+                    let verticalOffset = (containerHeight - scaledHeight) / 2
                     
-                    adjustedBox.origin.y = offsetY + originalBox.origin.y * scaleFactor
-                    adjustedBox.size.height = originalBox.size.height * scaleFactor
+                    // Scale and offset y-coordinates
+                    let yScale = scaledHeight / containerHeight
+                    let normalizedOffset = verticalOffset / containerHeight
+                    
+                    // Adjust y-coordinates
+                    adjustedBox.origin.y = (originalBox.origin.y * yScale) + normalizedOffset
+                    adjustedBox.size.height = originalBox.size.height * yScale
+                    
+                    // Log transformation factors
+                    if i < 3 || frameCount % 60 == 0 {
+                        print("\(frameLogPrefix) Letterboxing: yScale=\(yScale), normalizedOffset=\(normalizedOffset)")
+                    }
                 } else if videoAspectRatio < viewAspectRatio {
-                    // Pillarboxing (bars on left and right)
-                    // Adjust x coordinates to account for pillarboxing
-                    let scaleFactor = videoAspectRatio / viewAspectRatio
-                    let offsetX = (1 - scaleFactor) / 2
+                    // Video is taller than container (pillarboxing - black bars on sides)
+                    // Calculate scaled width and horizontal offset
+                    let scaledWidth = containerHeight * videoAspectRatio
+                    let horizontalOffset = (containerWidth - scaledWidth) / 2
                     
-                    adjustedBox.origin.x = offsetX + originalBox.origin.x * scaleFactor
-                    adjustedBox.size.width = originalBox.size.width * scaleFactor
+                    // Scale and offset x-coordinates
+                    let xScale = scaledWidth / containerWidth
+                    let normalizedOffset = horizontalOffset / containerWidth
+                    
+                    // Adjust x-coordinates
+                    adjustedBox.origin.x = (originalBox.origin.x * xScale) + normalizedOffset
+                    adjustedBox.size.width = originalBox.size.width * xScale
+                    
+                    // Log transformation factors
+                    if i < 3 || frameCount % 60 == 0 {
+                        print("\(frameLogPrefix) Pillarboxing: xScale=\(xScale), normalizedOffset=\(normalizedOffset)")
+                    }
                 }
                 // else - aspect ratios match, no adjustment needed
+                
+                // Log adjusted coordinates
+                if i < 3 || frameCount % 60 == 0 {
+                    print("\(frameLogPrefix) Box \(i) adjusted: \(adjustedBox)")
+                }
                 
                 // Create a new Box with adjusted coordinates
                 // We need to recreate the box entirely since xywhn is immutable
@@ -1787,6 +1925,14 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
                 transformedBoxes.append(transformedBox)
             }
         } else {
+            // Log the issue with dimensions
+            print("\(frameLogPrefix) Cannot transform coordinates - invalid dimensions:")
+            print("\(frameLogPrefix) Frame size: \(lastFrameSize)")
+            print("\(frameLogPrefix) Container view: \(containerView != nil ? "exists" : "nil")")
+            if let containerView = containerView {
+                print("\(frameLogPrefix) Container bounds: \(containerView.bounds)")
+            }
+            
             // If we don't have valid dimensions, just use the original boxes
             transformedBoxes = result.boxes
         }

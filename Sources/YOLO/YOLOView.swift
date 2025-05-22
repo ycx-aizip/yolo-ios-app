@@ -679,44 +679,67 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             let sourceWidth = goProLastFrameSize.width > 0 ? goProLastFrameSize.width : 1920
             let sourceHeight = goProLastFrameSize.height > 0 ? goProLastFrameSize.height : 1080
             
+            // Log dimensions for debugging
+            print("YOLOView: GoPro box \(i) - Source size: \(goProLastFrameSize), View size: \(width)x\(height)")
+            print("YOLOView: GoPro box \(i) - Original rect: \(rect)")
+            
+            // CRITICAL FIX: Use proper screen coordinates rather than normalized coordinates
+            let viewWidth = width
+            let viewHeight = height
+            
+            // First, convert normalized coordinates [0-1] to absolute source pixel coordinates
+            let pixelX = rect.minX * sourceWidth
+            let pixelY = rect.minY * sourceHeight
+            let pixelWidth = rect.width * sourceWidth
+            let pixelHeight = rect.height * sourceHeight
+            
             // Calculate aspect ratios
             let sourceAspect = sourceWidth / sourceHeight
-            let viewAspect = width / height
+            let viewAspect = viewWidth / viewHeight
             
-            // Calculate scaling factors and offsets to maintain aspect ratio
-            var xScale: CGFloat = 1.0
-            var yScale: CGFloat = 1.0
-            var xOffset: CGFloat = 0.0
-            var yOffset: CGFloat = 0.0
+            // Calculate scaling to fit source dimensions into view dimensions
+            var scaleX: CGFloat = 1.0
+            var scaleY: CGFloat = 1.0
             
             if sourceAspect > viewAspect {
-                // Source is wider than view - letterboxing (black bars on top/bottom)
-                yScale = width / sourceWidth
-                xScale = yScale
-                yOffset = (height - (sourceHeight * yScale)) / 2
+              // Source is wider than view - letterboxing
+              scaleX = viewWidth / sourceWidth
+              scaleY = scaleX // Maintain aspect ratio
+              
+              print("YOLOView: Using letterboxing - scale=\(scaleX)")
             } else {
-                // Source is taller than view - pillarboxing (black bars on sides)
-                xScale = height / sourceHeight
-                yScale = xScale
-                xOffset = (width - (sourceWidth * xScale)) / 2
+              // Source is taller than view - pillarboxing
+              scaleY = viewHeight / sourceHeight
+              scaleX = scaleY // Maintain aspect ratio
+              
+              print("YOLOView: Using pillarboxing - scale=\(scaleY)")
             }
             
-            // Transform normalized coordinates to screen space, maintaining aspect ratio
-            let screenX = rect.minX * sourceWidth * xScale + xOffset
-            let screenY = rect.minY * sourceHeight * yScale + yOffset
-            let screenWidth = rect.width * sourceWidth * xScale
-            let screenHeight = rect.height * sourceHeight * yScale
+            // Calculate offsets for centering the content
+            let scaledWidth = sourceWidth * scaleX
+            let scaledHeight = sourceHeight * scaleY
+            let offsetX = (viewWidth - scaledWidth) / 2
+            let offsetY = (viewHeight - scaledHeight) / 2
+            
+            // Convert to screen coordinates
+            let screenX = pixelX * scaleX + offsetX
+            let screenY = pixelY * scaleY + offsetY
+            let screenWidth = pixelWidth * scaleX
+            let screenHeight = pixelHeight * scaleY
             
             let screenRect = CGRect(
-                x: screenX,
-                y: screenY,
-                width: screenWidth,
-                height: screenHeight
+              x: screenX, 
+              y: screenY,
+              width: screenWidth,
+              height: screenHeight
             )
             
-            // Show the box with correct coordinates
+            print("YOLOView: GoPro box \(i) - Transformed to screen rect: \(screenRect)")
+            print("YOLOView: Scales: \(scaleX)x\(scaleY), Offsets: \(offsetX)x\(offsetY)")
+            
+            // Set the box with the calculated screen coordinates
             boundingBoxViews[i].show(
-                frame: screenRect, label: label, color: boxColor, alpha: alpha)
+              frame: screenRect, label: label, color: boxColor, alpha: alpha)
           } else {
             // Original camera frame handling
           if ratio >= 1 {
@@ -899,44 +922,76 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             let sourceWidth = goProLastFrameSize.width > 0 ? goProLastFrameSize.width : 1920
             let sourceHeight = goProLastFrameSize.height > 0 ? goProLastFrameSize.height : 1080
             
-            // Calculate aspect ratios
-            let sourceAspect = sourceWidth / sourceHeight
-            let viewAspect = width / height
-            
-            // Calculate scaling factors and offsets to maintain aspect ratio
-            var xScale: CGFloat = 1.0
-            var yScale: CGFloat = 1.0
-            var xOffset: CGFloat = 0.0
-            var yOffset: CGFloat = 0.0
-            
-            if sourceAspect > viewAspect {
-                // Source is wider than view - letterboxing (black bars on top/bottom)
-                yScale = width / sourceWidth
-                xScale = yScale
-                yOffset = (height - (sourceHeight * yScale)) / 2
-            } else {
-                // Source is taller than view - pillarboxing (black bars on sides)
-                xScale = height / sourceHeight
-                yScale = xScale
-                xOffset = (width - (sourceWidth * xScale)) / 2
+            // Log dimensions for debugging in landscape mode
+            if i < 3 { // Only log first few boxes to avoid spam
+              print("YOLOView(Landscape): GoPro box \(i) - Source size: \(goProLastFrameSize), View size: \(width)x\(height)")
+              print("YOLOView(Landscape): GoPro box \(i) - Original rect: \(rect)")
             }
             
-            // Transform normalized coordinates to screen space, maintaining aspect ratio
-            let screenX = rect.minX * sourceWidth * xScale + xOffset
-            let screenY = rect.minY * sourceHeight * yScale + yOffset
-            let screenWidth = rect.width * sourceWidth * xScale
-            let screenHeight = rect.height * sourceHeight * yScale
+            // CRITICAL FIX: Use proper screen coordinates rather than normalized coordinates
+            let viewWidth = width 
+            let viewHeight = height
+            
+            // First, convert normalized coordinates [0-1] to absolute source pixel coordinates
+            let pixelX = rect.minX * sourceWidth
+            let pixelY = rect.minY * sourceHeight
+            let pixelWidth = rect.width * sourceWidth
+            let pixelHeight = rect.height * sourceHeight
+            
+            // Calculate aspect ratios
+            let sourceAspect = sourceWidth / sourceHeight
+            let viewAspect = viewWidth / viewHeight
+            
+            // Calculate scaling to fit source dimensions into view dimensions
+            var scaleX: CGFloat = 1.0
+            var scaleY: CGFloat = 1.0
+            
+            if sourceAspect > viewAspect {
+              // Source is wider than view - letterboxing
+              scaleX = viewWidth / sourceWidth
+              scaleY = scaleX // Maintain aspect ratio
+              
+              if i < 3 {
+                print("YOLOView(Landscape): Using letterboxing - scale=\(scaleX)")
+              }
+            } else {
+              // Source is taller than view - pillarboxing
+              scaleY = viewHeight / sourceHeight
+              scaleX = scaleY // Maintain aspect ratio
+              
+              if i < 3 {
+                print("YOLOView(Landscape): Using pillarboxing - scale=\(scaleY)")
+              }
+            }
+            
+            // Calculate offsets for centering the content
+            let scaledWidth = sourceWidth * scaleX
+            let scaledHeight = sourceHeight * scaleY
+            let offsetX = (viewWidth - scaledWidth) / 2
+            let offsetY = (viewHeight - scaledHeight) / 2
+            
+            // Convert to screen coordinates
+            let screenX = pixelX * scaleX + offsetX
+            let screenY = pixelY * scaleY + offsetY
+            let screenWidth = pixelWidth * scaleX
+            let screenHeight = pixelHeight * scaleY
             
             let screenRect = CGRect(
-                x: screenX,
-                y: screenY,
-                width: screenWidth,
-                height: screenHeight
+              x: screenX, 
+              y: screenY,
+              width: screenWidth,
+              height: screenHeight
             )
             
-            // Show the box with correct coordinates
+            if i < 3 {
+              print("YOLOView(Landscape): GoPro box \(i) - Transformed to screen rect: \(screenRect)")
+              print("YOLOView(Landscape): Scales: \(scaleX)x\(scaleY), Offsets: \(offsetX)x\(offsetY)")
+            }
+            
+            // Set the box with the calculated screen coordinates
             boundingBoxViews[i].show(
-                frame: screenRect, label: label, color: boxColor, alpha: alpha)
+              frame: screenRect, label: label, color: boxColor, alpha: alpha
+            )
           } else {
             // Original camera frame handling
             // Transform rectangle to screen coordinates - use currentFrameSource
