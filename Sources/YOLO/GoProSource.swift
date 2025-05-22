@@ -2062,13 +2062,12 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
                 }
                 // else - aspect ratios match, no adjustment needed
                 
-                // IMPORTANT: For portrait mode, we need to handle the Y-coordinate inversion
-                // In portrait mode, Y=0 in the model output is the top of the image,
+                // Handle Y-coordinate inversion for both portrait and landscape modes
+                // Y=0 in the model output is the top of the image,
                 // but Y=0 in the display is the bottom of the image
-                if isPortrait {
-                    // Invert Y coordinate for portrait mode
-                    adjustedBox.origin.y = 1.0 - adjustedBox.origin.y - adjustedBox.size.height
-                }
+                // CRITICAL FIX: We need to invert Y coordinates in both orientations
+                // Invert Y coordinate for both portrait and landscape modes
+                adjustedBox.origin.y = 1.0 - adjustedBox.origin.y - adjustedBox.size.height
                 
                 // Log adjusted coordinates
                 if i < 3 || frameCount % 60 == 0 {
