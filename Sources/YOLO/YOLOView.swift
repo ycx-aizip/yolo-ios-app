@@ -535,6 +535,17 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     var resultCount = 0
 
     resultCount = predictions.boxes.count
+    
+    // CRITICAL FIX: First hide all boxes, then only show the ones that are active
+    // This ensures boxes are cleared when no fish are present
+    boundingBoxViews.forEach { box in
+      box.hide()
+    }
+    
+    // If there are no boxes to show, return early
+    if resultCount == 0 {
+      return
+    }
 
     if UIDevice.current.orientation == .portrait {
       var ratio: CGFloat = 1.0
@@ -689,7 +700,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             
             // First, convert normalized coordinates [0-1] to absolute source pixel coordinates
             let pixelX = rect.minX * sourceWidth
-            let pixelY = rect.minY * sourceHeight
+            // FIX: Invert Y coordinate for GoPro source to match camera orientation
+            let pixelY = (1.0 - rect.minY - rect.height) * sourceHeight
             let pixelWidth = rect.width * sourceWidth
             let pixelHeight = rect.height * sourceHeight
             
@@ -771,8 +783,6 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
           boundingBoxViews[i].show(
             frame: displayRect, label: label, color: boxColor, alpha: alpha)
           }
-        } else {
-          boundingBoxViews[i].hide()
         }
       }
     } else {
@@ -797,11 +807,6 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         scaleX = width / currentFrameSource.longSide
         scaleY = scaleX
         offsetY = (currentFrameSource.shortSide * scaleY - height) / 2
-      }
-
-      // Important: First hide all boxes, then show only the active ones
-      for i in 0..<boundingBoxViews.count {
-        boundingBoxViews[i].hide()
       }
 
       // Then show only the active boxes
@@ -934,7 +939,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             
             // First, convert normalized coordinates [0-1] to absolute source pixel coordinates
             let pixelX = rect.minX * sourceWidth
-            let pixelY = rect.minY * sourceHeight
+            // FIX: Invert Y coordinate for GoPro source to match camera orientation
+            let pixelY = (1.0 - rect.minY - rect.height) * sourceHeight
             let pixelWidth = rect.width * sourceWidth
             let pixelHeight = rect.height * sourceHeight
             

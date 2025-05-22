@@ -1877,50 +1877,53 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
             delegate.frameSource(self, didUpdateWithSpeed: result.speed, fps: currentFPS)
         }
             
-                    // Log detection information (only if there are boxes to avoid spam)
-        if result.boxes.count > 0 {
-            print("GoPro: Received detection result with \(result.boxes.count) boxes")
-            
+        // IMPORTANT: Always notify the delegate about the result, even if there are no boxes
+        // This ensures boxes are cleared when no fish are present
+        if let videoCaptureDelegate = self.videoCaptureDelegate {
             // Transform result coordinates to match the view's coordinate space
             let transformedResult = self.transformResultCoordinates(result)
             
-            // Verify the delegate chain
-            if let videoCaptureDelegate = self.videoCaptureDelegate {
-                print("GoPro: Sending \(transformedResult.boxes.count) boxes to videoCaptureDelegate")
-                
-                // Forward to video capture delegate for YOLOView integration
-                videoCaptureDelegate.onPredict(result: transformedResult)
-                
-                // CRITICAL FIX: Force a redraw of the container view to ensure boxes are visible
-                if let containerView = self.containerView {
-                    containerView.setNeedsDisplay()
-                    containerView.layoutIfNeeded()
-                }
-                
-                // If the containerView is a YOLOView, make sure bounding boxes are visible
-                if let yoloView = self.containerView as? YOLOView {
-                    for box in yoloView.boundingBoxViews {
-                        if !box.shapeLayer.isHidden {
-                            // Ensure the box layer is not hidden and has the right z-position
-                            box.shapeLayer.zPosition = 1000
-                            box.textLayer.zPosition = 1001
-                        }
-                    }
-                }
-                } else {
-                    print("GoPro: WARNING - videoCaptureDelegate is nil for prediction result")
-                    print("GoPro: Detection results are being LOST!")
-                    
-                    // Try to reestablish the delegate connection if possible
-                    if let view = self.delegate as? VideoCaptureDelegate {
-                        print("GoPro: Attempting to recover by connecting to delegate")
-                        self.videoCaptureDelegate = view
-                        view.onPredict(result: transformedResult)
+            // Log detection information (only if there are boxes to avoid spam)
+            if result.boxes.count > 0 {
+                print("GoPro: Received detection result with \(result.boxes.count) boxes")
+            }
+            
+            // Forward to video capture delegate for YOLOView integration
+            // This will trigger box clearing if there are no boxes
+            videoCaptureDelegate.onPredict(result: transformedResult)
+            
+            // CRITICAL FIX: Force a redraw of the container view to ensure boxes are visible/hidden
+            if let containerView = self.containerView {
+                containerView.setNeedsDisplay()
+                containerView.layoutIfNeeded()
+            }
+            
+            // If the containerView is a YOLOView, make sure bounding boxes are visible
+            if let yoloView = self.containerView as? YOLOView {
+                for box in yoloView.boundingBoxViews {
+                    if !box.shapeLayer.isHidden {
+                        // Ensure the box layer is not hidden and has the right z-position
+                        box.shapeLayer.zPosition = 1000
+                        box.textLayer.zPosition = 1001
                     }
                 }
             }
+        } else {
+            print("GoPro: WARNING - videoCaptureDelegate is nil for prediction result")
+            print("GoPro: Detection results are being LOST!")
+            
+            // Try to reestablish the delegate connection if possible
+            if let view = self.delegate as? VideoCaptureDelegate {
+                print("GoPro: Attempting to recover by connecting to delegate")
+                self.videoCaptureDelegate = view
+                
+                // Transform result coordinates and forward
+                let transformedResult = self.transformResultCoordinates(result)
+                view.onPredict(result: transformedResult)
+            }
         }
     }
+}
     
     // Transform coordinates from source space to display space
     private func transformResultCoordinates(_ result: YOLOResult) -> YOLOResult {
