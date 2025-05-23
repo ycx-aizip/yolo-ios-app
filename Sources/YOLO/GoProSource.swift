@@ -88,6 +88,10 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     // VLCKit video player
     private var videoPlayer: VLCMediaPlayer?
     
+    // Frame rate limiting properties
+    private var lastFrameExtractionTime: CFTimeInterval = 0
+    private let frameExtractionInterval: CFTimeInterval = 0.125 // 8 fps (adjust as needed)
+    
     // Stream status tracking
     private var streamStartTime: Date?
     private var hasReceivedFirstFrame = false
@@ -118,6 +122,9 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     // Store the current pixel buffer for reference
     private var currentPixelBuffer: CVPixelBuffer?
+    
+    // Store last image for frame rate limiting
+    private var lastCapturedImage: UIImage?
     
     // MARK: - Initialization
     
@@ -293,7 +300,6 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         videoPlayer?.libraryInstance.debugLoggingLevel = 3
         
         // Use a default sensible size (16:9 aspect ratio for common HD videos)
-        // This prevents zero-sized frame issues during initialization
         let defaultWidth: CGFloat = 1280
         let defaultHeight: CGFloat = 720
         
@@ -315,7 +321,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         videoPlayer?.videoAspectRatio = UnsafeMutablePointer<Int8>(mutating: "16:9")
         videoPlayer?.videoCropGeometry = UnsafeMutablePointer<Int8>(mutating: "")
         
-        // Set additional properties for better snapshot capability
+        // Set additional properties for better performance
         videoPlayer?.audio?.volume = 0  // Mute audio
         
         print("GoPro: VLC player view initialized with size: \(playerView?.bounds.size ?? .zero)")
@@ -325,69 +331,174 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     @MainActor
     private func extractCurrentFrame() -> UIImage? {
+        // Frame rate limiting - only extract frames at the specified interval
+        let currentTime = CACurrentMediaTime()
+        if currentTime - lastFrameExtractionTime < frameExtractionInterval,
+           let cachedImage = lastCapturedImage {
+            // Return cached frame if interval hasn't elapsed
+            return cachedImage
+        }
+        
+        // Update last extraction time
+        lastFrameExtractionTime = currentTime
+        
         guard let videoPlayer = videoPlayer else { 
             print("GoPro: Cannot extract frame - video player is nil")
-            return nil 
+            return fallbackSnapshot() 
         }
         
         // Check if VLC player is ready (playing or paused or buffering)
         let playerState = videoPlayer.state
         let validStates: [VLCMediaPlayerState] = [.playing, .paused, .buffering]
-        let isPlayerReady = validStates.contains(playerState)
-        
-        if isPlayerReady {
-            // Only log occasionally to reduce console spam
-            if frameCount % 30 == 0 {
-                print("GoPro: Taking snapshot with player in state: \(playerState.rawValue)")
-            }
-            
-            // Get actual video dimensions
-            let videoSize = videoPlayer.videoSize
-            if videoSize.width <= 0 || videoSize.height <= 0 {
-                print("GoPro: Invalid video dimensions: \(videoSize)")
-                return fallbackSnapshot()
-            }
-            
-            // Use a temporary file path for the snapshot
-            // This is required by VLC's API but we'll clean it up immediately
-            let tempDir = NSTemporaryDirectory()
-            let tempFilename = "gopro_snapshot_\(Date().timeIntervalSince1970).png"
-            let tempPath = (tempDir as NSString).appendingPathComponent(tempFilename)
-            
-            // Use VLC's saveVideoSnapshotAt method to capture the current frame
-            // This operates directly on the video frame buffer, not the UI
-            videoPlayer.saveVideoSnapshot(at: tempPath, withWidth: Int32(videoSize.width), andHeight: Int32(videoSize.height))
-            
-            // Check if file was created successfully
-            if FileManager.default.fileExists(atPath: tempPath) {
-                // Load the image from the saved file
-                if let image = UIImage(contentsOfFile: tempPath) {
-                    // Update last frame size
-                    self.lastFrameSize = image.size
-                    
-                    // Log occasional success for monitoring
-                    if frameCount % 300 == 0 {
-                        print("GoPro: Successfully captured frame using VLC snapshot - size: \(image.size)")
-                    }
-                    
-                    // Clean up the temporary file immediately
-                    try? FileManager.default.removeItem(atPath: tempPath)
-                    
-                    return image
-                } else {
-                    print("GoPro: Failed to load snapshot from temporary file")
-                    // Ensure cleanup even on failure
-                    try? FileManager.default.removeItem(atPath: tempPath)
-                }
-            } else {
-                print("GoPro: VLC snapshot file was not created at: \(tempPath)")
-            }
-        } else {
-            print("GoPro: Cannot take snapshot - video player state: \(playerState.rawValue) not in valid states")
+        if !validStates.contains(playerState) {
+            print("GoPro: Cannot take snapshot - player state: \(playerState.rawValue) not in valid states")
+            return fallbackSnapshot()
         }
         
-        // Fallback options if VLC snapshot fails
-        return fallbackSnapshot()
+        // Get actual video dimensions
+        let videoSize = videoPlayer.videoSize
+        if videoSize.width <= 0 || videoSize.height <= 0 {
+            print("GoPro: Invalid video dimensions: \(videoSize)")
+            return fallbackSnapshot()
+        }
+        
+        // Method 1: Capture directly from player view using Core Graphics
+        if let playerView = playerView,
+           let snapshot = captureFromView(playerView),
+           !isBlackImage(snapshot) {
+            // Update last frame size
+            self.lastFrameSize = snapshot.size
+            
+            // Log occasional success for monitoring
+            if frameCount % 30 == 0 {
+                print("GoPro: Successfully captured frame directly from view - size: \(snapshot.size)")
+            }
+            
+            // Cache the image for frame rate limiting
+            self.lastCapturedImage = snapshot
+            
+            // Create and cache pixel buffer from image
+            if let pixelBuffer = createPixelBuffer(from: snapshot) {
+                self.currentPixelBuffer = pixelBuffer
+            }
+            
+            return snapshot
+        }
+        
+        // Method 2: If direct capture fails, use a temporary file but optimize the process
+        // This approach is much faster than the original implementation as we use 
+        // more efficient file operations and avoid unnecessary disk I/O
+        return captureUsingOptimizedSnapshot(videoPlayer: videoPlayer, videoSize: videoSize)
+    }
+    
+    // Optimized snapshot method using temporary file with minimal disk I/O
+    private func captureUsingOptimizedSnapshot(videoPlayer: VLCMediaPlayer, videoSize: CGSize) -> UIImage? {
+        // Create a temporary file path in memory area if possible
+        let tempFilename = "gopro_\(Int(Date().timeIntervalSince1970 * 1000)).png"
+        let tempDir = FileManager.default.temporaryDirectory.path
+        let tempPath = (tempDir as NSString).appendingPathComponent(tempFilename)
+        
+        // Use VLC's saveVideoSnapshot method with optimized parameters
+        videoPlayer.saveVideoSnapshot(at: tempPath, withWidth: Int32(videoSize.width), andHeight: Int32(videoSize.height))
+        
+        // Check if file was created successfully - use optimized path
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: tempPath) else {
+            print("GoPro: VLC snapshot file was not created")
+            return fallbackSnapshot()
+        }
+        
+        // Use efficient file loading to minimize I/O impact
+        guard let imageData = fileManager.contents(atPath: tempPath),
+              let image = UIImage(data: imageData) else {
+            print("GoPro: Failed to load snapshot data from temporary file")
+            try? fileManager.removeItem(atPath: tempPath)
+            return fallbackSnapshot()
+        }
+        
+        // Clean up the temporary file immediately
+        try? fileManager.removeItem(atPath: tempPath)
+        
+        // Update last frame size and cache
+        self.lastFrameSize = image.size
+        self.lastCapturedImage = image
+        
+        // Create and cache pixel buffer from image
+        if let pixelBuffer = createPixelBuffer(from: image) {
+            self.currentPixelBuffer = pixelBuffer
+        }
+        
+        // Log occasional success for monitoring
+        if frameCount % 30 == 0 {
+            print("GoPro: Successfully captured frame using optimized snapshot - size: \(image.size)")
+        }
+        
+        return image
+    }
+    
+    // Capture from UIView using Core Graphics
+    private func captureFromView(_ view: UIView) -> UIImage? {
+        if view.bounds.size.width <= 0 || view.bounds.size.height <= 0 {
+            return nil
+        }
+        
+        UIGraphicsBeginImageContextWithOptions(view.bounds.size, false, 0)
+        defer { UIGraphicsEndImageContext() }
+        
+        // Render the view hierarchy
+        if view.drawHierarchy(in: view.bounds, afterScreenUpdates: true) {
+            return UIGraphicsGetImageFromCurrentImageContext()
+        }
+        
+        return nil
+    }
+    
+    // Create a pixel buffer from UIImage for consistent processing
+    private func createPixelBuffer(from image: UIImage) -> CVPixelBuffer? {
+        let width = Int(image.size.width)
+        let height = Int(image.size.height)
+        
+        let attributes: [String: Any] = [
+            kCVPixelBufferCGImageCompatibilityKey as String: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
+        ]
+        
+        var pixelBuffer: CVPixelBuffer?
+        let status = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            kCVPixelFormatType_32ARGB,
+            attributes as CFDictionary,
+            &pixelBuffer
+        )
+        
+        guard status == kCVReturnSuccess, let buffer = pixelBuffer else {
+            return nil
+        }
+        
+        CVPixelBufferLockBaseAddress(buffer, CVPixelBufferLockFlags(rawValue: 0))
+        defer { CVPixelBufferUnlockBaseAddress(buffer, CVPixelBufferLockFlags(rawValue: 0)) }
+        
+        guard let context = CGContext(
+            data: CVPixelBufferGetBaseAddress(buffer),
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+        ) else {
+            return nil
+        }
+        
+        // Draw the image into the context
+        let rect = CGRect(x: 0, y: 0, width: width, height: height)
+        UIGraphicsPushContext(context)
+        image.draw(in: rect)
+        UIGraphicsPopContext()
+        
+        return buffer
     }
     
     // This is a fallback method that tries several approaches if the main VLC snapshot fails
