@@ -88,10 +88,6 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     // VLCKit video player
     private var videoPlayer: VLCMediaPlayer?
     
-    // Frame rate limiting properties
-    private var lastFrameExtractionTime: CFTimeInterval = 0
-    private let frameExtractionInterval: CFTimeInterval = 0.125 // 8 fps (adjust as needed)
-    
     // Stream status tracking
     private var streamStartTime: Date?
     private var hasReceivedFirstFrame = false
@@ -106,6 +102,9 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     // Add frameTimestamps property to the class
     private var frameTimestamps: [CFTimeInterval] = []
+    
+    // Store the last frame extraction time for fps calculation
+    private var lastFrameExtractionTime: CFTimeInterval = 0
     
     // VLC player view for frame extraction - maintains reference to the drawable
     // Internal access to allow YOLOView to access it
@@ -122,9 +121,6 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     // Store the current pixel buffer for reference
     private var currentPixelBuffer: CVPixelBuffer?
-    
-    // Store last image for frame rate limiting
-    private var lastCapturedImage: UIImage?
     
     // MARK: - Initialization
     
@@ -295,13 +291,13 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         videoPlayer = VLCMediaPlayer()
         videoPlayer?.delegate = self
         
-        // Enable debugging
-        videoPlayer?.libraryInstance.debugLogging = true
-        videoPlayer?.libraryInstance.debugLoggingLevel = 3
+        // Disable internal logging to improve performance
+        videoPlayer?.libraryInstance.debugLogging = false
+        videoPlayer?.libraryInstance.debugLoggingLevel = 0
         
-        // Use a default sensible size (16:9 aspect ratio for common HD videos)
-        let defaultWidth: CGFloat = 1280
-        let defaultHeight: CGFloat = 720
+        // Use the default GoPro resolution
+        let defaultWidth: CGFloat = 1920
+        let defaultHeight: CGFloat = 1080
         
         // Create a view to use as the drawable for frame extraction
         playerView = createPlayerView()
@@ -317,7 +313,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         // This is crucial - use VLCMediaPlayer's drawable property
         videoPlayer?.drawable = playerView
         
-        // Force the video player to start with a good frame size
+        // Force the video player to use fixed size for better performance
         videoPlayer?.videoAspectRatio = UnsafeMutablePointer<Int8>(mutating: "16:9")
         videoPlayer?.videoCropGeometry = UnsafeMutablePointer<Int8>(mutating: "")
         
@@ -331,63 +327,52 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     @MainActor
     private func extractCurrentFrame() -> UIImage? {
-        // Frame rate limiting - only extract frames at the specified interval
+        // Track frame extraction timestamp for FPS calculation
         let currentTime = CACurrentMediaTime()
-        if currentTime - lastFrameExtractionTime < frameExtractionInterval,
-           let cachedImage = lastCapturedImage {
-            // Return cached frame if interval hasn't elapsed
-            return cachedImage
-        }
-        
-        // Update last extraction time
+        let extractionInterval = currentTime - lastFrameExtractionTime
         lastFrameExtractionTime = currentTime
         
         guard let videoPlayer = videoPlayer else { 
             print("GoPro: Cannot extract frame - video player is nil")
-            return fallbackSnapshot() 
+            return nil 
         }
         
         // Check if VLC player is ready (playing or paused or buffering)
         let playerState = videoPlayer.state
         let validStates: [VLCMediaPlayerState] = [.playing, .paused, .buffering]
         if !validStates.contains(playerState) {
-            print("GoPro: Cannot take snapshot - player state: \(playerState.rawValue) not in valid states")
-            return fallbackSnapshot()
+            print("GoPro: Cannot take snapshot - player state: \(playerState.rawValue) not ready")
+            return nil
         }
         
         // Get actual video dimensions
         let videoSize = videoPlayer.videoSize
         if videoSize.width <= 0 || videoSize.height <= 0 {
             print("GoPro: Invalid video dimensions: \(videoSize)")
-            return fallbackSnapshot()
+            return nil
         }
         
-        // Method 1: Capture directly from player view using Core Graphics
+        // Capture directly from player view using Core Graphics
         if let playerView = playerView,
-           let snapshot = captureFromView(playerView),
-           !isBlackImage(snapshot) {
+           let snapshot = captureFromView(playerView) {
             // Update last frame size
             self.lastFrameSize = snapshot.size
             
-            // Log occasional success for monitoring
-            if frameCount % 30 == 0 {
-                print("GoPro: Successfully captured frame directly from view - size: \(snapshot.size)")
-            }
-            
-            // Cache the image for frame rate limiting
-            self.lastCapturedImage = snapshot
-            
-            // Create and cache pixel buffer from image
+            // Create and cache pixel buffer from image for faster processing
             if let pixelBuffer = createPixelBuffer(from: snapshot) {
                 self.currentPixelBuffer = pixelBuffer
+            }
+            
+            // Track FPS - log every 30 frames
+            if frameCount % 30 == 0 {
+                let fps = 1.0 / extractionInterval
+                print("GoPro: Frame #\(frameCount) extraction rate: \(String(format: "%.1f", fps)) FPS, size: \(snapshot.size)")
             }
             
             return snapshot
         }
         
-        // Method 2: If direct capture fails, use a temporary file but optimize the process
-        // This approach is much faster than the original implementation as we use 
-        // more efficient file operations and avoid unnecessary disk I/O
+        // Fallback to direct file method if view capture fails
         return captureUsingOptimizedSnapshot(videoPlayer: videoPlayer, videoSize: videoSize)
     }
     
@@ -405,7 +390,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: tempPath) else {
             print("GoPro: VLC snapshot file was not created")
-            return fallbackSnapshot()
+            return nil
         }
         
         // Use efficient file loading to minimize I/O impact
@@ -413,24 +398,18 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
               let image = UIImage(data: imageData) else {
             print("GoPro: Failed to load snapshot data from temporary file")
             try? fileManager.removeItem(atPath: tempPath)
-            return fallbackSnapshot()
+            return nil
         }
         
         // Clean up the temporary file immediately
         try? fileManager.removeItem(atPath: tempPath)
         
-        // Update last frame size and cache
+        // Update last frame size
         self.lastFrameSize = image.size
-        self.lastCapturedImage = image
         
         // Create and cache pixel buffer from image
         if let pixelBuffer = createPixelBuffer(from: image) {
             self.currentPixelBuffer = pixelBuffer
-        }
-        
-        // Log occasional success for monitoring
-        if frameCount % 30 == 0 {
-            print("GoPro: Successfully captured frame using optimized snapshot - size: \(image.size)")
         }
         
         return image
@@ -501,115 +480,6 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         return buffer
     }
     
-    // This is a fallback method that tries several approaches if the main VLC snapshot fails
-    @MainActor
-    private func fallbackSnapshot() -> UIImage? {
-        print("GoPro: Using fallback snapshot methods")
-        
-        // Approach 1: Try to get direct snapshot from player view
-        if let playerView = playerView, 
-           playerView.bounds.size.width > 0, 
-           playerView.bounds.size.height > 0 {
-            
-            // Try to get a snapshot of the player view
-            if let snapshotImage = playerView.snapshotImage(), !isBlackImage(snapshotImage) {
-                print("GoPro: Using player view snapshot - size: \(snapshotImage.size)")
-                self.lastFrameSize = snapshotImage.size
-                return snapshotImage
-            }
-        }
-        
-        // Approach 2: Create test pattern as last resort for debugging
-        print("GoPro: All capture methods failed, using test pattern")
-        let patternSize = CGSize(width: 1280, height: 720)
-        let testImage = createTestPatternImage(size: patternSize)
-        self.lastFrameSize = patternSize
-        return testImage
-    }
-    
-    // Create a test pattern image for debugging when actual frame capture fails
-    private func createTestPatternImage(size: CGSize) -> UIImage {
-        let renderer = UIGraphicsImageRenderer(size: size)
-        let img = renderer.image { ctx in
-            // Draw a recognizable pattern
-            let context = ctx.cgContext
-            
-            // Fill with dark gray
-            context.setFillColor(UIColor.darkGray.cgColor)
-            context.fill(CGRect(origin: .zero, size: size))
-            
-            // Draw red border
-            context.setStrokeColor(UIColor.red.cgColor)
-            context.setLineWidth(20)
-            context.stroke(CGRect(x: 10, y: 10, width: size.width - 20, height: size.height - 20))
-            
-            // Draw crosshairs
-            context.setStrokeColor(UIColor.yellow.cgColor)
-            context.setLineWidth(5)
-            context.move(to: CGPoint(x: 0, y: 0))
-            context.addLine(to: CGPoint(x: size.width, y: size.height))
-            context.move(to: CGPoint(x: size.width, y: 0))
-            context.addLine(to: CGPoint(x: 0, y: size.height))
-            context.strokePath()
-            
-            // Draw grid lines
-            context.setStrokeColor(UIColor.green.cgColor)
-            context.setLineWidth(2)
-            let gridSize: CGFloat = 100
-            for x in stride(from: gridSize, to: size.width, by: gridSize) {
-                context.move(to: CGPoint(x: x, y: 0))
-                context.addLine(to: CGPoint(x: x, y: size.height))
-            }
-            for y in stride(from: gridSize, to: size.height, by: gridSize) {
-                context.move(to: CGPoint(x: 0, y: y))
-                context.addLine(to: CGPoint(x: size.width, y: y))
-            }
-            context.strokePath()
-            
-            // Add timestamp for tracking when this test pattern was generated
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "HH:mm:ss.SSS"
-            let timestamp = dateFormatter.string(from: Date())
-            
-            // Add error text with timestamp
-            let text = "FRAME ERROR - \(timestamp)" as NSString
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.boldSystemFont(ofSize: 40),
-                .foregroundColor: UIColor.white
-            ]
-            text.draw(at: CGPoint(x: size.width/2 - 200, y: size.height/2 - 20), withAttributes: attributes)
-            
-            // Add count of failed attempts
-            let countText = "Frame #\(self.frameCount)" as NSString
-            countText.draw(at: CGPoint(x: size.width/2 - 50, y: size.height/2 + 40), withAttributes: attributes)
-        }
-        
-        return img
-    }
-    
-    // Helper to check if an image is entirely or almost entirely black
-    private func isBlackImage(_ image: UIImage) -> Bool {
-        // Create a 1x1 pixel context to sample average color
-        let context = CIContext()
-        guard let cgImage = image.cgImage,
-              let reducedImage = context.createCGImage(
-                  CIImage(cgImage: cgImage).clampedToExtent(),
-                  from: CGRect(x: 0, y: 0, width: 1, height: 1)) else {
-            return true // Assume black if we can't analyze
-        }
-        
-        // Get the pixel data
-        guard let data = CFDataGetBytePtr(reducedImage.dataProvider?.data) else {
-            return true // Assume black if we can't get data
-        }
-        
-        // Check RGB values (skip alpha)
-        let brightness = (Int(data[0]) + Int(data[1]) + Int(data[2])) / 3
-        
-        // Image is considered black if average brightness is very low
-        return brightness < 10
-    }
-    
     // Process the extracted frame into YOLO-compatible format
     private func processExtractedFrame(_ image: UIImage) -> CMSampleBuffer? {
         // First create a pixel buffer from the image using standard conversion
@@ -637,30 +507,19 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         let extractionStartTime = CACurrentMediaTime()
         
         guard let frameImage = extractCurrentFrame() else {
-            print("GoPro: Failed to extract frame for processing")
+            // Just skip this frame if extraction fails - don't use fallbacks
             return
         }
         
         // Calculate and log extraction time
         let extractionTime = (CACurrentMediaTime() - extractionStartTime) * 1000 // in ms
         
-        // Check if the extracted image is our test pattern
-        let isTestPattern = (frameImage.size.width == 1280 && frameImage.size.height == 720)
-        
-        // Always send the frame to the delegate for display, even if it's a test pattern
+        // Always send the frame to the delegate for display
         delegate?.frameSource(self, didOutputImage: frameImage)
         
         // Log extraction performance occasionally
         if frameCount % 60 == 0 {
-            print("GoPro: Frame #\(frameCount) extraction took \(String(format: "%.1f", extractionTime))ms, size: \(frameImage.size), isTestPattern: \(isTestPattern)")
-        }
-        
-        // Skip inference if this is just a test pattern
-        if isTestPattern {
-            if frameCount % 60 == 0 {  // Log only occasionally to avoid spam
-                print("GoPro: Skipping inference on test pattern frame")
-            }
-            return
+            print("GoPro: Frame #\(frameCount) extraction took \(String(format: "%.1f", extractionTime))ms, size: \(frameImage.size)")
         }
         
         // Check if we're in calibration mode
@@ -944,14 +803,15 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     /// Configure media options for optimal RTSP streaming from GoPro
     private func configureRTSPMediaOptions(_ media: VLCMedia) {
+        // Disable verbose logging
         media.addOption(":verbose=0")
 
         // Critical options for RTSP
         media.addOption(":rtsp-tcp")  // Force TCP for more reliable streaming
         
         // Reduced caching for lower latency
-        media.addOption(":network-caching=0")   // Set to 0 for lower latency (was 50)
-        media.addOption(":live-caching=0")      // Set to 0 for lower latency (was 50)
+        media.addOption(":network-caching=0")   // Set to 0 for lower latency
+        media.addOption(":live-caching=0")      // Set to 0 for lower latency
         media.addOption(":file-caching=0")      // Set to 0 for all file caching
         
         // Hardware acceleration (when available)
@@ -961,13 +821,13 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         media.addOption(":audio-track=0")       // Audio enabled but track 0
         
         // Improve H.264 handling 
-        media.addOption(":rtsp-frame-buffer-size=3000000")  // Larger buffer for better frame quality (was 1000000)
+        media.addOption(":rtsp-frame-buffer-size=4000000")  // Larger buffer for better frame quality
         
         // SPS/PPS handling (critical for H.264)
         media.addOption(":rtsp-sps-pps=true")   // Force SPS/PPS with each keyframe
         
         // Timeout settings
-        media.addOption(":rtp-timeout=2000")    // 2 second timeout (was 5000)
+        media.addOption(":rtp-timeout=1000")    // 1 second timeout (was 2000)
         
         // Optimize for low latency
         media.addOption(":clock-jitter=0")      // Disable clock jitter detection
@@ -979,13 +839,6 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         // Disable subtitles
         media.addOption(":no-sub-autodetect-file")
         
-        // Options for better frame extraction
-        media.addOption(":video-filter=scene")
-        media.addOption(":scene-format=png")
-        media.addOption(":scene-ratio=1")       // Save every frame
-        media.addOption(":scene-prefix=gopro_snapshot")
-        media.addOption(":scene-path=\(NSTemporaryDirectory())")
-        
         // Improved video configuration
         media.addOption(":avcodec-skip-frame=0") // Don't skip frames
         media.addOption(":avcodec-skip-idct=0")  // Don't skip IDCT
@@ -995,7 +848,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         // Clear cookies to ensure fresh connection
         media.clearStoredCookies()
         
-        print("GoPro: Media options configured for RTSP streaming")
+        print("GoPro: Media options configured for optimal RTSP streaming")
     }
     
     /// Start RTSP stream from GoPro
@@ -2097,6 +1950,11 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
                 videoCaptureDelegate.onInferenceTime(speed: inferenceTime, fps: fpsRate)
             } else {
                 print("GoPro: Warning - videoCaptureDelegate is nil for inferenceTime update")
+            }
+            
+            // Log detailed fps metrics every 30 frames
+            if self.frameCount % 30 == 0 {
+                print("GoPro: Inference - Speed: \(String(format: "%.1f", inferenceTime))ms, FPS: \(String(format: "%.1f", fpsRate))")
             }
         }
     }
