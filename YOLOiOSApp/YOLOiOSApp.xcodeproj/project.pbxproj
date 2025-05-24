@@ -17,13 +17,27 @@
 		73D95D162D45DA510050E640 /* ModelDownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73D95D152D45DA510050E640 /* ModelDownloadManager.swift */; };
 		73D95D192D45DAA50050E640 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 73D95D182D45DAA50050E640 /* ZIPFoundation */; };
 		73D95D1B2D45DB800050E640 /* RemoteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73D95D1A2D45DB800050E640 /* RemoteModels.swift */; };
-		E11C27142DD33C4600EFD260 /* MobileVLCKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E11C27132DD33C4600EFD260 /* MobileVLCKit.xcframework */; };
-		E11C27152DD33C4600EFD260 /* MobileVLCKit.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E11C27132DD33C4600EFD260 /* MobileVLCKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E1374EDD2DA62A7400DD5959 /* softbanklogo.png in Resources */ = {isa = PBXBuildFile; fileRef = E1374EDC2DA62A7400DD5959 /* softbanklogo.png */; };
 		E1639E542DCF7CB80028276C /* OpenCVBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = E1639E512DCF7CB80028276C /* OpenCVBridge.mm */; };
 		E185A6212D9D260400E074A2 /* FishCountModels in Resources */ = {isa = PBXBuildFile; fileRef = E185A6202D9D25F600E074A2 /* FishCountModels */; };
 		E1E621DC2DCF7F790072DCB5 /* opencv2.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1E621DB2DCF7F790072DCB5 /* opencv2.framework */; };
 		E1E621DD2DCF7F790072DCB5 /* opencv2.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E1E621DB2DCF7F790072DCB5 /* opencv2.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		E1F2475B2DE1C76B0014C4CC /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E11C27162DD33DA200EFD260 /* AudioToolbox.framework */; };
+		E1F2475C2DE1C7730014C4CC /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E11C27182DD33DAF00EFD260 /* AVFoundation.framework */; };
+		E1F2475E2DE1C7820014C4CC /* CFNetwork.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1F2475D2DE1C7820014C4CC /* CFNetwork.framework */; };
+		E1F247602DE1C78A0014C4CC /* CoreFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1F2475F2DE1C78A0014C4CC /* CoreFoundation.framework */; };
+		E1F247622DE1C7960014C4CC /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1F247612DE1C7960014C4CC /* CoreGraphics.framework */; };
+		E1F247632DE1C7A00014C4CC /* CoreMedia.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E11C271A2DD33DDC00EFD260 /* CoreMedia.framework */; };
+		E1F247652DE1C7AC0014C4CC /* CoreText.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1F247642DE1C7AC0014C4CC /* CoreText.framework */; };
+		E1F247672DE1C7B30014C4CC /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1F247662DE1C7B30014C4CC /* CoreVideo.framework */; };
+		E1F247692DE1C7BD0014C4CC /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1F247682DE1C7BD0014C4CC /* Foundation.framework */; };
+		E1F2476F2DE1C7EC0014C4CC /* OpenGLES.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1F2476E2DE1C7EC0014C4CC /* OpenGLES.framework */; };
+		E1F247712DE1C7F40014C4CC /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1F247702DE1C7F40014C4CC /* QuartzCore.framework */; };
+		E1F247732DE1C7FB0014C4CC /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1F247722DE1C7FB0014C4CC /* Security.framework */; };
+		E1F247742DE1C8040014C4CC /* VideoToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E11C271C2DD33DE700EFD260 /* VideoToolbox.framework */; };
+		E1F247762DE1C80E0014C4CC /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1F247752DE1C80D0014C4CC /* UIKit.framework */; };
+		E1F2477B2DE1D5930014C4CC /* MobileVLCKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1F2477A2DE1D5930014C4CC /* MobileVLCKit.xcframework */; };
+		E1F2477C2DE1D5930014C4CC /* MobileVLCKit.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E1F2477A2DE1D5930014C4CC /* MobileVLCKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E1FF1D5A2DA3B44D0002F90D /* aiziplogo.png in Resources */ = {isa = PBXBuildFile; fileRef = E1FF1D592DA3B44D0002F90D /* aiziplogo.png */; };
 		E1FF1D5C2DA3B45A0002F90D /* fish_counting_logo.png in Resources */ = {isa = PBXBuildFile; fileRef = E1FF1D5B2DA3B45A0002F90D /* fish_counting_logo.png */; };
 /* End PBXBuildFile section */
@@ -35,7 +49,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				E11C27152DD33C4600EFD260 /* MobileVLCKit.xcframework in Embed Frameworks */,
+				E1F2477C2DE1D5930014C4CC /* MobileVLCKit.xcframework in Embed Frameworks */,
 				E1E621DD2DCF7F790072DCB5 /* opencv2.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
@@ -54,7 +68,6 @@
 		73D95D152D45DA510050E640 /* ModelDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownloadManager.swift; sourceTree = "<group>"; };
 		73D95D1A2D45DB800050E640 /* RemoteModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteModels.swift; sourceTree = "<group>"; };
 		7BCB411721C3096100BFC4D0 /* YOLOiOSApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = YOLOiOSApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		E11C27132DD33C4600EFD260 /* MobileVLCKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = MobileVLCKit.xcframework; path = Packages/MobileVLCKit.xcframework; sourceTree = "<group>"; };
 		E11C27162DD33DA200EFD260 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = System/Library/Frameworks/AudioToolbox.framework; sourceTree = SDKROOT; };
 		E11C27182DD33DAF00EFD260 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		E11C271A2DD33DDC00EFD260 /* CoreMedia.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMedia.framework; path = System/Library/Frameworks/CoreMedia.framework; sourceTree = SDKROOT; };
@@ -66,6 +79,21 @@
 		E185A6202D9D25F600E074A2 /* FishCountModels */ = {isa = PBXFileReference; lastKnownFileType = folder; path = FishCountModels; sourceTree = "<group>"; };
 		E1E621DB2DCF7F790072DCB5 /* opencv2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = opencv2.framework; path = Packages/ios/opencv2.framework; sourceTree = "<group>"; };
 		E1E621DF2DD157400072DCB5 /* YOLOiOSApp-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "YOLOiOSApp-Bridging-Header.h"; sourceTree = "<group>"; };
+		E1F2475D2DE1C7820014C4CC /* CFNetwork.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CFNetwork.framework; path = System/Library/Frameworks/CFNetwork.framework; sourceTree = SDKROOT; };
+		E1F2475F2DE1C78A0014C4CC /* CoreFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreFoundation.framework; path = System/Library/Frameworks/CoreFoundation.framework; sourceTree = SDKROOT; };
+		E1F247612DE1C7960014C4CC /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		E1F247642DE1C7AC0014C4CC /* CoreText.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreText.framework; path = System/Library/Frameworks/CoreText.framework; sourceTree = SDKROOT; };
+		E1F247662DE1C7B30014C4CC /* CoreVideo.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreVideo.framework; path = System/Library/Frameworks/CoreVideo.framework; sourceTree = SDKROOT; };
+		E1F247682DE1C7BD0014C4CC /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		E1F2476A2DE1C7C80014C4CC /* libbz2.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libbz2.tbd; path = usr/lib/libbz2.tbd; sourceTree = SDKROOT; };
+		E1F2476B2DE1C7D20014C4CC /* libc++.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.tbd"; path = "usr/lib/libc++.tbd"; sourceTree = SDKROOT; };
+		E1F2476C2DE1C7DC0014C4CC /* libiconv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
+		E1F2476D2DE1C7E40014C4CC /* libxml2.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libxml2.tbd; path = usr/lib/libxml2.tbd; sourceTree = SDKROOT; };
+		E1F2476E2DE1C7EC0014C4CC /* OpenGLES.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = OpenGLES.framework; path = System/Library/Frameworks/OpenGLES.framework; sourceTree = SDKROOT; };
+		E1F247702DE1C7F40014C4CC /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		E1F247722DE1C7FB0014C4CC /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		E1F247752DE1C80D0014C4CC /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		E1F2477A2DE1D5930014C4CC /* MobileVLCKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = MobileVLCKit.xcframework; path = Packages/MobileVLCKit.xcframework; sourceTree = "<group>"; };
 		E1FF1D592DA3B44D0002F90D /* aiziplogo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = aiziplogo.png; sourceTree = "<group>"; };
 		E1FF1D5B2DA3B45A0002F90D /* fish_counting_logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = fish_counting_logo.png; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -75,10 +103,24 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E11C27142DD33C4600EFD260 /* MobileVLCKit.xcframework in Frameworks */,
+				E1F247762DE1C80E0014C4CC /* UIKit.framework in Frameworks */,
 				E1E621DC2DCF7F790072DCB5 /* opencv2.framework in Frameworks */,
+				E1F2475E2DE1C7820014C4CC /* CFNetwork.framework in Frameworks */,
+				E1F247652DE1C7AC0014C4CC /* CoreText.framework in Frameworks */,
+				E1F2477B2DE1D5930014C4CC /* MobileVLCKit.xcframework in Frameworks */,
+				E1F247622DE1C7960014C4CC /* CoreGraphics.framework in Frameworks */,
+				E1F247712DE1C7F40014C4CC /* QuartzCore.framework in Frameworks */,
+				E1F247732DE1C7FB0014C4CC /* Security.framework in Frameworks */,
+				E1F247632DE1C7A00014C4CC /* CoreMedia.framework in Frameworks */,
+				E1F2475C2DE1C7730014C4CC /* AVFoundation.framework in Frameworks */,
+				E1F2476F2DE1C7EC0014C4CC /* OpenGLES.framework in Frameworks */,
+				E1F247602DE1C78A0014C4CC /* CoreFoundation.framework in Frameworks */,
+				E1F247692DE1C7BD0014C4CC /* Foundation.framework in Frameworks */,
+				E1F2475B2DE1C76B0014C4CC /* AudioToolbox.framework in Frameworks */,
+				E1F247742DE1C8040014C4CC /* VideoToolbox.framework in Frameworks */,
 				73220ED32D373C2E00A94B92 /* YOLO in Frameworks */,
 				73D95D192D45DAA50050E640 /* ZIPFoundation in Frameworks */,
+				E1F247672DE1C7B30014C4CC /* CoreVideo.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -129,11 +171,25 @@
 		E1FDF3BE2DCE7A3100DCD998 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				E1F2477A2DE1D5930014C4CC /* MobileVLCKit.xcframework */,
+				E1F247752DE1C80D0014C4CC /* UIKit.framework */,
+				E1F247722DE1C7FB0014C4CC /* Security.framework */,
+				E1F247702DE1C7F40014C4CC /* QuartzCore.framework */,
+				E1F2476E2DE1C7EC0014C4CC /* OpenGLES.framework */,
+				E1F2476D2DE1C7E40014C4CC /* libxml2.tbd */,
+				E1F2476C2DE1C7DC0014C4CC /* libiconv.tbd */,
+				E1F2476B2DE1C7D20014C4CC /* libc++.tbd */,
+				E1F2476A2DE1C7C80014C4CC /* libbz2.tbd */,
+				E1F247682DE1C7BD0014C4CC /* Foundation.framework */,
+				E1F247662DE1C7B30014C4CC /* CoreVideo.framework */,
+				E1F247642DE1C7AC0014C4CC /* CoreText.framework */,
+				E1F247612DE1C7960014C4CC /* CoreGraphics.framework */,
+				E1F2475F2DE1C78A0014C4CC /* CoreFoundation.framework */,
+				E1F2475D2DE1C7820014C4CC /* CFNetwork.framework */,
 				E11C271C2DD33DE700EFD260 /* VideoToolbox.framework */,
 				E11C271A2DD33DDC00EFD260 /* CoreMedia.framework */,
 				E11C27182DD33DAF00EFD260 /* AVFoundation.framework */,
 				E11C27162DD33DA200EFD260 /* AudioToolbox.framework */,
-				E11C27132DD33C4600EFD260 /* MobileVLCKit.xcframework */,
 				E1E621DB2DCF7F790072DCB5 /* opencv2.framework */,
 			);
 			name = Frameworks;
@@ -167,8 +223,9 @@
 		7BCB410F21C3096100BFC4D0 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
+				BuildIndependentTargetsInParallel = YES;
 				LastSwiftUpdateCheck = 1010;
-				LastUpgradeCheck = 1520;
+				LastUpgradeCheck = 1620;
 				ORGANIZATIONNAME = Ultralytics;
 				TargetAttributes = {
 					7BCB411621C3096100BFC4D0 = {
@@ -292,6 +349,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -355,6 +413,7 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -385,6 +444,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8JCJMZ3UJ5;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(PROJECT_DIR)/Packages/MobileVLCKit.xcframework",
 					"$(PROJECT_DIR)/Packages/ios/**",
@@ -428,6 +488,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8JCJMZ3UJ5;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(PROJECT_DIR)/Packages/MobileVLCKit.xcframework",
 					"$(PROJECT_DIR)/Packages/ios/**",
