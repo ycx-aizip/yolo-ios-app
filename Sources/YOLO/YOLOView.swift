@@ -2174,50 +2174,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     viewController.present(connectionAlert, animated: true)
   }
 
-  // Add GoPro RTSP stream test function
-  private func testGoProRTSPStream(viewController: UIViewController) {
-    // Create loading alert
-    let loadingAlert = UIAlertController(
-      title: "Testing RTSP Stream",
-      message: "Connecting to GoPro RTSP stream...",
-      preferredStyle: .alert
-    )
-    
-    // Show cancel button
-    loadingAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in
-      // Create a GoPro source just to stop any streams
-      let goProSource = GoProSource()
-      goProSource.stopRTSPStream()
-    })
-    
-    viewController.present(loadingAlert, animated: true)
-    
-    // Create GoPro source and test RTSP streaming
-    let goProSource = GoProSource()
-    
-    // Save strong reference to prevent premature deallocation
-    self.tempGoProSource = goProSource
-    
-    // Run a simple test with shorter timeout
-    goProSource.testRTSPStream(timeout: 8.0) { success, log in
-      // Update alert on main thread
-      DispatchQueue.main.async {
-        loadingAlert.dismiss(animated: true) {
-          // Show result
-          self.showStreamTestResults(
-            viewController: viewController,
-            success: success,
-            message: success ? "Successfully connected to GoPro RTSP stream!" : "Could not connect to RTSP stream",
-            log: log
-          )
-          
-          // Clean up
-          goProSource.stopRTSPStream()
-          self.tempGoProSource = nil
-        }
-      }
-    }
-  }
+
   
   // Improved method for handling GoPro streams
   @MainActor
