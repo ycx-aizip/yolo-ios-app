@@ -12,6 +12,8 @@ import MobileVLCKit
 import UIKit
 import Vision
 
+// MARK: - Data Structures
+
 /// GoPro webcam version response structure - simplified version
 struct GoProWebcamVersion: Decodable {
     let version: Int
@@ -68,6 +70,8 @@ private enum GoProEndpoint {
     }
 }
 
+// MARK: - Main Class
+
 /// Class for handling GoPro camera as a frame source
 @MainActor
 class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMediaPlayerDelegate {
@@ -102,35 +106,29 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     // MARK: - GoProSource Properties
     
-    // Default GoPro IP address when connected via WiFi
+    // Network configuration
     private let goProIP = "10.5.5.9"
     private let goProPort = 8080
     private let rtspPort = 554
     private let rtspPath = "/live"
     
-    // VLCKit video player
+    // VLC components
     private var videoPlayer: VLCMediaPlayer?
+    var playerView: UIView?
+    private weak var containerView: UIView?
     
-    // Stream status tracking
+    // Stream tracking
     private var streamStartTime: Date?
     private var hasReceivedFirstFrame = false
     private var frameCount = 0
     private var lastFrameTime: Int64 = 0
+    private var lastFrameSize: CGSize = .zero
     
-    // Delegate for status updates
-    weak var goProDelegate: GoProSourceDelegate?
-    
-    // Frame tracking for performance metrics
+    // Performance metrics
     private var frameTimestamps: [CFTimeInterval] = []
     
-    // VLC player view for frame extraction - maintains reference to the drawable
-    var playerView: UIView?
-    
-    // Container view that will hold the player view
-    private weak var containerView: UIView?
-    
-    // Store the last frame size for coordinate transformations
-    private var lastFrameSize: CGSize = .zero
+    // Delegates
+    weak var goProDelegate: GoProSourceDelegate?
     
     // MARK: - Initialization
     
@@ -155,7 +153,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         NotificationCenter.default.removeObserver(self)
     }
     
-    // MARK: - FrameSource Protocol Methods
+    // MARK: - Core FrameSource Protocol Implementation
     
     /// Sets up the frame source with specified configuration.
     func setUp(completion: @escaping @Sendable (Bool) -> Void) {
@@ -253,8 +251,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         // GoPro doesn't need content selection as it's a live stream
         completion(false)
     }
-
-    // MARK: - VLC Player Setup (Consolidated)
+    
+    // MARK: - VLC Player Management
     
     @MainActor
     private func setupVLCPlayerAndView() {
@@ -321,7 +319,38 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         print("GoPro: Media configured for optimal RTSP streaming")
     }
     
-    // MARK: - Frame Extraction (Streamlined)
+    /// Clean up player view from container
+    @MainActor
+    private func cleanupPlayerView() {
+        guard let playerView = playerView else { return }
+        
+        // Make the view invisible to prevent flicker
+        playerView.isHidden = true
+        
+        // Deactivate all constraints referencing the player view
+        if let superview = playerView.superview {
+            let constraintsToDeactivate = superview.constraints.filter { constraint in
+                return (constraint.firstItem === playerView || constraint.secondItem === playerView)
+            }
+            
+            if !constraintsToDeactivate.isEmpty {
+                NSLayoutConstraint.deactivate(constraintsToDeactivate)
+            }
+        }
+        
+        // Deactivate player view's own constraints
+        NSLayoutConstraint.deactivate(playerView.constraints)
+        
+        // Remove from superview
+        playerView.removeFromSuperview()
+        
+        // Break circular references
+        self.containerView = nil
+        
+        print("GoPro: Player view cleaned up")
+    }
+    
+    // MARK: - Frame Processing Pipeline
     
     @MainActor
     private func extractCurrentFrame() -> UIImage? {
@@ -461,36 +490,25 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         }
     }
     
-    // MARK: - Layout Management
-    
+    /// Calculate current FPS based on recent frame timestamps
     @MainActor
-    private func updatePlayerViewLayout() {
-        guard let playerView = playerView, let containerView = containerView else {
-            return
+    private func calculateCurrentFPS() -> Double {
+        guard frameTimestamps.count >= 2 else {
+            return 0
         }
         
-        // Safety check for container view size
-        let containerSize = containerView.bounds.size
-        guard containerSize.width > 0 && containerSize.height > 0,
-              playerView.superview === containerView else {
-            return
-        }
+        // Calculate FPS based on last 10 frames or all available frames
+        let framesToConsider = min(10, frameTimestamps.count)
+        let recentTimestamps = Array(frameTimestamps.suffix(framesToConsider))
         
-        // Force immediate layout
-        containerView.layoutIfNeeded()
+        // Calculate time difference between first and last frame
+        let timeInterval = recentTimestamps.last! - recentTimestamps.first!
         
-        print("GoPro: Updated player layout for size: \(containerSize)")
+        // Calculate frames per second
+        return timeInterval > 0 ? Double(framesToConsider - 1) / timeInterval : 0
     }
     
-    // Orientation change notification handler
-    @objc private func orientationDidChange() {
-        let orientation = UIDevice.current.orientation
-        if orientation.isPortrait || orientation.isLandscape {
-            updateForOrientationChange(orientation: orientation)
-        }
-    }
-    
-    // MARK: - RTSP Streaming
+    // MARK: - RTSP Streaming Management
     
     /// Start RTSP stream from GoPro
     @MainActor
@@ -542,9 +560,40 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         videoPlayer?.stop()
         goProDelegate?.goProSource(self, didUpdateStatus: .stopped)
     }
-
-    // MARK: - VLC Media Player Delegate Methods
     
+    // MARK: - Layout Management
+    
+    @MainActor
+    private func updatePlayerViewLayout() {
+        guard let playerView = playerView, let containerView = containerView else {
+            return
+        }
+        
+        // Safety check for container view size
+        let containerSize = containerView.bounds.size
+        guard containerSize.width > 0 && containerSize.height > 0,
+              playerView.superview === containerView else {
+            return
+        }
+        
+        // Force immediate layout
+        containerView.layoutIfNeeded()
+        
+        print("GoPro: Updated player layout for size: \(containerSize)")
+    }
+    
+    // Orientation change notification handler
+    @objc private func orientationDidChange() {
+        let orientation = UIDevice.current.orientation
+        if orientation.isPortrait || orientation.isLandscape {
+            updateForOrientationChange(orientation: orientation)
+        }
+    }
+}
+
+// MARK: - VLC Media Player Delegate Methods
+
+extension GoProSource {
     nonisolated func mediaPlayerStateChanged(_ aNotification: Notification!) {
         guard let player = aNotification.object as? VLCMediaPlayer else { return }
         
@@ -686,27 +735,104 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             }
         }
     }
-    
-    /// Calculate current FPS based on recent frame timestamps
-    @MainActor
-    private func calculateCurrentFPS() -> Double {
-        guard frameTimestamps.count >= 2 else {
-            return 0
+}
+
+// MARK: - ResultsListener and InferenceTimeListener Implementation
+extension GoProSource: @preconcurrency ResultsListener, @preconcurrency InferenceTimeListener {
+    nonisolated func on(inferenceTime: Double, fpsRate: Double) {
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            
+            // Forward to both delegate types to ensure complete integration
+            self.delegate?.frameSource(self, didUpdateWithSpeed: inferenceTime, fps: fpsRate)
+            
+            // Also forward to video capture delegate for YOLOView integration
+            if let videoCaptureDelegate = self.videoCaptureDelegate {
+                videoCaptureDelegate.onInferenceTime(speed: inferenceTime, fps: fpsRate)
+            } else {
+                print("GoPro: Warning - videoCaptureDelegate is nil for inferenceTime update")
+            }
+            
+            // Log detailed fps metrics every 30 frames
+            if self.frameCount % 30 == 0 {
+                print("GoPro: Inference - Speed: \(String(format: "%.1f", inferenceTime))ms, FPS: \(String(format: "%.1f", fpsRate))")
+            }
         }
-        
-        // Calculate FPS based on last 10 frames or all available frames
-        let framesToConsider = min(10, frameTimestamps.count)
-        let recentTimestamps = Array(frameTimestamps.suffix(framesToConsider))
-        
-        // Calculate time difference between first and last frame
-        let timeInterval = recentTimestamps.last! - recentTimestamps.first!
-        
-        // Calculate frames per second
-        return timeInterval > 0 ? Double(framesToConsider - 1) / timeInterval : 0
     }
+    
+    nonisolated func on(result: YOLOResult) {
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            
+            // Ensure we're on the main thread for UI operations
+            dispatchPrecondition(condition: .onQueue(.main))
+            
+            // Increment the frame counter
+            self.frameCount += 1
+            
+            // Record timestamp for performance monitoring
+            let timestamp = CACurrentMediaTime()
+            self.frameTimestamps.append(timestamp)
+            
+            // Only keep the last 60 timestamps for rolling performance calculation
+            if self.frameTimestamps.count > 60 {
+                self.frameTimestamps.removeFirst()
+            }
+            
+            // Calculate FPS and update delegate
+            let currentFPS = self.calculateCurrentFPS()
+            self.delegate?.frameSource(self, didUpdateWithSpeed: result.speed, fps: currentFPS)
+            
+            // Log occasionally
+            if self.frameCount % 30 == 0 {
+                let overallFps = self.frameTimestamps.count >= 2 ? 
+                    Double(self.frameTimestamps.count - 1) / (self.frameTimestamps.last! - self.frameTimestamps.first!) : 0
+                print("GoPro: Processing frames at \(String(format: "%.1f", currentFPS)) FPS (avg: \(String(format: "%.1f", overallFps)))")
+            }
+                
+            // Forward detection results to video capture delegate
+            if let videoCaptureDelegate = self.videoCaptureDelegate {
+                // Log detection information (only if there are boxes to avoid spam)
+                if result.boxes.count > 0 {
+                    print("GoPro: Received detection result with \(result.boxes.count) boxes")
+                }
+                
+                videoCaptureDelegate.onPredict(result: result)
+                
+                // Force a redraw of the container view to ensure boxes are visible/hidden
+                if let containerView = self.containerView {
+                    containerView.setNeedsDisplay()
+                    containerView.layoutIfNeeded()
+                }
+                
+                // If the containerView is a YOLOView, make sure bounding boxes are visible
+                if let yoloView = self.containerView as? YOLOView {
+                    for box in yoloView.boundingBoxViews {
+                        if !box.shapeLayer.isHidden {
+                            // Ensure the box layer is not hidden and has the right z-position
+                            box.shapeLayer.zPosition = 1000
+                            box.textLayer.zPosition = 1001
+                        }
+                    }
+                }
+            } else {
+                print("GoPro: WARNING - videoCaptureDelegate is nil for prediction result")
+                print("GoPro: Detection results are being LOST!")
+                
+                // Try to reestablish the delegate connection if possible
+                if let view = self.delegate as? VideoCaptureDelegate {
+                    print("GoPro: Attempting to recover by connecting to delegate")
+                    self.videoCaptureDelegate = view
+                    view.onPredict(result: result)
+                }
+            }
+        }
+    }
+}
 
-    // MARK: - FrameSource Protocol Implementation for UI Integration and Coordinate Transformation
+// MARK: - FrameSource Protocol Implementation for UI Integration and Coordinate Transformation
 
+extension GoProSource {
     @MainActor
     func transformDetectionToScreenCoordinates(
         rect: CGRect, 
@@ -810,37 +936,6 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                 box.addToLayer(playerView.layer)
             }
         }
-    }
-
-    /// Clean up player view from container
-    @MainActor
-    private func cleanupPlayerView() {
-        guard let playerView = playerView else { return }
-        
-        // Make the view invisible to prevent flicker
-        playerView.isHidden = true
-        
-        // Deactivate all constraints referencing the player view
-        if let superview = playerView.superview {
-            let constraintsToDeactivate = superview.constraints.filter { constraint in
-                return (constraint.firstItem === playerView || constraint.secondItem === playerView)
-            }
-            
-            if !constraintsToDeactivate.isEmpty {
-                NSLayoutConstraint.deactivate(constraintsToDeactivate)
-            }
-        }
-        
-        // Deactivate player view's own constraints
-        NSLayoutConstraint.deactivate(playerView.constraints)
-        
-        // Remove from superview
-        playerView.removeFromSuperview()
-        
-        // Break circular references
-        self.containerView = nil
-        
-        print("GoPro: Player view cleaned up")
     }
 
     // MARK: - Delegate Management (Simplified)
@@ -1149,99 +1244,6 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                         )
                         completion(.failure(combinedError))
                     }
-                }
-            }
-        }
-    }
-}
-
-// MARK: - ResultsListener and InferenceTimeListener Implementation
-extension GoProSource: @preconcurrency ResultsListener, @preconcurrency InferenceTimeListener {
-    nonisolated func on(inferenceTime: Double, fpsRate: Double) {
-        Task { @MainActor [weak self] in
-            guard let self = self else { return }
-            
-            // Forward to both delegate types to ensure complete integration
-            self.delegate?.frameSource(self, didUpdateWithSpeed: inferenceTime, fps: fpsRate)
-            
-            // Also forward to video capture delegate for YOLOView integration
-            if let videoCaptureDelegate = self.videoCaptureDelegate {
-                videoCaptureDelegate.onInferenceTime(speed: inferenceTime, fps: fpsRate)
-            } else {
-                print("GoPro: Warning - videoCaptureDelegate is nil for inferenceTime update")
-            }
-            
-            // Log detailed fps metrics every 30 frames
-            if self.frameCount % 30 == 0 {
-                print("GoPro: Inference - Speed: \(String(format: "%.1f", inferenceTime))ms, FPS: \(String(format: "%.1f", fpsRate))")
-            }
-        }
-    }
-    
-    nonisolated func on(result: YOLOResult) {
-        Task { @MainActor [weak self] in
-            guard let self = self else { return }
-            
-            // Ensure we're on the main thread for UI operations
-            dispatchPrecondition(condition: .onQueue(.main))
-            
-            // Increment the frame counter
-            self.frameCount += 1
-            
-            // Record timestamp for performance monitoring
-            let timestamp = CACurrentMediaTime()
-            self.frameTimestamps.append(timestamp)
-            
-            // Only keep the last 60 timestamps for rolling performance calculation
-            if self.frameTimestamps.count > 60 {
-                self.frameTimestamps.removeFirst()
-            }
-            
-            // Calculate FPS and update delegate
-            let currentFPS = self.calculateCurrentFPS()
-            self.delegate?.frameSource(self, didUpdateWithSpeed: result.speed, fps: currentFPS)
-            
-            // Log occasionally
-            if self.frameCount % 30 == 0 {
-                let overallFps = self.frameTimestamps.count >= 2 ? 
-                    Double(self.frameTimestamps.count - 1) / (self.frameTimestamps.last! - self.frameTimestamps.first!) : 0
-                print("GoPro: Processing frames at \(String(format: "%.1f", currentFPS)) FPS (avg: \(String(format: "%.1f", overallFps)))")
-            }
-                
-            // Forward detection results to video capture delegate
-            if let videoCaptureDelegate = self.videoCaptureDelegate {
-                // Log detection information (only if there are boxes to avoid spam)
-                if result.boxes.count > 0 {
-                    print("GoPro: Received detection result with \(result.boxes.count) boxes")
-                }
-                
-                videoCaptureDelegate.onPredict(result: result)
-                
-                // Force a redraw of the container view to ensure boxes are visible/hidden
-                if let containerView = self.containerView {
-                    containerView.setNeedsDisplay()
-                    containerView.layoutIfNeeded()
-                }
-                
-                // If the containerView is a YOLOView, make sure bounding boxes are visible
-                if let yoloView = self.containerView as? YOLOView {
-                    for box in yoloView.boundingBoxViews {
-                        if !box.shapeLayer.isHidden {
-                            // Ensure the box layer is not hidden and has the right z-position
-                            box.shapeLayer.zPosition = 1000
-                            box.textLayer.zPosition = 1001
-                        }
-                    }
-                }
-            } else {
-                print("GoPro: WARNING - videoCaptureDelegate is nil for prediction result")
-                print("GoPro: Detection results are being LOST!")
-                
-                // Try to reestablish the delegate connection if possible
-                if let view = self.delegate as? VideoCaptureDelegate {
-                    print("GoPro: Attempting to recover by connecting to delegate")
-                    self.videoCaptureDelegate = view
-                    view.onPredict(result: result)
                 }
             }
         }
