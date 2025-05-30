@@ -75,6 +75,7 @@ private enum GoProEndpoint {
 /// Class for handling GoPro camera as a frame source
 @MainActor
 class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMediaPlayerDelegate {
+    
     // MARK: - FrameSource Protocol Properties
     
     /// The delegate to receive frames and performance metrics.
@@ -117,15 +118,24 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     var playerView: UIView?
     private weak var containerView: UIView?
     
-    // Stream tracking
+    // Stream tracking and completion callbacks
     private var streamStartTime: Date?
     private var hasReceivedFirstFrame = false
     private var frameCount = 0
     private var lastFrameTime: Int64 = 0
     private var lastFrameSize: CGSize = .zero
     
+    // Stream ready callback - FIXED: Store completion callback for proper flow
+    private var streamReadyCompletion: ((Result<Void, Error>) -> Void)?
+    
     // Performance metrics
     private var frameTimestamps: [CFTimeInterval] = []
+    
+    // Frame rate measurement with CADisplayLink
+    private var displayLink: CADisplayLink?
+    private var frameExtractionCount = 0
+    private var frameExtractionTimestamps: [CFTimeInterval] = []
+    private var lastSuccessfulExtractionTime: CFTimeInterval = 0
     
     // Delegates
     weak var goProDelegate: GoProSourceDelegate?
@@ -134,11 +144,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     override init() {
         super.init()
-        
-        // Since UIView creation must happen on the main thread
-        DispatchQueue.main.async {
-            self.setupVLCPlayerAndView()
-        }
+        setupVLCPlayerAndView()
         
         // Listen for orientation changes
         NotificationCenter.default.addObserver(
@@ -205,8 +211,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             self.stopFrameRateMeasurement()
             
             // Stop the VLC player
-                    self.videoPlayer?.stop()
-                    
+            self.videoPlayer?.stop()
+
             // Clean up player view from the container
             self.cleanupPlayerView()
             
@@ -217,8 +223,11 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             self.streamStartTime = nil
             self.lastFrameSize = .zero
             
+            // Clear completion callback
+            self.streamReadyCompletion = nil
+            
             // Notify delegate
-                self.goProDelegate?.goProSource(self, didUpdateStatus: .stopped)
+            self.goProDelegate?.goProSource(self, didUpdateStatus: .stopped)
         }
     }
     
@@ -241,7 +250,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     /// Updates the source for orientation changes
     func updateForOrientationChange(orientation: UIDeviceOrientation) {
-        DispatchQueue.main.async {
+        // Ensure this runs on main thread for UI updates
+        Task { @MainActor in
             self.updatePlayerViewLayout()
         }
     }
@@ -295,10 +305,10 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         videoPlayer?.videoCropGeometry = UnsafeMutablePointer<Int8>(mutating: "")
         videoPlayer?.audio?.volume = 0  // Mute audio
         
-        // 5. Setup CADisplayLink for frame rate measurement
+        // 5. Setup CADisplayLink for frame processing
         setupDisplayLinkForFrameRateMeasurement()
         
-        print("GoPro: VLC player and view initialized with CADisplayLink frame measurement")
+        print("GoPro: VLC player and view initialized with CADisplayLink frame processing")
     }
     
     /// Configure media options for optimal RTSP streaming from GoPro
@@ -362,26 +372,19 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     // MARK: - Frame Rate Measurement with CADisplayLink
     
-    private var displayLink: CADisplayLink?
-    private var frameExtractionCount = 0
-    private var frameExtractionTimestamps: [CFTimeInterval] = []
-    private var lastSuccessfulExtractionTime: CFTimeInterval = 0
-    
     @MainActor
     private func setupDisplayLinkForFrameRateMeasurement() {
-        // Create display link that fires at screen refresh rate (~60Hz)
-        // This will drive our frame processing pipeline at optimal rate
+        // Create display link that fires at 30Hz for better UI responsiveness
         displayLink = CADisplayLink(target: self, selector: #selector(displayLinkCallback))
-        displayLink?.preferredFramesPerSecond = 60  // Try to run at 60 FPS
+        displayLink?.preferredFramesPerSecond = 30  // Reduced to 30 FPS for better UI responsiveness
         displayLink?.isPaused = true  // Start paused
         displayLink?.add(to: .main, forMode: .default)
         
-        print("GoPro: CADisplayLink setup for frame processing pipeline")
+        print("GoPro: CADisplayLink setup for frame processing pipeline at 30 FPS")
     }
     
     @objc private func displayLinkCallback() {
-        // This fires at display refresh rate (~60Hz)
-        // We'll process frames and measure the actual processing rate
+        // This fires at 30Hz - ensure this method is as lightweight as possible
         
         let currentTime = CACurrentMediaTime()
         
@@ -394,50 +397,31 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             return
         }
         
-        // Process the current frame (this includes extraction, inference, etc.)
-        let processingStartTime = CACurrentMediaTime()
-        processCurrentFrame()
-        let processingTime = (CACurrentMediaTime() - processingStartTime) * 1000 // ms
-        
-        frameExtractionCount += 1
-        frameExtractionTimestamps.append(currentTime)
-        lastSuccessfulExtractionTime = currentTime
-        
-        // Keep only last 60 successful processing attempts for rolling average
-        while frameExtractionTimestamps.count > 60 {
-            frameExtractionTimestamps.removeFirst()
-        }
-        
-        // Log processing rate every 60 attempts (1 second at 60Hz)
-        if frameExtractionCount % 60 == 0 {
-            let successfulProcessing = frameExtractionTimestamps.count
-            let attemptRate = 60.0 // We attempt 60 times per second
-            let processingRate = frameExtractionTimestamps.count >= 2 ? 
-                Double(frameExtractionTimestamps.count - 1) / (frameExtractionTimestamps.last! - frameExtractionTimestamps.first!) : 0
+        // Dispatch frame processing to avoid blocking UI
+        Task { @MainActor in
+            let processingStartTime = CACurrentMediaTime()
+            self.processCurrentFrame()
+            let processingTime = (CACurrentMediaTime() - processingStartTime) * 1000 // ms
             
-            print("GoPro: FRAME PROCESSING RATE - Attempts: \(String(format: "%.1f", attemptRate))/s, Successful: \(successfulProcessing)/60, Rate: \(String(format: "%.1f", processingRate)) FPS, Processing: \(String(format: "%.1f", processingTime))ms")
+            self.frameExtractionCount += 1
+            self.frameExtractionTimestamps.append(currentTime)
+            self.lastSuccessfulExtractionTime = currentTime
+            
+            // Keep only last 30 successful processing attempts for rolling average
+            while self.frameExtractionTimestamps.count > 30 {
+                self.frameExtractionTimestamps.removeFirst()
+            }
+            
+            // Log processing rate every 300 attempts (10 seconds at 30Hz)
+            if self.frameExtractionCount % 300 == 0 {
+                let successfulProcessing = self.frameExtractionTimestamps.count
+                let attemptRate = 30.0 // We attempt 30 times per second
+                let processingRate = self.frameExtractionTimestamps.count >= 2 ? 
+                    Double(self.frameExtractionTimestamps.count - 1) / (self.frameExtractionTimestamps.last! - self.frameExtractionTimestamps.first!) : 0
+                
+                print("GoPro: FRAME PROCESSING RATE - Attempts: \(String(format: "%.1f", attemptRate))/s, Successful: \(successfulProcessing)/300, Rate: \(String(format: "%.1f", processingRate)) FPS, Processing: \(String(format: "%.1f", processingTime))ms")
+            }
         }
-    }
-    
-    @MainActor
-    private func attemptFrameExtraction() -> Bool {
-        // Try to extract a frame from VLC player view
-        guard let playerView = playerView,
-              playerView.bounds.size.width > 0,
-              playerView.bounds.size.height > 0 else {
-            return false
-        }
-        
-        // Use the same extraction method but just return success/failure
-        UIGraphicsBeginImageContextWithOptions(playerView.bounds.size, false, 0)
-        defer { UIGraphicsEndImageContext() }
-        
-        guard playerView.drawHierarchy(in: playerView.bounds, afterScreenUpdates: false) else {
-            return false
-        }
-        
-        let snapshot = UIGraphicsGetImageFromCurrentImageContext()
-        return snapshot != nil
     }
     
     @MainActor
@@ -471,9 +455,9 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         defer { UIGraphicsEndImageContext() }
         
         guard playerView.drawHierarchy(in: playerView.bounds, afterScreenUpdates: true) else {
-        return nil
-    }
-    
+            return nil
+        }
+        
         let snapshot = UIGraphicsGetImageFromCurrentImageContext()
         
         // Update frame size tracking if needed
@@ -481,8 +465,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             lastFrameSize = snapshot.size
         }
         
-        // Track FPS - log every 30 frames
-        if frameCount % 30 == 0 {
+        // Track FPS - log every 300 frames
+        if frameCount % 300 == 0 {
             let fps = calculateCurrentFPS()
             print("GoPro: Frame #\(frameCount) extraction rate: \(String(format: "%.1f", fps)) FPS, size: \(snapshot?.size ?? .zero)")
         }
@@ -510,6 +494,15 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     // Process the current frame for either inference or calibration
     @MainActor
     private func processCurrentFrame() {
+        // Early exit if we don't have valid player state
+        guard let videoPlayer = videoPlayer,
+              [.playing, .buffering].contains(videoPlayer.state),
+              let playerView = playerView,
+              playerView.bounds.size.width > 0,
+              playerView.bounds.size.height > 0 else {
+            return
+        }
+        
         // Measure frame extraction time
         let extractionStartTime = CACurrentMediaTime()
         
@@ -521,11 +514,14 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         // Calculate and log extraction time
         let extractionTime = (CACurrentMediaTime() - extractionStartTime) * 1000 // in ms
         
-        // Always send the frame to the delegate for display
-        delegate?.frameSource(self, didOutputImage: frameImage)
+        // Always send the frame to the delegate for display - dispatch to avoid blocking
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.delegate?.frameSource(self, didOutputImage: frameImage)
+        }
         
         // Log extraction performance occasionally
-        if frameCount % 60 == 0 {
+        if frameCount % 300 == 0 {
             print("GoPro: Frame #\(frameCount) extraction took \(String(format: "%.1f", extractionTime))ms")
         }
         
@@ -542,7 +538,9 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             // Clear boxes when starting calibration (first frame)
             if trackingDetector.getCalibrationFrameCount() == 0 {
                 print("GoPro: Starting calibration, clearing boxes")
-                self.videoCaptureDelegate?.onClearBoxes()
+                DispatchQueue.main.async { [weak self] in
+                    self?.videoCaptureDelegate?.onClearBoxes()
+                }
             }
             
             // Convert UIImage to CVPixelBuffer for calibration
@@ -572,7 +570,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                 let bufferTime = (CACurrentMediaTime() - bufferStartTime) * 1000 // in ms
                 
                 // Log inference attempt details periodically
-                if frameCount % 60 == 0 {
+                if frameCount % 300 == 0 {
                     print("GoPro: Running detection on frame #\(frameCount), size: \(frameImage.size)")
                     print("GoPro: Buffer creation took \(String(format: "%.1f", bufferTime))ms")
                 }
@@ -582,12 +580,16 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                     print("GoPro: Warning - videoCaptureDelegate is nil, detection results will be lost")
                 }
                 
-                // Run inference on the sample buffer
+                // Run inference on the sample buffer - dispatch to background to avoid blocking UI
+                DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+                    guard let self = self else { return }
+                    
                 predictor.predict(
                     sampleBuffer: sampleBuffer,
                     onResultsListener: self,
                     onInferenceTime: self
                 )
+                }
             } else {
                 print("GoPro: Failed to create sample buffer from frame image")
             }
@@ -601,8 +603,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             return 0
         }
         
-        // Calculate FPS based on last 10 frames or all available frames
-        let framesToConsider = min(10, frameTimestamps.count)
+        // Calculate FPS based on last 5 frames for 30Hz processing (reduced from 10)
+        let framesToConsider = min(5, frameTimestamps.count)
         let recentTimestamps = Array(frameTimestamps.suffix(framesToConsider))
         
         // Calculate time difference between first and last frame
@@ -614,7 +616,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     // MARK: - RTSP Streaming Management
     
-    /// Start RTSP stream from GoPro
+    /// Start RTSP stream from GoPro - FIXED: Proper completion flow
     @MainActor
     func startRTSPStream(completion: @escaping (Result<Void, Error>) -> Void) {
         // Construct RTSP URL - using the known working configuration
@@ -626,6 +628,9 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             completion(.failure(error))
             return
         }
+        
+        // Store completion callback to call when stream is actually ready (when frames are received)
+        streamReadyCompletion = completion
         
         // Set stream status to connecting
         goProDelegate?.goProSource(self, didUpdateStatus: .connecting)
@@ -653,8 +658,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         
         print("GoPro: VLC Player - Opening stream")
         
-        // Success is reported immediately, actual success is determined by frame reception
-        completion(.success(()))
+        // NOTE: Do not call completion(.success(())) immediately
+        // Completion will be called when first frame is received in mediaPlayerTimeChanged
     }
     
     /// Stop RTSP stream
@@ -662,6 +667,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     func stopRTSPStream() {
         print("GoPro: Stopping RTSP stream")
         videoPlayer?.stop()
+        streamReadyCompletion = nil  // Clear any pending completion
         goProDelegate?.goProSource(self, didUpdateStatus: .stopped)
     }
     
@@ -680,23 +686,34 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             return
         }
         
-        // Force immediate layout
-        containerView.layoutIfNeeded()
-        
-        print("GoPro: Updated player layout for size: \(containerSize)")
+        // Force immediate layout update on main thread
+        DispatchQueue.main.async {
+            containerView.setNeedsLayout()
+            containerView.layoutIfNeeded()
+            
+            // Update player view frame to match container
+            playerView.frame = containerView.bounds
+            
+            print("GoPro: Updated player layout for size: \(containerSize)")
+        }
     }
     
     // Orientation change notification handler
     @objc private func orientationDidChange() {
-        let orientation = UIDevice.current.orientation
-        if orientation.isPortrait || orientation.isLandscape {
-            updateForOrientationChange(orientation: orientation)
+        // Dispatch to main thread to avoid blocking UI
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            let orientation = UIDevice.current.orientation
+            if orientation.isPortrait || orientation.isLandscape {
+                self.updateForOrientationChange(orientation: orientation)
+            }
         }
     }
-}
+    }
 
-// MARK: - VLC Media Player Delegate Methods
-
+    // MARK: - VLC Media Player Delegate Methods
+    
 extension GoProSource {
     nonisolated func mediaPlayerStateChanged(_ aNotification: Notification!) {
         guard let player = aNotification.object as? VLCMediaPlayer else { return }
@@ -714,24 +731,31 @@ extension GoProSource {
                     print("GoPro: VLC Player - Stream is playing")
                     self.goProDelegate?.goProSource(self, didUpdateStatus: .playing)
                     
-                    // Start frame rate measurement when actually playing
-                    self.startFrameRateMeasurement()
-                    
+                // Start frame rate measurement when actually playing
+                self.startFrameRateMeasurement()
+                
                     if playerVideoSize.width > 0 && playerVideoSize.height > 0 {
                         self.lastFrameSize = playerVideoSize
                         self.broadcastFrameSizeChange(playerVideoSize)
                     }
                 case .error:
                     print("GoPro: VLC Player - Error streaming")
-                    self.stopFrameRateMeasurement()
+                self.stopFrameRateMeasurement()
                     self.goProDelegate?.goProSource(self, didUpdateStatus: .error("Playback error"))
+                    
+                // Call completion with error if we have a pending callback
+                if let completion = self.streamReadyCompletion {
+                    self.streamReadyCompletion = nil
+                    let error = NSError(domain: "GoProSource", code: 2, userInfo: [NSLocalizedDescriptionKey: "VLC playback error"])
+                    completion(.failure(error))
+                }
                 case .ended:
                     print("GoPro: VLC Player - Stream ended")
-                    self.stopFrameRateMeasurement()
+                self.stopFrameRateMeasurement()
                     self.goProDelegate?.goProSource(self, didUpdateStatus: .stopped)
                 case .stopped:
                     print("GoPro: VLC Player - Stream stopped")
-                    self.stopFrameRateMeasurement()
+                self.stopFrameRateMeasurement()
                     self.goProDelegate?.goProSource(self, didUpdateStatus: .stopped)
                 default:
                     print("GoPro: VLC Player - State: \(playerState.rawValue)")
@@ -749,29 +773,43 @@ extension GoProSource {
             // Update time tracking
             self.lastFrameTime = timeValue
             
-            // Handle first frame detection
+            // Handle first frame detection and stream ready notification
             if !self.hasReceivedFirstFrame && videoSize.width > 0 && videoSize.height > 0 {
                 print("GoPro: VLC Player - Received first valid frame, size: \(videoSize)")
                 
-                self.hasReceivedFirstFrame = true
+                    self.hasReceivedFirstFrame = true
+                    
+                    // Update frame dimensions for FrameSource protocol
+                    self.longSide = max(videoSize.width, videoSize.height)
+                    self.shortSide = min(videoSize.width, videoSize.height)
+                    
+                    // Store the frame size and broadcast it
+                    self.lastFrameSize = videoSize
+                    self.broadcastFrameSizeChange(videoSize)
+                    
+                // Update player view layout now that we have a valid video size - dispatch to main
+                DispatchQueue.main.async { [weak self] in
+                    self?.updatePlayerViewLayout()
+                }
+                    
+                    // Notify first frame received with size
+                    self.goProDelegate?.goProSource(self, didReceiveFirstFrame: videoSize)
                 
-                // Update frame dimensions for FrameSource protocol
-                self.longSide = max(videoSize.width, videoSize.height)
-                self.shortSide = min(videoSize.width, videoSize.height)
-                
-                // Store the frame size and broadcast it
-                self.lastFrameSize = videoSize
-                self.broadcastFrameSizeChange(videoSize)
-                
-                // Update player view layout now that we have a valid video size
-                self.updatePlayerViewLayout()
-                
-                // Notify first frame received with size
-                self.goProDelegate?.goProSource(self, didReceiveFirstFrame: videoSize)
+                // FIXED: Call completion callback now that stream is ready with frames
+                if let completion = self.streamReadyCompletion {
+                    self.streamReadyCompletion = nil
+                    print("GoPro: Stream is ready - calling completion callback")
+                    // Dispatch completion to main thread for smooth UI transition
+                    DispatchQueue.main.async {
+                        completion(.success(()))
+                    }
+                }
             }
             
-            // Always notify goProDelegate about time change
+            // Always notify goProDelegate about time change - but throttle to avoid spam
+            if self.frameCount % 30 == 0 {  // Only notify every 30 frames at 30Hz = once per second
             self.goProDelegate?.goProSource(self, didReceiveFrameWithTime: self.lastFrameTime)
+            }
         }
     }
     
@@ -824,17 +862,15 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
                 print("GoPro: Warning - videoCaptureDelegate is nil for inferenceTime update")
             }
             
-            // Log detailed fps metrics every 30 frames
-            if self.frameCount % 30 == 0 {
+            // Log detailed fps metrics every 300 frames
+            if self.frameCount % 300 == 0 {
                 print("GoPro: Inference - Speed: \(String(format: "%.1f", inferenceTime))ms, FPS: \(String(format: "%.1f", fpsRate))")
             }
         }
     }
     
     nonisolated func on(result: YOLOResult) {
-        Task { @MainActor [weak self] in
-            guard let self = self else { return }
-            
+        Task { @MainActor in
             // Ensure we're on the main thread for UI operations
             dispatchPrecondition(condition: .onQueue(.main))
             
@@ -845,8 +881,8 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
             let timestamp = CACurrentMediaTime()
             self.frameTimestamps.append(timestamp)
             
-            // Only keep the last 60 timestamps for rolling performance calculation
-            if self.frameTimestamps.count > 60 {
+            // Only keep the last 30 timestamps for rolling performance calculation (reduced from 60)
+            if self.frameTimestamps.count > 30 {
                 self.frameTimestamps.removeFirst()
             }
             
@@ -855,46 +891,55 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
             self.delegate?.frameSource(self, didUpdateWithSpeed: result.speed, fps: currentFPS)
             
             // Log occasionally
-            if self.frameCount % 30 == 0 {
+            if self.frameCount % 300 == 0 {
                 let overallFps = self.frameTimestamps.count >= 2 ? 
                     Double(self.frameTimestamps.count - 1) / (self.frameTimestamps.last! - self.frameTimestamps.first!) : 0
                 print("GoPro: Processing frames at \(String(format: "%.1f", currentFPS)) FPS (avg: \(String(format: "%.1f", overallFps)))")
             }
                 
-            // Forward detection results to video capture delegate
+            // Forward detection results to video capture delegate - ensure immediate UI update
             if let videoCaptureDelegate = self.videoCaptureDelegate {
                 // Log detection information (only if there are boxes to avoid spam)
-                if result.boxes.count > 0 {
+                if result.boxes.count > 0 && self.frameCount % 30 == 0 {  // Log every 30 frames instead of every frame
                     print("GoPro: Received detection result with \(result.boxes.count) boxes")
                 }
                 
+                // Process detection results immediately on main thread for responsive UI
                 videoCaptureDelegate.onPredict(result: result)
                 
-                // Force a redraw of the container view to ensure boxes are visible/hidden
+                // Force immediate UI update for responsive box rendering
                 if let containerView = self.containerView {
-                    containerView.setNeedsDisplay()
-                    containerView.layoutIfNeeded()
-                }
-                
-                // If the containerView is a YOLOView, make sure bounding boxes are visible
-                if let yoloView = self.containerView as? YOLOView {
-                    for box in yoloView.boundingBoxViews {
-                        if !box.shapeLayer.isHidden {
-                            // Ensure the box layer is not hidden and has the right z-position
-                            box.shapeLayer.zPosition = 1000
-                            box.textLayer.zPosition = 1001
+            DispatchQueue.main.async {
+                        containerView.setNeedsDisplay()
+                        
+                        // If the containerView is a YOLOView, ensure bounding boxes are properly rendered
+                        if let yoloView = containerView as? YOLOView {
+                            // Force immediate layout for responsive box updates
+                            yoloView.setNeedsLayout()
+                            yoloView.layoutIfNeeded()
+                            
+                            // Ensure boxes are visible with proper z-position
+                            for box in yoloView.boundingBoxViews {
+                                if !box.shapeLayer.isHidden {
+                                    box.shapeLayer.zPosition = 1000
+                                    box.textLayer.zPosition = 1001
+                                }
+                            }
                         }
                     }
                 }
                     } else {
-                print("GoPro: WARNING - videoCaptureDelegate is nil for prediction result")
-                print("GoPro: Detection results are being LOST!")
-                
-                // Try to reestablish the delegate connection if possible
-                if let view = self.delegate as? VideoCaptureDelegate {
-                    print("GoPro: Attempting to recover by connecting to delegate")
-                    self.videoCaptureDelegate = view
-                    view.onPredict(result: result)
+                // Only log warning occasionally to avoid spam
+                if self.frameCount % 300 == 0 {
+                    print("GoPro: WARNING - videoCaptureDelegate is nil for prediction result")
+                    print("GoPro: Detection results are being LOST!")
+                    
+                    // Try to reestablish the delegate connection if possible
+                    if let view = self.delegate as? VideoCaptureDelegate {
+                        print("GoPro: Attempting to recover by connecting to delegate")
+                        self.videoCaptureDelegate = view
+                        view.onPredict(result: result)
+                    }
                 }
             }
         }
@@ -1228,7 +1273,7 @@ extension GoProSource {
     func startWebcam(completion: @escaping (Result<Void, Error>) -> Void) {
         print("GoPro: Starting webcam stream")
         
-        performGoProRequest(endpoint: .start(resolution: 7, fov: 0)) { result in
+        performGoProRequest(endpoint: .start(resolution: 12, fov: 4)) { result in
             switch result {
             case .success:
                 print("GoPro: Webcam started successfully")
