@@ -1764,7 +1764,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         albumVideoSource?.predictor = videoCapture.predictor
         albumVideoSource?.delegate = self
         albumVideoSource?.videoCaptureDelegate = self
-        
+        		
         // Register for video playback end notification
         NotificationCenter.default.addObserver(
           self,

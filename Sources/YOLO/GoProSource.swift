@@ -370,21 +370,22 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     @MainActor
     private func setupDisplayLinkForFrameRateMeasurement() {
         // Create display link that fires at screen refresh rate (~60Hz)
+        // This will drive our frame processing pipeline at optimal rate
         displayLink = CADisplayLink(target: self, selector: #selector(displayLinkCallback))
         displayLink?.preferredFramesPerSecond = 60  // Try to run at 60 FPS
         displayLink?.isPaused = true  // Start paused
         displayLink?.add(to: .main, forMode: .default)
         
-        print("GoPro: CADisplayLink setup for frame rate measurement")
+        print("GoPro: CADisplayLink setup for frame processing pipeline")
     }
     
     @objc private func displayLinkCallback() {
         // This fires at display refresh rate (~60Hz)
-        // We'll attempt to extract a frame and measure success rate
+        // We'll process frames and measure the actual processing rate
         
         let currentTime = CACurrentMediaTime()
         
-        // Only attempt extraction if VLC is playing
+        // Only process if VLC is playing
         guard let videoPlayer = videoPlayer,
               [.playing, .buffering].contains(videoPlayer.state),
               let playerView = playerView,
@@ -393,31 +394,28 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             return
         }
         
-        // Attempt frame extraction
-        let extractionStartTime = CACurrentMediaTime()
-        let frameExtracted = attemptFrameExtraction()
-        let extractionTime = (CACurrentMediaTime() - extractionStartTime) * 1000 // ms
+        // Process the current frame (this includes extraction, inference, etc.)
+        let processingStartTime = CACurrentMediaTime()
+        processCurrentFrame()
+        let processingTime = (CACurrentMediaTime() - processingStartTime) * 1000 // ms
         
         frameExtractionCount += 1
+        frameExtractionTimestamps.append(currentTime)
+        lastSuccessfulExtractionTime = currentTime
         
-        if frameExtracted {
-            frameExtractionTimestamps.append(currentTime)
-            lastSuccessfulExtractionTime = currentTime
-            
-            // Keep only last 60 successful extractions for rolling average
-            while frameExtractionTimestamps.count > 60 {
-                frameExtractionTimestamps.removeFirst()
-            }
+        // Keep only last 60 successful processing attempts for rolling average
+        while frameExtractionTimestamps.count > 60 {
+            frameExtractionTimestamps.removeFirst()
         }
         
-        // Log frame rate every 60 attempts (1 second at 60Hz)
+        // Log processing rate every 60 attempts (1 second at 60Hz)
         if frameExtractionCount % 60 == 0 {
-            let successfulExtractions = frameExtractionTimestamps.count
+            let successfulProcessing = frameExtractionTimestamps.count
             let attemptRate = 60.0 // We attempt 60 times per second
-            let successRate = frameExtractionTimestamps.count >= 2 ? 
+            let processingRate = frameExtractionTimestamps.count >= 2 ? 
                 Double(frameExtractionTimestamps.count - 1) / (frameExtractionTimestamps.last! - frameExtractionTimestamps.first!) : 0
             
-            print("GoPro: ACTUAL FRAME RATE - Attempts: \(String(format: "%.1f", attemptRate))/s, Successful: \(successfulExtractions)/60, Rate: \(String(format: "%.1f", successRate)) FPS, Extraction: \(String(format: "%.1f", extractionTime))ms")
+            print("GoPro: FRAME PROCESSING RATE - Attempts: \(String(format: "%.1f", attemptRate))/s, Successful: \(successfulProcessing)/60, Rate: \(String(format: "%.1f", processingRate)) FPS, Processing: \(String(format: "%.1f", processingTime))ms")
         }
     }
     
@@ -447,13 +445,13 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         frameExtractionCount = 0
         frameExtractionTimestamps.removeAll()
         displayLink?.isPaused = false
-        print("GoPro: Started CADisplayLink frame rate measurement")
+        print("GoPro: Started CADisplayLink frame processing measurement")
     }
     
     @MainActor
     private func stopFrameRateMeasurement() {
         displayLink?.isPaused = true
-        print("GoPro: Stopped CADisplayLink frame rate measurement")
+        print("GoPro: Stopped CADisplayLink frame processing measurement")
     }
     
     // MARK: - Frame Processing Pipeline
@@ -512,10 +510,6 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     // Process the current frame for either inference or calibration
     @MainActor
     private func processCurrentFrame() {
-        // TEMPORARILY DISABLED FOR RAW VLC SPEED MEASUREMENT
-        // Comment out all processing to measure raw VLCKit frame receiving speed
-        
-        /*
         // Measure frame extraction time
         let extractionStartTime = CACurrentMediaTime()
         
@@ -598,7 +592,6 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                 print("GoPro: Failed to create sample buffer from frame image")
             }
         }
-        */
     }
     
     /// Calculate current FPS based on recent frame timestamps
@@ -753,39 +746,28 @@ extension GoProSource {
         let videoSize = player.videoSize
         
         Task { @MainActor in
-            // Increment frame count (this is actually time position updates, not frames)
-            self.frameCount += 1
+            // Update time tracking
             self.lastFrameTime = timeValue
             
-            // Handle first frame
-            if !self.hasReceivedFirstFrame {
-                print("GoPro: VLC Player - Received first time update, size: \(videoSize)")
+            // Handle first frame detection
+            if !self.hasReceivedFirstFrame && videoSize.width > 0 && videoSize.height > 0 {
+                print("GoPro: VLC Player - Received first valid frame, size: \(videoSize)")
                 
-                if videoSize.width > 0 && videoSize.height > 0 {
-                    self.hasReceivedFirstFrame = true
-                    
-                    // Update frame dimensions for FrameSource protocol
-                    self.longSide = max(videoSize.width, videoSize.height)
-                    self.shortSide = min(videoSize.width, videoSize.height)
-                    
-                    // Store the frame size and broadcast it
-                    self.lastFrameSize = videoSize
-                    self.broadcastFrameSizeChange(videoSize)
-                    
-                    // Update player view layout now that we have a valid video size
-                    self.updatePlayerViewLayout()
-                    
-                    // Notify first frame received with size
-                    self.goProDelegate?.goProSource(self, didReceiveFirstFrame: videoSize)
-                } else {
-                    print("GoPro: Received invalid frame size: \(videoSize). Waiting for valid frame...")
-                    return
-                }
-            }
-            
-            // Log occasionally - this is TIME POSITION updates, not frame rate
-            if self.frameCount % 30 == 0 {
-                print("GoPro: VLC Time Position Updates - \(self.frameCount) updates received (NOT frame rate)")
+                self.hasReceivedFirstFrame = true
+                
+                // Update frame dimensions for FrameSource protocol
+                self.longSide = max(videoSize.width, videoSize.height)
+                self.shortSide = min(videoSize.width, videoSize.height)
+                
+                // Store the frame size and broadcast it
+                self.lastFrameSize = videoSize
+                self.broadcastFrameSizeChange(videoSize)
+                
+                // Update player view layout now that we have a valid video size
+                self.updatePlayerViewLayout()
+                
+                // Notify first frame received with size
+                self.goProDelegate?.goProSource(self, didReceiveFirstFrame: videoSize)
             }
             
             // Always notify goProDelegate about time change
