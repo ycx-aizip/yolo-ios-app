@@ -151,6 +151,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     deinit {
         NotificationCenter.default.removeObserver(self)
+        // Note: displayLink will be automatically invalidated when the object is deallocated
     }
     
     // MARK: - Core FrameSource Protocol Implementation
@@ -188,6 +189,9 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             if self.videoPlayer?.state != .playing {
                 self.startRTSPStream { _ in }
             }
+            
+            // Start frame rate measurement
+            self.startFrameRateMeasurement()
         }
     }
     
@@ -197,9 +201,12 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             guard let self = self else { return }
             print("GoPro: Stopping stream and cleaning up resources")
             
-            // Stop the VLC player
-            self.videoPlayer?.stop()
+            // Stop frame rate measurement
+            self.stopFrameRateMeasurement()
             
+            // Stop the VLC player
+                    self.videoPlayer?.stop()
+                    
             // Clean up player view from the container
             self.cleanupPlayerView()
             
@@ -211,7 +218,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             self.lastFrameSize = .zero
             
             // Notify delegate
-            self.goProDelegate?.goProSource(self, didUpdateStatus: .stopped)
+                self.goProDelegate?.goProSource(self, didUpdateStatus: .stopped)
         }
     }
     
@@ -251,7 +258,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         // GoPro doesn't need content selection as it's a live stream
         completion(false)
     }
-    
+
     // MARK: - VLC Player Management
     
     @MainActor
@@ -288,7 +295,10 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         videoPlayer?.videoCropGeometry = UnsafeMutablePointer<Int8>(mutating: "")
         videoPlayer?.audio?.volume = 0  // Mute audio
         
-        print("GoPro: VLC player and view initialized")
+        // 5. Setup CADisplayLink for frame rate measurement
+        setupDisplayLinkForFrameRateMeasurement()
+        
+        print("GoPro: VLC player and view initialized with CADisplayLink frame measurement")
     }
     
     /// Configure media options for optimal RTSP streaming from GoPro
@@ -350,6 +360,102 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         print("GoPro: Player view cleaned up")
     }
     
+    // MARK: - Frame Rate Measurement with CADisplayLink
+    
+    private var displayLink: CADisplayLink?
+    private var frameExtractionCount = 0
+    private var frameExtractionTimestamps: [CFTimeInterval] = []
+    private var lastSuccessfulExtractionTime: CFTimeInterval = 0
+    
+    @MainActor
+    private func setupDisplayLinkForFrameRateMeasurement() {
+        // Create display link that fires at screen refresh rate (~60Hz)
+        displayLink = CADisplayLink(target: self, selector: #selector(displayLinkCallback))
+        displayLink?.preferredFramesPerSecond = 60  // Try to run at 60 FPS
+        displayLink?.isPaused = true  // Start paused
+        displayLink?.add(to: .main, forMode: .default)
+        
+        print("GoPro: CADisplayLink setup for frame rate measurement")
+    }
+    
+    @objc private func displayLinkCallback() {
+        // This fires at display refresh rate (~60Hz)
+        // We'll attempt to extract a frame and measure success rate
+        
+        let currentTime = CACurrentMediaTime()
+        
+        // Only attempt extraction if VLC is playing
+        guard let videoPlayer = videoPlayer,
+              [.playing, .buffering].contains(videoPlayer.state),
+              let playerView = playerView,
+              playerView.bounds.size.width > 0,
+              playerView.bounds.size.height > 0 else {
+            return
+        }
+        
+        // Attempt frame extraction
+        let extractionStartTime = CACurrentMediaTime()
+        let frameExtracted = attemptFrameExtraction()
+        let extractionTime = (CACurrentMediaTime() - extractionStartTime) * 1000 // ms
+        
+        frameExtractionCount += 1
+        
+        if frameExtracted {
+            frameExtractionTimestamps.append(currentTime)
+            lastSuccessfulExtractionTime = currentTime
+            
+            // Keep only last 60 successful extractions for rolling average
+            while frameExtractionTimestamps.count > 60 {
+                frameExtractionTimestamps.removeFirst()
+            }
+        }
+        
+        // Log frame rate every 60 attempts (1 second at 60Hz)
+        if frameExtractionCount % 60 == 0 {
+            let successfulExtractions = frameExtractionTimestamps.count
+            let attemptRate = 60.0 // We attempt 60 times per second
+            let successRate = frameExtractionTimestamps.count >= 2 ? 
+                Double(frameExtractionTimestamps.count - 1) / (frameExtractionTimestamps.last! - frameExtractionTimestamps.first!) : 0
+            
+            print("GoPro: ACTUAL FRAME RATE - Attempts: \(String(format: "%.1f", attemptRate))/s, Successful: \(successfulExtractions)/60, Rate: \(String(format: "%.1f", successRate)) FPS, Extraction: \(String(format: "%.1f", extractionTime))ms")
+        }
+    }
+    
+    @MainActor
+    private func attemptFrameExtraction() -> Bool {
+        // Try to extract a frame from VLC player view
+        guard let playerView = playerView,
+              playerView.bounds.size.width > 0,
+              playerView.bounds.size.height > 0 else {
+            return false
+        }
+        
+        // Use the same extraction method but just return success/failure
+        UIGraphicsBeginImageContextWithOptions(playerView.bounds.size, false, 0)
+        defer { UIGraphicsEndImageContext() }
+        
+        guard playerView.drawHierarchy(in: playerView.bounds, afterScreenUpdates: false) else {
+            return false
+        }
+        
+        let snapshot = UIGraphicsGetImageFromCurrentImageContext()
+        return snapshot != nil
+    }
+    
+    @MainActor
+    private func startFrameRateMeasurement() {
+        frameExtractionCount = 0
+        frameExtractionTimestamps.removeAll()
+        displayLink?.isPaused = false
+        print("GoPro: Started CADisplayLink frame rate measurement")
+    }
+    
+    @MainActor
+    private func stopFrameRateMeasurement() {
+        displayLink?.isPaused = true
+        print("GoPro: Stopped CADisplayLink frame rate measurement")
+    }
+    
     // MARK: - Frame Processing Pipeline
     
     @MainActor
@@ -367,9 +473,9 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         defer { UIGraphicsEndImageContext() }
         
         guard playerView.drawHierarchy(in: playerView.bounds, afterScreenUpdates: true) else {
-            return nil
-        }
-        
+        return nil
+    }
+    
         let snapshot = UIGraphicsGetImageFromCurrentImageContext()
         
         // Update frame size tracking if needed
@@ -387,7 +493,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     }
     
     // Process the extracted frame into YOLO-compatible format
-    private func processExtractedFrame(_ image: UIImage) -> CMSampleBuffer? {
+    private func preProcessExtractedFrame(_ image: UIImage) -> CMSampleBuffer? {
         // Create pixel buffer from the image using standard conversion
         guard let pixelBuffer = createStandardPixelBuffer(from: image, forSourceType: sourceType) else {
             print("GoPro: Failed to create pixel buffer from frame")
@@ -406,6 +512,10 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     // Process the current frame for either inference or calibration
     @MainActor
     private func processCurrentFrame() {
+        // TEMPORARILY DISABLED FOR RAW VLC SPEED MEASUREMENT
+        // Comment out all processing to measure raw VLCKit frame receiving speed
+        
+        /*
         // Measure frame extraction time
         let extractionStartTime = CACurrentMediaTime()
         
@@ -464,7 +574,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             // Measure sample buffer creation time
             let bufferStartTime = CACurrentMediaTime()
             
-            if let sampleBuffer = processExtractedFrame(frameImage) {
+            if let sampleBuffer = preProcessExtractedFrame(frameImage) {
                 let bufferTime = (CACurrentMediaTime() - bufferStartTime) * 1000 // in ms
                 
                 // Log inference attempt details periodically
@@ -488,6 +598,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                 print("GoPro: Failed to create sample buffer from frame image")
             }
         }
+        */
     }
     
     /// Calculate current FPS based on recent frame timestamps
@@ -600,31 +711,37 @@ extension GoProSource {
         let playerState = player.state
         let playerVideoSize = player.videoSize
         
-        Task { @MainActor in
+                    Task { @MainActor in
             switch playerState {
-            case .opening:
-                print("GoPro: VLC Player - Opening stream")
-            case .buffering:
-                print("GoPro: VLC Player - Buffering stream")
-            case .playing:
-                print("GoPro: VLC Player - Stream is playing")
-                self.goProDelegate?.goProSource(self, didUpdateStatus: .playing)
-                
-                if playerVideoSize.width > 0 && playerVideoSize.height > 0 {
-                    self.lastFrameSize = playerVideoSize
-                    self.broadcastFrameSizeChange(playerVideoSize)
-                }
-            case .error:
-                print("GoPro: VLC Player - Error streaming")
-                self.goProDelegate?.goProSource(self, didUpdateStatus: .error("Playback error"))
-            case .ended:
-                print("GoPro: VLC Player - Stream ended")
-                self.goProDelegate?.goProSource(self, didUpdateStatus: .stopped)
-            case .stopped:
-                print("GoPro: VLC Player - Stream stopped")
-                self.goProDelegate?.goProSource(self, didUpdateStatus: .stopped)
-            default:
-                print("GoPro: VLC Player - State: \(playerState.rawValue)")
+                case .opening:
+                    print("GoPro: VLC Player - Opening stream")
+                case .buffering:
+                    print("GoPro: VLC Player - Buffering stream")
+                case .playing:
+                    print("GoPro: VLC Player - Stream is playing")
+                    self.goProDelegate?.goProSource(self, didUpdateStatus: .playing)
+                    
+                    // Start frame rate measurement when actually playing
+                    self.startFrameRateMeasurement()
+                    
+                    if playerVideoSize.width > 0 && playerVideoSize.height > 0 {
+                        self.lastFrameSize = playerVideoSize
+                        self.broadcastFrameSizeChange(playerVideoSize)
+                    }
+                case .error:
+                    print("GoPro: VLC Player - Error streaming")
+                    self.stopFrameRateMeasurement()
+                    self.goProDelegate?.goProSource(self, didUpdateStatus: .error("Playback error"))
+                case .ended:
+                    print("GoPro: VLC Player - Stream ended")
+                    self.stopFrameRateMeasurement()
+                    self.goProDelegate?.goProSource(self, didUpdateStatus: .stopped)
+                case .stopped:
+                    print("GoPro: VLC Player - Stream stopped")
+                    self.stopFrameRateMeasurement()
+                    self.goProDelegate?.goProSource(self, didUpdateStatus: .stopped)
+                default:
+                    print("GoPro: VLC Player - State: \(playerState.rawValue)")
             }
         }
     }
@@ -636,19 +753,13 @@ extension GoProSource {
         let videoSize = player.videoSize
         
         Task { @MainActor in
-            // Increment frame count
+            // Increment frame count (this is actually time position updates, not frames)
             self.frameCount += 1
             self.lastFrameTime = timeValue
             
-            // Track frame timestamps for FPS calculation - keep last 30 frames
-            self.frameTimestamps.append(CACurrentMediaTime())
-            while self.frameTimestamps.count > 30 {
-                self.frameTimestamps.removeFirst()
-            }
-            
             // Handle first frame
             if !self.hasReceivedFirstFrame {
-                print("GoPro: VLC Player - Received first frame, size: \(videoSize)")
+                print("GoPro: VLC Player - Received first time update, size: \(videoSize)")
                 
                 if videoSize.width > 0 && videoSize.height > 0 {
                     self.hasReceivedFirstFrame = true
@@ -670,36 +781,14 @@ extension GoProSource {
                     print("GoPro: Received invalid frame size: \(videoSize). Waiting for valid frame...")
                     return
                 }
-            } else if frameCount % 60 == 0 {
-                // Periodically check if the video size has changed and broadcast updates
-                if videoSize.width > 0 && videoSize.height > 0 && 
-                   (self.lastFrameSize.width != videoSize.width || self.lastFrameSize.height != videoSize.height) {
-                    print("GoPro: Frame size changed from \(self.lastFrameSize) to \(videoSize)")
-                    
-                    self.longSide = max(videoSize.width, videoSize.height)
-                    self.shortSide = min(videoSize.width, videoSize.height)
-                    self.lastFrameSize = videoSize
-                    
-                    self.broadcastFrameSizeChange(videoSize)
-                    self.updatePlayerViewLayout()
-                }
             }
             
-            // Process the current frame
-            self.processCurrentFrame()
-            
-            // Calculate and report performance metrics
-            let instantFps = self.calculateCurrentFPS()
-            self.delegate?.frameSource(self, didUpdateWithSpeed: 1000.0 / instantFps, fps: instantFps)
-            
-            // Log occasionally
+            // Log occasionally - this is TIME POSITION updates, not frame rate
             if self.frameCount % 30 == 0 {
-                let overallFps = self.frameTimestamps.count >= 2 ? 
-                    Double(self.frameTimestamps.count - 1) / (self.frameTimestamps.last! - self.frameTimestamps.first!) : 0
-                print("GoPro: VLC Player - Receiving frames at \(String(format: "%.2f", instantFps)) FPS (avg: \(String(format: "%.2f", overallFps)))")
+                print("GoPro: VLC Time Position Updates - \(self.frameCount) updates received (NOT frame rate)")
             }
             
-            // Always notify goProDelegate about frame
+            // Always notify goProDelegate about time change
             self.goProDelegate?.goProSource(self, didReceiveFrameWithTime: self.lastFrameTime)
         }
     }
@@ -815,7 +904,7 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
                         }
                     }
                 }
-            } else {
+                    } else {
                 print("GoPro: WARNING - videoCaptureDelegate is nil for prediction result")
                 print("GoPro: Detection results are being LOST!")
                 
@@ -830,7 +919,7 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
     }
 }
 
-// MARK: - FrameSource Protocol Implementation for UI Integration and Coordinate Transformation
+    // MARK: - FrameSource Protocol Implementation for UI Integration and Coordinate Transformation
 
 extension GoProSource {
     @MainActor
