@@ -21,6 +21,10 @@ class BoundingBoxView {
   /// The layer that displays the label and confidence score for the detected object.
   let textLayer: CATextLayer
 
+  /// Store the previous visibility state for temporary hiding
+  private var wasShapeLayerHidden: Bool = true
+  private var wasTextLayerHidden: Bool = true
+
   /// Initializes a new BoundingBoxView with configured shape and text layers.
   init() {
     shapeLayer = CAShapeLayer()
@@ -77,6 +81,24 @@ class BoundingBoxView {
   func hide() {
     shapeLayer.isHidden = true
     textLayer.isHidden = true
+  }
+  
+  /// Temporarily hides the bounding box and text layers, storing their previous state
+  func temporarilyHide() {
+    // Store current visibility state
+    wasShapeLayerHidden = shapeLayer.isHidden
+    wasTextLayerHidden = textLayer.isHidden
+    
+    // Hide both layers
+    shapeLayer.isHidden = true
+    textLayer.isHidden = true
+  }
+  
+  /// Restores the bounding box and text layers to their previous visibility state
+  func restoreFromTemporaryHide() {
+    // Restore to previous visibility state
+    shapeLayer.isHidden = wasShapeLayerHidden
+    textLayer.isHidden = wasTextLayerHidden
   }
 }
 

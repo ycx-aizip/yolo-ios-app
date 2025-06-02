@@ -1693,6 +1693,11 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       return
     }
     
+    // If switching away from GoPro mode, restore normal transparency
+    if frameSourceType == .goPro && sourceType != .goPro {
+      restoreNormalTransparency()
+    }
+    
     // Stop current frame source
     currentFrameSource.stop()
     
@@ -2198,6 +2203,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       }
     }
     
+    // Set reduced transparency for GoPro mode to minimize flicker
+    setGoProModeTransparency()
+    
     // Update frameSourceType
     frameSourceType = .goPro
     currentFrameSource = goProSource
@@ -2322,32 +2330,25 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         return
       }
       
-      // Setup successful, now start the RTSP stream
+      // Setup successful, now optimize for GoPro with proper integration
       Task {
         do {
-          // Create a callback Task to handle the result asynchronously
-          let streamResultTask = Task<Result<Void, Error>, Never> { 
-            return await withCheckedContinuation { continuation in
-              // Need to call via MainActor.run since goProSource.startRTSPStream is @MainActor isolated
-              Task { @MainActor in
-                goProSource.startRTSPStream { result in
-                  continuation.resume(returning: result)
-                }
-              }
-            }
+          // First optimize the source and ensure proper integration
+          await MainActor.run {
+            self.optimizeForGoProSource(goProSource)
           }
           
-          // Wait for the result with a timeout
-          let result = await streamResultTask.value
+          // Wait a brief moment for UI to settle and integration to complete
+          try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
           
-          // Now we can safely run UI updates on the main actor
+          // Now attempt to start the RTSP stream with retry logic
+          let streamResult = await self.startRTSPStreamWithRetry(goProSource: goProSource, maxRetries: 3)
+          
+          // Handle the result on main actor
           await MainActor.run {
-            switch result {
+            switch streamResult {
             case .success:
-              // Stream started successfully - use our optimized method
-              self.optimizeForGoProSource(goProSource)
-              
-              // Dismiss loading indicator
+              // Stream started successfully
               loadingAlert.dismiss(animated: true) {
                 // Show success message
                 let successAlert = UIAlertController(
@@ -2398,6 +2399,44 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         }
       }
     }
+  }
+  
+  /// Helper method to start RTSP stream with retry logic for proper integration
+  private func startRTSPStreamWithRetry(goProSource: GoProSource, maxRetries: Int) async -> Result<Void, Error> {
+    for attempt in 1...maxRetries {
+      print("GoPro: Stream start attempt \(attempt)/\(maxRetries)")
+      
+      let result = await withCheckedContinuation { continuation in
+        Task { @MainActor in
+          goProSource.startRTSPStream { result in
+            continuation.resume(returning: result)
+          }
+        }
+      }
+      
+      switch result {
+      case .success:
+        print("GoPro: Stream started successfully on attempt \(attempt)")
+        return .success(())
+        
+      case .failure(let error):
+        print("GoPro: Stream start attempt \(attempt) failed: \(error.localizedDescription)")
+        
+        // If it's an integration error and we have more retries, wait and try again
+        if error.localizedDescription.contains("not properly integrated") && attempt < maxRetries {
+          print("GoPro: Waiting for integration to complete before retry...")
+          try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+          continue
+        } else {
+          // Return the error if it's not an integration issue or we're out of retries
+          return .failure(error)
+        }
+      }
+    }
+    
+    // This should never be reached, but just in case
+    let finalError = NSError(domain: "GoProSource", code: 4, userInfo: [NSLocalizedDescriptionKey: "Failed to start stream after \(maxRetries) attempts"])
+    return .failure(finalError)
   }
   
   // Show RTSP stream test results
@@ -2549,6 +2588,138 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   /// Get the current predictor from the active frame source
   func getCurrentPredictor() -> Predictor? {
     return currentFrameSource.predictor
+  }
+
+  // MARK: - UI Overlay Management for Frame Extraction
+  
+  /// Temporarily hide UI overlays for clean frame extraction
+  func hideUIOverlaysForExtraction() {
+    // Hide overlay layers that contain detection results
+    overlayLayer.isHidden = true
+    
+    // Hide threshold lines
+    threshold1Layer?.isHidden = true
+    threshold2Layer?.isHidden = true
+    
+    // Hide task-specific layers
+    maskLayer?.isHidden = true
+    poseLayer?.isHidden = true
+    obbLayer?.isHidden = true
+    
+    // Hide bounding boxes
+    boundingBoxViews.forEach { box in
+      box.temporarilyHide()
+    }
+    
+    // Hide all control elements except toolbar
+    labelFPS.isHidden = true
+    labelSliderConf.isHidden = true
+    labelSliderIoU.isHidden = true
+    sliderConf.isHidden = true
+    sliderIoU.isHidden = true
+    labelThreshold1.isHidden = true
+    labelThreshold2.isHidden = true
+    threshold1Slider.isHidden = true
+    threshold2Slider.isHidden = true
+    autoCalibrationButton.isHidden = true
+    labelFishCount.isHidden = true
+    resetButton.isHidden = true
+    // labelSliderNumItems.isHidden = true
+    // sliderNumItems.isHidden = true
+  }
+  
+  /// Restore UI overlays after frame extraction
+  func restoreUIOverlaysAfterExtraction() {
+    // Restore overlay layers
+    overlayLayer.isHidden = false
+    
+    // Restore threshold lines
+    threshold1Layer?.isHidden = false
+    threshold2Layer?.isHidden = false
+    
+    // Restore task-specific layers
+    maskLayer?.isHidden = false
+    poseLayer?.isHidden = false
+    obbLayer?.isHidden = false
+    
+    // Restore bounding boxes to their previous state
+    boundingBoxViews.forEach { box in
+      box.restoreFromTemporaryHide()
+    }
+    
+    // Restore all control elements
+    labelFPS.isHidden = false
+    labelSliderConf.isHidden = false
+    labelSliderIoU.isHidden = false
+    sliderConf.isHidden = false
+    sliderIoU.isHidden = false
+    labelThreshold1.isHidden = false
+    labelThreshold2.isHidden = false
+    threshold1Slider.isHidden = false
+    threshold2Slider.isHidden = false
+    autoCalibrationButton.isHidden = false
+    labelFishCount.isHidden = false
+    resetButton.isHidden = false
+    // labelSliderNumItems.isHidden = false
+    // sliderNumItems.isHidden = false
+  }
+  
+  /// Set reduced transparency for GoPro mode to minimize flicker
+  func setGoProModeTransparency() {
+    let reducedAlpha: CGFloat = 0.8  // 80% transparency
+    
+    // Apply to labels
+    labelFPS.alpha = reducedAlpha
+    labelSliderConf.alpha = reducedAlpha
+    labelSliderIoU.alpha = reducedAlpha
+    labelThreshold1.alpha = reducedAlpha
+    labelThreshold2.alpha = reducedAlpha
+    labelFishCount.alpha = reducedAlpha
+    labelSliderNumItems.alpha = reducedAlpha
+    
+    // Apply to sliders
+    sliderConf.alpha = reducedAlpha
+    sliderIoU.alpha = reducedAlpha
+    threshold1Slider.alpha = reducedAlpha
+    threshold2Slider.alpha = reducedAlpha
+    sliderNumItems.alpha = reducedAlpha
+    
+    // Apply to buttons
+    autoCalibrationButton.alpha = reducedAlpha
+    resetButton.alpha = reducedAlpha
+    
+    // Apply to threshold lines
+    threshold1Layer?.opacity = Float(reducedAlpha * 0.5)  // Even more transparent
+    threshold2Layer?.opacity = Float(reducedAlpha * 0.5)
+  }
+  
+  /// Restore normal transparency when exiting GoPro mode
+  func restoreNormalTransparency() {
+    let normalAlpha: CGFloat = 1.0
+    
+    // Restore labels
+    labelFPS.alpha = normalAlpha
+    labelSliderConf.alpha = normalAlpha
+    labelSliderIoU.alpha = normalAlpha
+    labelThreshold1.alpha = normalAlpha
+    labelThreshold2.alpha = normalAlpha
+    labelFishCount.alpha = normalAlpha
+    labelSliderNumItems.alpha = normalAlpha
+    
+    // Restore sliders
+    sliderConf.alpha = normalAlpha
+    sliderIoU.alpha = normalAlpha
+    threshold1Slider.alpha = normalAlpha
+    threshold2Slider.alpha = normalAlpha
+    sliderNumItems.alpha = normalAlpha
+    
+    // Restore buttons
+    autoCalibrationButton.alpha = normalAlpha
+    resetButton.alpha = normalAlpha
+    
+    // Restore threshold lines
+    threshold1Layer?.opacity = 0.5  // Original threshold line transparency
+    threshold2Layer?.opacity = 0.5
   }
 
   // Helper method to update the fish count display
