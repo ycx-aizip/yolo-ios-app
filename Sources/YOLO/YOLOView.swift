@@ -185,7 +185,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   // Add property to store last frame size for GoPro source
   internal var goProLastFrameSize: CGSize = CGSize(width: 1920, height: 1080)
   
-  // Add property to store reference to GoPro source
+  // Add property to store reference to GoPro source - ensure single instance
   private var goProSource: GoProSource?
 
   public init(
@@ -1693,9 +1693,15 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       return
     }
     
-    // If switching away from GoPro mode, restore normal transparency
+    // // If switching away from GoPro mode, restore normal transparency
+    // if frameSourceType == .goPro && sourceType != .goPro {
+    //   restoreNormalTransparency()
+    // }
+    
+    // IMPORTANT: Clear goProSource reference when switching away from GoPro
     if frameSourceType == .goPro && sourceType != .goPro {
-      restoreNormalTransparency()
+      print("YOLOView: Clearing GoProSource reference when switching away from GoPro")
+      goProSource = nil
     }
     
     // Stop current frame source
@@ -1973,8 +1979,11 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         )
         viewController.present(loadingAlert, animated: true)
         
-        // Create GoPro source instance to check connection
-        let goProSource = GoProSource()
+        // Create or reuse SINGLE GoPro source instance
+        if self.goProSource == nil {
+            self.goProSource = GoProSource()
+        }
+        let goProSource = self.goProSource!
         
         // Set timeout for the request
         let taskGroup = DispatchGroup()
@@ -2047,8 +2056,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
                         )
                         viewController.present(loadingAlert, animated: true)
                         
-                        // Create GoPro source for initialization
-                        let goProSource = GoProSource()
+                        // Reuse the SAME GoPro source instance for initialization
+                        let goProSource = self.goProSource!
                         
                         // Step 1: Enter preview mode
                         goProSource.enterWebcamPreview { result in
@@ -2079,13 +2088,14 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
                                                 )
                                                 viewController.present(exitingAlert, animated: true)
                                                 
-                                                // Perform graceful exit
+                                                // Perform graceful exit using the same instance
                                                 goProSource.gracefulWebcamExit { result in
                                                     // Dismiss loading indicator
                                                     exitingAlert.dismiss(animated: true) {
                                                         switch result {
                                                         case .success:
-                                                            // Successfully exited - switch back to camera source
+                                                            // Successfully exited - clear the instance and switch back to camera source
+                                                            self.goProSource = nil
                                                             self.switchToFrameSource(.camera)
                                                             
                                                         case .failure(let error):
@@ -2106,10 +2116,12 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
                                                                         switch retryResult {
                                                                         case .success:
                                                                             // Successfully exited on retry
+                                                                            self.goProSource = nil
                                                                             self.switchToFrameSource(.camera)
                                                                         case .failure:
                                                                             // If retry fails, force switch to camera
                                                                             print("GoPro: Exit retry failed, forcing camera switch")
+                                                                            self.goProSource = nil
                                                                             self.switchToFrameSource(.camera)
                                                                         }
                                                                     }
@@ -2119,8 +2131,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
                                                             // Add Force Exit button
                                                             errorAlert.addAction(UIAlertAction(title: "Force Exit", style: .destructive) { [weak self] _ in
                                                                 guard let self = self else { return }
-                                                                // Force switch to camera source
+                                                                // Force switch to camera source and clear instance
                                                                 print("GoPro: Forcing camera switch after exit failure")
+                                                                self.goProSource = nil
                                                                 self.switchToFrameSource(.camera)
                                                             })
                                                             
@@ -2130,11 +2143,11 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
                                                 }
                                             })
                                             
-                                            // Add Stream button that will start real fish counting with GoPro source
+                                            // Add Stream button that will start real fish counting with the same GoPro source
                                             startedAlert.addAction(UIAlertAction(title: "Stream", style: .default) { [weak self] _ in
                                                 guard let self = self else { return }
-                                                // Use our new optimized method to initialize GoPro fish counting
-                                                self.initializeGoProFishCounting(viewController: viewController)
+                                                // Use the SAME GoProSource instance for fish counting
+                                                self.initializeGoProFishCountingWithExisting(viewController: viewController, goProSource: goProSource)
                                             })
                                             
                                             viewController.present(startedAlert, animated: true)
@@ -2204,7 +2217,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     }
     
     // Set reduced transparency for GoPro mode to minimize flicker
-    setGoProModeTransparency()
+    // setGoProModeTransparency()
     
     // Update frameSourceType
     frameSourceType = .goPro
@@ -2376,6 +2389,112 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
                 // Add option to retry
                 errorAlert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
                   self?.initializeGoProFishCounting(viewController: viewController)
+                })
+                
+                errorAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+                viewController.present(errorAlert, animated: true)
+              }
+            }
+          }
+        } catch {
+          await MainActor.run {
+            loadingAlert.dismiss(animated: true) {
+              // Show error for any exceptions
+              let errorAlert = UIAlertController(
+                title: "Error",
+                message: "An unexpected error occurred: \(error.localizedDescription)",
+                preferredStyle: .alert
+              )
+              errorAlert.addAction(UIAlertAction(title: "OK", style: .default))
+              viewController.present(errorAlert, animated: true)
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  // Method to initialize GoPro fish counting with EXISTING GoProSource instance
+  private func initializeGoProFishCountingWithExisting(viewController: UIViewController, goProSource: GoProSource) {
+    // Create loading alert
+    let loadingAlert = UIAlertController(
+      title: "Starting GoPro Stream",
+      message: "Connecting to GoPro RTSP stream for fish counting...",
+      preferredStyle: .alert
+    )
+    
+    // Show cancel button
+    loadingAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in
+      // Stop any existing streams on the provided instance
+      goProSource.stopRTSPStream()
+    })
+    
+    viewController.present(loadingAlert, animated: true)
+    
+    // Set up the existing GoProSource (in case it needs reconfiguration)
+    goProSource.predictor = videoCapture.predictor
+    goProSource.setUp { success in
+      if !success {
+        DispatchQueue.main.async {
+          loadingAlert.dismiss(animated: true) {
+            // Show error
+            let errorAlert = UIAlertController(
+              title: "Setup Failed",
+              message: "Failed to set up GoPro stream.",
+              preferredStyle: .alert
+            )
+            errorAlert.addAction(UIAlertAction(title: "OK", style: .default))
+            viewController.present(errorAlert, animated: true)
+          }
+        }
+        return
+      }
+      
+      // Setup successful, now optimize for GoPro with proper integration
+      Task {
+        do {
+          // First optimize the source and ensure proper integration
+          await MainActor.run {
+            self.optimizeForGoProSource(goProSource)
+          }
+          
+          // Wait a brief moment for UI to settle and integration to complete
+          try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+          
+          // Now attempt to start the RTSP stream with retry logic
+          let streamResult = await self.startRTSPStreamWithRetry(goProSource: goProSource, maxRetries: 3)
+          
+          // Handle the result on main actor
+          await MainActor.run {
+            switch streamResult {
+            case .success:
+              // Stream started successfully
+              loadingAlert.dismiss(animated: true) {
+                // Show success message
+                let successAlert = UIAlertController(
+                  title: "GoPro Stream Active",
+                  message: "GoPro RTSP stream is now connected and ready for fish counting!",
+                  preferredStyle: .alert
+                )
+                successAlert.addAction(UIAlertAction(title: "OK", style: .default))
+                viewController.present(successAlert, animated: true)
+              }
+              
+              // The instance is already stored in self.goProSource, no need for tempGoProSource
+              
+            case .failure(let error):
+              // Stream failed to start
+              loadingAlert.dismiss(animated: true) {
+                // Show error
+                let errorAlert = UIAlertController(
+                  title: "Stream Failed",
+                  message: "Failed to start GoPro stream: \(error.localizedDescription)",
+                  preferredStyle: .alert
+                )
+                
+                // Add option to retry with the same instance
+                errorAlert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
+                  self?.initializeGoProFishCountingWithExisting(viewController: viewController, goProSource: goProSource)
                 })
                 
                 errorAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
