@@ -144,7 +144,12 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     private var lastExtractionTime: Double = 0
     private var lastConversionTime: Double = 0
     private var lastInferenceTime: Double = 0
+    private var lastUITime: Double = 0  // UI delegate call time, NOT fish counting time
     private var lastTotalPipelineTime: Double = 0
+    
+    // Add frame pipeline timing for accurate FPS calculation
+    private var pipelineStartTimes: [CFTimeInterval] = []
+    private var pipelineCompleteTimes: [CFTimeInterval] = []
     
     // MARK: - Initialization
     
@@ -189,6 +194,17 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             self.frameCount = 0
             self.frameTimestamps.removeAll()
             
+            // Reset timing tracking
+            self.lastExtractionTime = 0
+            self.lastConversionTime = 0
+            self.lastInferenceTime = 0
+            self.lastUITime = 0
+            self.lastTotalPipelineTime = 0
+            
+            // Reset pipeline timing arrays
+            self.pipelineStartTimes.removeAll()
+            self.pipelineCompleteTimes.removeAll()
+            
             // Make sure player view is visible
             self.playerView?.isHidden = false
             self.playerView?.alpha = 1.0
@@ -228,6 +244,17 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             self.frameTimestamps.removeAll()
             self.streamStartTime = nil
             self.lastFrameSize = .zero
+            
+            // Reset timing tracking
+            self.lastExtractionTime = 0
+            self.lastConversionTime = 0
+            self.lastInferenceTime = 0
+            self.lastUITime = 0
+            self.lastTotalPipelineTime = 0
+            
+            // Reset pipeline timing arrays
+            self.pipelineStartTimes.removeAll()
+            self.pipelineCompleteTimes.removeAll()
             
             // Clear completion callback
             self.streamReadyCompletion = nil
@@ -532,8 +559,12 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             return false
         }
         
-        // Measure total pipeline time from start
+        // Measure total pipeline time from start and record for throughput calculation
         let pipelineStartTime = CACurrentMediaTime()
+        pipelineStartTimes.append(pipelineStartTime)
+        if pipelineStartTimes.count > 30 {
+            pipelineStartTimes.removeFirst()
+        }
         
         // Step 1: Frame extraction
         let extractionStartTime = CACurrentMediaTime()
@@ -647,6 +678,24 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         return timeInterval > 0 ? Double(framesToConsider - 1) / timeInterval : 0
     }
     
+    /// Calculate actual throughput FPS based on complete pipeline processing cycles
+    @MainActor
+    private func calculateThroughputFPS() -> Double {
+        guard pipelineCompleteTimes.count >= 2 else {
+            return 0
+        }
+        
+        // Calculate throughput based on last 10 complete pipeline cycles
+        let cyclesToConsider = min(10, pipelineCompleteTimes.count)
+        let recentCompletions = Array(pipelineCompleteTimes.suffix(cyclesToConsider))
+        
+        // Calculate time difference between first and last completion
+        let timeInterval = recentCompletions.last! - recentCompletions.first!
+        
+        // Calculate completed pipelines per second (true throughput)
+        return timeInterval > 0 ? Double(cyclesToConsider - 1) / timeInterval : 0
+    }
+    
     // MARK: - RTSP Streaming Management
     
     /// Start RTSP stream from GoPro - FIXED: Proper completion flow with integration validation
@@ -692,17 +741,16 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         // Set stream status to connecting
         goProDelegate?.goProSource(self, didUpdateStatus: .connecting)
         
-        // Reset frame tracking
-        hasReceivedFirstFrame = false
-        frameCount = 0
-        frameTimestamps.removeAll()
-        streamStartTime = Date()
-        
-        // Reset timing tracking
+        // Reset state
         lastExtractionTime = 0
         lastConversionTime = 0
         lastInferenceTime = 0
+        lastUITime = 0
         lastTotalPipelineTime = 0
+        
+        // Reset pipeline timing arrays
+        pipelineStartTimes.removeAll()
+        pipelineCompleteTimes.removeAll()
         
         // Make sure our player view is properly configured
         if let playerView = playerView {
@@ -801,10 +849,10 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             }
         }
     }
-}
+    }
 
-// MARK: - VLC Media Player Delegate Methods
-
+    // MARK: - VLC Media Player Delegate Methods
+    
 extension GoProSource {
     nonisolated func mediaPlayerStateChanged(_ aNotification: Notification!) {
         guard let player = aNotification.object as? VLCMediaPlayer else { return }
@@ -943,9 +991,8 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
         Task { @MainActor [weak self] in
             guard let self = self else { return }
             
-            // Store inference time and calculate total pipeline time
+            // Store inference time - total pipeline time will be calculated in on(result:)
             self.lastInferenceTime = inferenceTime
-            self.lastTotalPipelineTime = self.lastExtractionTime + self.lastConversionTime + inferenceTime
             
             // Forward to both delegate types to ensure complete integration
             self.delegate?.frameSource(self, didUpdateWithSpeed: inferenceTime, fps: fpsRate)
@@ -960,15 +1007,8 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
                 }
             }
             
-            // Log complete pipeline timing with proper totals - CONSOLIDATED TIMING REPORT
-            if self.frameExtractionCount % 300 == 0 {
-                // Calculate overall pipeline efficiency
-                let pipelineEfficiency = self.lastTotalPipelineTime > 0 ? (inferenceTime / self.lastTotalPipelineTime) * 100 : 0
-                
-                print("GoPro: === PIPELINE SUMMARY (Frame #\(self.frameExtractionCount)) ===")
-                print("GoPro: Extraction: \(String(format: "%.1f", self.lastExtractionTime))ms | Conversion: \(String(format: "%.1f", self.lastConversionTime))ms | Inference: \(String(format: "%.1f", inferenceTime))ms")
-                print("GoPro: Total Pipeline: \(String(format: "%.1f", self.lastTotalPipelineTime))ms | Model FPS: \(String(format: "%.1f", fpsRate)) | Inference Efficiency: \(String(format: "%.1f", pipelineEfficiency))%")
-            }
+            // NOTE: Complete pipeline timing report is now handled in on(result:) method
+            // which includes post-processing time for fish counting
         }
     }
     
@@ -976,6 +1016,9 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
         Task { @MainActor in
             // Ensure we're on the main thread for UI operations
             dispatchPrecondition(condition: .onQueue(.main))
+            
+            // Record the start of post-processing phase
+            let postProcessingStartTime = CACurrentMediaTime()
             
             // DO NOT increment frame counter here - it should only be incremented once per frame processing cycle
             // The frame counter is already incremented in the CADisplayLink callback
@@ -988,19 +1031,20 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
             if self.frameTimestamps.count > 30 {
                 self.frameTimestamps.removeFirst()
             }
+
+            // UI DELEGATE CALL - Track this time separately (NOT actual fish counting)
+            let uiDelegateStartTime = CACurrentMediaTime()
             
-            // Calculate FPS and update delegate
-            let currentFPS = self.calculateCurrentFPS()
-            self.delegate?.frameSource(self, didUpdateWithSpeed: result.speed, fps: currentFPS)
-            
-            // Forward detection results to video capture delegate - ensure immediate UI update
+            // Forward detection results to video capture delegate - this is just the delegate call, real fish counting happens inside TrackingDetector
+            var delegateCallSuccessful = false
             if let videoCaptureDelegate = self.videoCaptureDelegate {
                 // Process detection results immediately on main thread for responsive UI
                 videoCaptureDelegate.onPredict(result: result)
+                delegateCallSuccessful = true
                 
                 // Force immediate UI update for responsive box rendering
                 if let containerView = self.containerView {
-                DispatchQueue.main.async {
+            DispatchQueue.main.async {
                         containerView.setNeedsDisplay()
                         
                         // If the containerView is a YOLOView, ensure bounding boxes are properly rendered
@@ -1030,12 +1074,60 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
                         print("GoPro: Attempting to recover by connecting to delegate")
                         self.videoCaptureDelegate = view
                         view.onPredict(result: result)
+                        delegateCallSuccessful = true
                     }
                 }
             }
+            
+            // Calculate UI delegate call time (this is NOT fish counting time)
+            let uiDelegateTime = (CACurrentMediaTime() - uiDelegateStartTime) * 1000 // ms
+            self.lastUITime = uiDelegateTime
+            
+            // Calculate total UI processing time (including async UI updates)
+            let totalUITime = (CACurrentMediaTime() - postProcessingStartTime) * 1000 // ms
+            
+            // Update total pipeline time to include UI processing
+            self.lastTotalPipelineTime = self.lastExtractionTime + self.lastConversionTime + self.lastInferenceTime + totalUITime
+            
+            // Calculate theoretical FPS based on complete processing time
+            let theoreticalFPS = self.lastTotalPipelineTime > 0 ? 1000.0 / self.lastTotalPipelineTime : 0
+            
+            // Calculate FPS based on frame completion timestamps for true throughput
+            let currentFPS = self.calculateCurrentFPS()
+            
+            // Store pipeline completion time for accurate throughput calculation
+            self.pipelineCompleteTimes.append(timestamp)
+            if self.pipelineCompleteTimes.count > 30 {
+                self.pipelineCompleteTimes.removeFirst()
+            }
+            
+            // Calculate actual throughput FPS based on pipeline completion rate
+            let actualThroughputFPS = self.calculateThroughputFPS()
+            
+            // Update delegate with actual throughput FPS (most accurate)
+            self.delegate?.frameSource(self, didUpdateWithSpeed: result.speed, fps: actualThroughputFPS)
+            
+            // ACCURATE logging for GoProSource pipeline analysis
+            if self.frameExtractionCount % 300 == 0 {
+                let delegateStatus = delegateCallSuccessful ? "✓" : "✗"
+                print("GoPro: === GOPRO SOURCE PIPELINE ANALYSIS (Frame #\(self.frameExtractionCount)) ===")
+                print("GoPro: Frame Extraction: \(String(format: "%.1f", self.lastExtractionTime))ms | Format Conversion: \(String(format: "%.1f", self.lastConversionTime))ms")
+                print("GoPro: Model Inference: \(String(format: "%.1f", self.lastInferenceTime))ms (includes fish counting inside TrackingDetector)")
+                print("GoPro: UI Delegate Call: \(String(format: "%.1f", self.lastUITime))ms \(delegateStatus) | Async UI Rendering: \(String(format: "%.1f", totalUITime - self.lastUITime))ms")
+                print("GoPro: GoProSource Total: \(String(format: "%.1f", self.lastTotalPipelineTime))ms")
+                print("GoPro: Theoretical FPS: \(String(format: "%.1f", theoreticalFPS)) | Actual Throughput: \(String(format: "%.1f", actualThroughputFPS)) | Model Reported FPS: \(String(format: "%.1f", result.fps ?? 0.0))")
+                
+                // Calculate breakdown percentages
+                let extractionPct = (self.lastExtractionTime / self.lastTotalPipelineTime) * 100
+                let conversionPct = (self.lastConversionTime / self.lastTotalPipelineTime) * 100
+                let inferencePct = (self.lastInferenceTime / self.lastTotalPipelineTime) * 100
+                let uiPct = (totalUITime / self.lastTotalPipelineTime) * 100
+                
+                print("GoPro: Breakdown - Extraction: \(String(format: "%.1f", extractionPct))% | Conversion: \(String(format: "%.1f", conversionPct))% | Inference+FishCount: \(String(format: "%.1f", inferencePct))% | UI: \(String(format: "%.1f", uiPct))%")
+            }
         }
     }
-}
+    }
 
     // MARK: - FrameSource Protocol Implementation for UI Integration and Coordinate Transformation
 
