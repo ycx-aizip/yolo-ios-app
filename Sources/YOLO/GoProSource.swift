@@ -91,10 +91,10 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     }
     
     /// The long side dimension of the frames produced by this source.
-    var longSide: CGFloat = 1920  // Default HD resolution
+    var longSide: CGFloat = 1280  // Default HD resolution
     
     /// The short side dimension of the frames produced by this source.
-    var shortSide: CGFloat = 1080  // Default HD resolution
+    var shortSide: CGFloat = 720  // Default HD resolution
     
     /// Flag indicating if inference should be performed on frames
     var inferenceOK: Bool = true
@@ -436,7 +436,12 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                     let attemptWindow = 300.0 / 30.0 // 10 seconds
                     let attemptRate = 300.0 / attemptWindow
                     
-                    print("GoPro: CADisplayLink Performance - Attempts: \(String(format: "%.1f", attemptRate))/s over \(String(format: "%.1f", attemptWindow))s, Successful Processing FPS: \(String(format: "%.1f", successfulProcessingFPS)), Average CADisplayLink Processing: \(String(format: "%.1f", processingTime))ms")
+                    // Get current frame size for reporting
+                    let currentFrameSize = self.lastFrameSize
+                    let frameSizeStr = currentFrameSize.width > 0 ? 
+                        "\(String(format: "%.0f", currentFrameSize.width))×\(String(format: "%.0f", currentFrameSize.height))" : "Unknown"
+                    
+                    print("GoPro: CADisplayLink Performance (Frame Size: \(frameSizeStr)) - Attempts: \(String(format: "%.1f", attemptRate))/s over \(String(format: "%.1f", attemptWindow))s, Successful Processing FPS: \(String(format: "%.1f", successfulProcessingFPS)), Average CADisplayLink Processing: \(String(format: "%.1f", processingTime))ms")
                 }
             }
         }
@@ -593,7 +598,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                 
                 // Log detailed timing breakdown periodically (before inference) - ONLY for every 300th frame to avoid duplicates
                 if frameExtractionCount % 300 == 0 {
-                    print("GoPro: Frame #\(frameExtractionCount) - Pre-Inference: Extraction \(String(format: "%.1f", extractionTime))ms + Conversion \(String(format: "%.1f", conversionTime))ms = \(String(format: "%.1f", preInferenceTime))ms total")
+                    let frameSize = frameImage.size
+                    print("GoPro: Frame #\(frameExtractionCount) - Pre-Inference (Size: \(String(format: "%.0f", frameSize.width))×\(String(format: "%.0f", frameSize.height))): Extraction \(String(format: "%.1f", extractionTime))ms + Conversion \(String(format: "%.1f", conversionTime))ms = \(String(format: "%.1f", preInferenceTime))ms total")
                 }
                 
                 // Ensure the delegate is set up correctly
@@ -1358,7 +1364,7 @@ extension GoProSource {
     func startWebcam(completion: @escaping (Result<Void, Error>) -> Void) {
         print("GoPro: Starting webcam stream")
         
-        performGoProRequest(endpoint: .start(resolution: 12, fov: 4)) { result in
+        performGoProRequest(endpoint: .start(resolution: 7, fov: 4)) { result in
             switch result {
             case .success:
                 print("GoPro: Webcam started successfully")
