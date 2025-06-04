@@ -493,37 +493,33 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     @MainActor
     private func extractCurrentFrame() -> UIImage? {
         guard let playerView = playerView,
-              playerView.bounds.size.width > 0,
-              playerView.bounds.size.height > 0,
-              let videoPlayer = videoPlayer,
-              [.playing, .paused, .buffering].contains(videoPlayer.state) else {
-        return nil
-    }
-    
+            playerView.bounds.size.width > 0,
+            playerView.bounds.size.height > 0,
+            let videoPlayer = videoPlayer,
+            [.playing, .paused, .buffering].contains(videoPlayer.state) else {
+            return nil
+        }
+        
         // Hide UI overlays for clean frame extraction
         if let yoloView = containerView as? YOLOView {
             yoloView.hideUIOverlaysForExtraction()
         }
         
-        // Single efficient method using direct view capture
-        UIGraphicsBeginImageContextWithOptions(playerView.bounds.size, false, 0)
-        defer { 
-            UIGraphicsEndImageContext()
-            
+        defer {
             // Restore UI overlays after frame extraction
             if let yoloView = containerView as? YOLOView {
                 yoloView.restoreUIOverlaysAfterExtraction()
             }
         }
         
-        guard playerView.drawHierarchy(in: playerView.bounds, afterScreenUpdates: true) else {
-            return nil
+        // Use UIGraphicsImageRenderer for better performance
+        let renderer = UIGraphicsImageRenderer(bounds: playerView.bounds)
+        let snapshot = renderer.image { context in
+            playerView.drawHierarchy(in: playerView.bounds, afterScreenUpdates: false) // Changed to false for better performance
         }
         
-        let snapshot = UIGraphicsGetImageFromCurrentImageContext()
-        
         // Update frame size tracking if needed
-        if let snapshot = snapshot, lastFrameSize != snapshot.size {
+        if lastFrameSize != snapshot.size {
             lastFrameSize = snapshot.size
         }
         
