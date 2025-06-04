@@ -427,17 +427,17 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     @MainActor
     private func setupDisplayLinkForFrameRateMeasurement() {
-        // Create display link that fires at 30Hz for better UI responsiveness
+        // Create display link that fires at 60Hz for better timing granularity
         displayLink = CADisplayLink(target: self, selector: #selector(displayLinkCallback))
-        displayLink?.preferredFramesPerSecond = 30  // Reduced to 30 FPS for better UI responsiveness
+        displayLink?.preferredFramesPerSecond = 40  // Reduced to 30 FPS for better UI responsiveness
         displayLink?.isPaused = true  // Start paused
         displayLink?.add(to: .main, forMode: .default)
         
-        print("GoPro: CADisplayLink setup for frame processing pipeline at 30 FPS")
+        print("GoPro: CADisplayLink setup for frame processing pipeline at \(displayLink?.preferredFramesPerSecond ?? 0) FPS")
     }
     
     @objc private func displayLinkCallback() {
-        // This fires at 30Hz - ensure this method is as lightweight as possible
+        // This fires at displayLink?.preferredFramesPerSecond - ensure this method is as lightweight as possible
         
         let currentTime = CACurrentMediaTime()
         
@@ -471,7 +471,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                     self.frameExtractionTimestamps.removeFirst()
                 }
                 
-                // Log processing rate every 300 attempts (10 seconds at 30Hz)
+                // Log processing rate every 300 attempts
                 if self.frameExtractionCount % 300 == 0 {
                     let windowSeconds = self.frameExtractionTimestamps.count >= 2 ? 
                         self.frameExtractionTimestamps.last! - self.frameExtractionTimestamps.first! : 1.0
@@ -480,8 +480,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                     let successfulProcessingFPS = self.frameExtractionTimestamps.count >= 2 ? 
                         Double(self.frameExtractionTimestamps.count - 1) / windowSeconds : 0
                     
-                    // Calculate CADisplayLink attempt rate (should be ~30/second)
-                    let attemptWindow = 300.0 / 30.0 // 10 seconds
+                    // Calculate CADisplayLink attempt rate (should be ~60/second)
+                    let attemptWindow = 300.0 / Double(displayLink?.preferredFramesPerSecond ?? 60)
                     let attemptRate = 300.0 / attemptWindow
                     
                     // Get current frame size for reporting
@@ -696,7 +696,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             return 0
         }
         
-        // Calculate FPS based on last 5 frames for 30Hz processing (reduced from 10)
+        // Calculate FPS based on last 5 frames
         let framesToConsider = min(5, frameTimestamps.count)
         let recentTimestamps = Array(frameTimestamps.suffix(framesToConsider))
         
@@ -975,7 +975,7 @@ extension GoProSource {
             }
             
             // Always notify goProDelegate about time change - but throttle to avoid spam
-            if self.frameExtractionCount % 30 == 0 {  // Only notify every 30 frames at 30Hz = once per second
+            if self.frameExtractionCount % 30 == 0 {  // Only notify every 30 frames
             self.goProDelegate?.goProSource(self, didReceiveFrameWithTime: self.lastFrameTime)
             }
         }
