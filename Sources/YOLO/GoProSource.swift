@@ -151,6 +151,15 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     private var pipelineStartTimes: [CFTimeInterval] = []
     private var pipelineCompleteTimes: [CFTimeInterval] = []
     
+    // MARK: - Performance Optimizations
+    
+    // Cache the renderer to avoid creating it every frame
+    private var cachedRenderer: UIGraphicsImageRenderer?
+    private var lastRendererBounds: CGRect = .zero
+    
+    // Skip frame extraction during model processing flag
+    private var isModelProcessing: Bool = false
+    
     // MARK: - Initialization
     
     override init() {
@@ -178,6 +187,11 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         // Reset any previous state
         hasReceivedFirstFrame = false
         frameCount = 0
+        
+        // OPTIMIZATION: Reset processing state and cached renderer
+        isModelProcessing = false
+        cachedRenderer = nil
+        lastRendererBounds = .zero
         
         // For GoPro, we just need to initialize the VLC player
         // The connection to the camera happens when startRTSPStream is called
@@ -255,6 +269,11 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             // Reset pipeline timing arrays
             self.pipelineStartTimes.removeAll()
             self.pipelineCompleteTimes.removeAll()
+            
+            // OPTIMIZATION: Reset processing flag and clear cached renderer
+            self.isModelProcessing = false
+            self.cachedRenderer = nil
+            self.lastRendererBounds = .zero
             
             // Clear completion callback
             self.streamReadyCompletion = nil
@@ -422,14 +441,16 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         
         let currentTime = CACurrentMediaTime()
         
-        // Only process if VLC is playing AND delegate is properly set up
+        // Only process if VLC is playing AND delegate is properly set up AND model is not processing
         guard let videoPlayer = videoPlayer,
               [.playing, .buffering].contains(videoPlayer.state),
               let playerView = playerView,
               playerView.bounds.size.width > 0,
               playerView.bounds.size.height > 0,
               // CRITICAL: Wait until videoCaptureDelegate is properly set up
-              videoCaptureDelegate != nil else {
+              videoCaptureDelegate != nil,
+              // OPTIMIZATION: Skip if model is still processing previous frame
+              !isModelProcessing else {
             return
         }
         
@@ -512,13 +533,20 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             }
         }
         
-        // Use UIGraphicsImageRenderer for better performance
-        let renderer = UIGraphicsImageRenderer(bounds: playerView.bounds)
-        let snapshot = renderer.image { context in
-            playerView.drawHierarchy(in: playerView.bounds, afterScreenUpdates: false) // Changed to false for better performance
+        // OPTIMIZATION: Cache the renderer to avoid creating it every frame
+        let currentBounds = playerView.bounds
+        if cachedRenderer == nil || lastRendererBounds != currentBounds {
+            cachedRenderer = UIGraphicsImageRenderer(bounds: currentBounds)
+            lastRendererBounds = currentBounds
         }
         
-        // Update frame size tracking if needed
+        guard let renderer = cachedRenderer else { return nil }
+        
+        let snapshot = renderer.image { context in
+            playerView.drawHierarchy(in: currentBounds, afterScreenUpdates: false)
+        }
+        
+        // OPTIMIZATION: Only update frame size when it actually changes
         if lastFrameSize != snapshot.size {
             lastFrameSize = snapshot.size
         }
@@ -642,6 +670,11 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                 DispatchQueue.global(qos: .userInteractive).async { [weak self] in
                     guard let self = self else { return }
                     
+                // OPTIMIZATION: Set processing flag to prevent new frame extractions
+                Task { @MainActor in
+                    self.isModelProcessing = true
+                }
+                
                 predictor.predict(
                     sampleBuffer: sampleBuffer,
                     onResultsListener: self,
@@ -1012,6 +1045,9 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
         Task { @MainActor in
             // Ensure we're on the main thread for UI operations
             dispatchPrecondition(condition: .onQueue(.main))
+            
+            // OPTIMIZATION: Clear processing flag to allow new frame extractions
+            self.isModelProcessing = false
             
             // Record the start of post-processing phase
             let postProcessingStartTime = CACurrentMediaTime()
