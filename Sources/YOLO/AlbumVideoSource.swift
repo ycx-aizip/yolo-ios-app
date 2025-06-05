@@ -718,16 +718,13 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     }
     
     /// Converts normalized video coordinates to screen coordinates based on content rect
+    @MainActor
     func convertNormalizedRectToScreenRect(_ normalizedRect: CGRect) -> CGRect {
-        // For proper bounding box orientation:
-        // YOLO coordinates are normalized [0,1] where (0,0) is top-left
-        // If boxes are moving in the reverse direction, it suggests we need to flip one of the coordinates
-        
         // Calculate the x coordinate - simple scaling and offset
         let x = normalizedRect.minX * videoToScreenScale.x + videoToScreenOffset.x
         
-        // Calculate y-coordinate with flipping to address the "reverse" movement issue
-        // Try flipping the y-coordinate (1.0 - y)
+        // Calculate y-coordinate with flipping for display consistency
+        // This ensures proper display orientation for bounding boxes
         let y = (1.0 - normalizedRect.minY - normalizedRect.height) * videoToScreenScale.y + videoToScreenOffset.y
         
         let width = normalizedRect.width * videoToScreenScale.x

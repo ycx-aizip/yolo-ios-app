@@ -325,7 +325,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         playerView?.backgroundColor = .black
         playerView?.translatesAutoresizingMaskIntoConstraints = false
         playerView?.tag = 9876
-        playerView?.frame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        playerView?.frame = CGRect(x: 0, y: 0, width: 1280, height: 720)
         
         videoPlayer?.drawable = playerView
         videoPlayer?.videoAspectRatio = UnsafeMutablePointer<Int8>(mutating: "16:9")
@@ -1055,7 +1055,9 @@ extension GoProSource {
             }
         }
         
+        // Keep the original Y-coordinate flip for display consistency
         adjustedBox.origin.y = 1.0 - adjustedBox.origin.y - adjustedBox.size.height
+        
         return VNImageRectForNormalizedRect(adjustedBox, Int(containerView.bounds.width), Int(containerView.bounds.height))
     }
     

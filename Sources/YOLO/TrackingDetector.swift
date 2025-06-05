@@ -106,8 +106,23 @@ class TrackingDetector: ObjectDetector {
     func setThresholds(_ values: [CGFloat]) {
         guard values.count >= 1 else { return }
         
+        // Convert threshold values from UI coordinate system to detection coordinate system
+        // based on the current counting direction
+        let convertedValues: [CGFloat]
+        
+        switch countingDirection {
+        case .topToBottom, .leftToRight:
+            // UI coordinates match detection coordinates (no conversion needed)
+            convertedValues = values
+            
+        case .bottomToTop, .rightToLeft:
+            // UI coordinates are flipped relative to detection coordinates
+            // Convert: UI value 0.3 (30% from bottom/right) → detection value 0.7 (70% from top/left)
+            convertedValues = values.map { 1.0 - $0 }
+        }
+        
         // Ensure thresholds are within valid range (0.0-1.0)
-        let validThresholds = values.map { max(0.0, min(1.0, $0)) }
+        let validThresholds = convertedValues.map { max(0.0, min(1.0, $0)) }
         self.thresholds = validThresholds
     }
     
@@ -152,6 +167,12 @@ class TrackingDetector: ObjectDetector {
         
         // Reset calibration state when changing direction
         resetCalibration()
+    }
+    
+    /// Gets the current counting direction
+    @MainActor
+    func getCountingDirection() -> CountingDirection {
+        return countingDirection
     }
     
     // MARK: - Auto-calibration methods
@@ -307,11 +328,15 @@ class TrackingDetector: ObjectDetector {
             for i in 0..<100 {
                 if i < results.count && i < self.numItemsThreshold {
                     let prediction = results[i]
+                    
+                    // Use the same coordinate transformation as ObjectDetector base class
+                    // Always invert Y coordinates to maintain consistency with YOLO model output
                     let invertedBox = CGRect(
                         x: prediction.boundingBox.minX,
-                        y: 1 - prediction.boundingBox.maxY,
+                        y: 1 - prediction.boundingBox.maxY,  // Always invert Y like ObjectDetector
                         width: prediction.boundingBox.width,
                         height: prediction.boundingBox.height)
+                    
                     let imageRect = VNImageRectForNormalizedRect(
                         invertedBox, Int(inputSize.width), Int(inputSize.height))
                     

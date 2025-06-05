@@ -477,9 +477,23 @@ public class ByteTracker {
                 let dy = prevCenter.y - currCenter.y
                 let dist = sqrt(dx*dx + dy*dy)
                 
-                // For fish in a tunnel, vertical movement (top to bottom) is expected
-                // This favors matches where dy is positive (moving down) and dx is small (limited horizontal motion)
-                let isExpectedMovement = dy > 0 && abs(dx) < 0.2
+                // Determine expected movement based on current counting direction
+                var isExpectedMovement = false
+                
+                switch STrack.expectedMovementDirection {
+                case .topToBottom:
+                    // For top to bottom, expect downward movement (dy > 0) with limited horizontal motion
+                    isExpectedMovement = dy > 0 && abs(dx) < 0.2
+                case .bottomToTop:
+                    // For bottom to top, expect upward movement (dy < 0) with limited horizontal motion  
+                    isExpectedMovement = dy < 0 && abs(dx) < 0.2
+                case .leftToRight:
+                    // For left to right, expect rightward movement (dx > 0) with limited vertical motion
+                    isExpectedMovement = dx > 0 && abs(dy) < 0.2
+                case .rightToLeft:
+                    // For right to left, expect leftward movement (dx < 0) with limited vertical motion
+                    isExpectedMovement = dx < 0 && abs(dy) < 0.2
+                }
                 
                 // Adjust the matching distance based on expected movement pattern
                 let adjustedDist = isExpectedMovement ? dist * 0.8 : dist
@@ -531,24 +545,55 @@ public class ByteTracker {
         }
         
         for track in tracks {
-            // For fish specifically:
-            // 1. Apply full compensation to horizontal movement (x-axis)
-            // 2. Apply reduced compensation to vertical movement (y-axis) since fish are expected to move down
-            
-            // Get expected vertical movement direction from velocity if available
+            // Get expected movement direction from velocity if available
+            var expectedHorizontalMotion: CGFloat = 0
             var expectedVerticalMotion: CGFloat = 0
             if let mean = track.mean, mean.count >= 6 {
+                expectedHorizontalMotion = CGFloat(mean[4]) // Horizontal velocity component  
                 expectedVerticalMotion = CGFloat(mean[5]) // Vertical velocity component
             }
             
-            // Adjust horizontal position by full camera motion estimate
-            let newX = track.position.x - estimatedCameraMotion.dx
+            // Apply motion compensation based on the current counting direction
+            var newX: CGFloat
+            var newY: CGFloat
             
-            // For vertical position:
-            // - If fish has downward velocity (positive), apply less compensation
-            // - If fish has upward/no velocity, apply full compensation
-            let verticalCompensationFactor: CGFloat = expectedVerticalMotion > 0 ? 0.7 : 1.0
-            let newY = track.position.y - (estimatedCameraMotion.dy * verticalCompensationFactor)
+            switch STrack.expectedMovementDirection {
+            case .topToBottom:
+                // For top-to-bottom counting:
+                // Apply full compensation to horizontal movement (x-axis)
+                newX = track.position.x - estimatedCameraMotion.dx
+                
+                // For vertical position: if fish has downward velocity, apply less compensation
+                let verticalCompensationFactor: CGFloat = expectedVerticalMotion > 0 ? 0.7 : 1.0
+                newY = track.position.y - (estimatedCameraMotion.dy * verticalCompensationFactor)
+                
+            case .bottomToTop:
+                // For bottom-to-top counting:
+                // Apply full compensation to horizontal movement (x-axis)
+                newX = track.position.x - estimatedCameraMotion.dx
+                
+                // For vertical position: if fish has upward velocity, apply less compensation
+                let verticalCompensationFactor: CGFloat = expectedVerticalMotion < 0 ? 0.7 : 1.0
+                newY = track.position.y - (estimatedCameraMotion.dy * verticalCompensationFactor)
+                
+            case .leftToRight:
+                // For left-to-right counting:
+                // For horizontal position: if fish has rightward velocity, apply less compensation
+                let horizontalCompensationFactor: CGFloat = expectedHorizontalMotion > 0 ? 0.7 : 1.0
+                newX = track.position.x - (estimatedCameraMotion.dx * horizontalCompensationFactor)
+                
+                // Apply full compensation to vertical movement (y-axis)
+                newY = track.position.y - estimatedCameraMotion.dy
+                
+            case .rightToLeft:
+                // For right-to-left counting:
+                // For horizontal position: if fish has leftward velocity, apply less compensation
+                let horizontalCompensationFactor: CGFloat = expectedHorizontalMotion < 0 ? 0.7 : 1.0
+                newX = track.position.x - (estimatedCameraMotion.dx * horizontalCompensationFactor)
+                
+                // Apply full compensation to vertical movement (y-axis)
+                newY = track.position.y - estimatedCameraMotion.dy
+            }
             
             // Keep position within normalized bounds [0, 1]
             track.position = (

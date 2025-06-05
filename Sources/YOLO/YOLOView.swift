@@ -1458,27 +1458,31 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     let path = UIBezierPath()
     
     // Calculate the line position based on the current counting direction
+    // Display should match user's mental model of direction
     switch countingDirection {
     case .topToBottom:
-      // For top to bottom, normal order
-    let height = self.bounds.height
-    let yPosition = height * position
-    
-    // Draw a horizontal line across the width of the view
-    path.move(to: CGPoint(x: 0, y: yPosition))
-    path.addLine(to: CGPoint(x: self.bounds.width, y: yPosition))
+      // For top to bottom, normal order (0=top, 1=bottom)
+      // User expects: position 0.3 → line 30% from top
+      let height = self.bounds.height
+      let yPosition = height * position
+      
+      // Draw a horizontal line across the width of the view
+      path.move(to: CGPoint(x: 0, y: yPosition))
+      path.addLine(to: CGPoint(x: self.bounds.width, y: yPosition))
       
     case .bottomToTop:
-      // For bottom to top, flip the position (1 - position)
+      // For bottom to top, flipped display (0=bottom, 1=top)
+      // User expects: position 0.3 → line 30% from bottom
       let height = self.bounds.height
-      let yPosition = height * (1 - position)
+      let yPosition = height * (1.0 - position)  // Flip for visual consistency
       
       // Draw a horizontal line across the width of the view
       path.move(to: CGPoint(x: 0, y: yPosition))
       path.addLine(to: CGPoint(x: self.bounds.width, y: yPosition))
       
     case .leftToRight:
-      // For left to right, normal order
+      // For left to right, normal order (0=left, 1=right)
+      // User expects: position 0.3 → line 30% from left
       let width = self.bounds.width
       let xPosition = width * position
       
@@ -1487,9 +1491,10 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       path.addLine(to: CGPoint(x: xPosition, y: self.bounds.height))
       
     case .rightToLeft:
-      // For right to left, flip the position (1 - position)
+      // For right to left, flipped display (0=right, 1=left)
+      // User expects: position 0.3 → line 30% from right
       let width = self.bounds.width
-      let xPosition = width * (1 - position)
+      let xPosition = width * (1.0 - position)  // Flip for visual consistency
       
       // Draw a vertical line across the height of the view
       path.move(to: CGPoint(x: xPosition, y: 0))
@@ -1497,7 +1502,6 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     }
     
     layer.path = path.cgPath
-    layer.isHidden = false
   }
   
   // Update threshold lines for the current direction
