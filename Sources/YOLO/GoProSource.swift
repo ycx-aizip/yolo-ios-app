@@ -338,18 +338,44 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     /// 
     /// Applies critical VLC options for low-latency, high-performance RTSP streaming:
     /// - Forces TCP transport for reliability
-    /// - Minimizes caching for real-time processing
-    /// - Enables hardware acceleration
-    /// - Optimizes frame buffer size for GoPro streams
+    /// - Uses minimal but stable caching for network resilience
+    /// - Enables hardware acceleration with controlled buffering
+    /// - Optimizes frame buffer size for GoPro streams with stability
+    /// - Adds clock synchronization for extended runtime stability
     /// - Disables unnecessary features (audio, subtitles)
     /// 
     /// - Parameter media: VLC media instance to configure
     private func configureRTSPStream(_ media: VLCMedia) {
         let options = [
-            ":verbose=0", ":rtsp-tcp", ":network-caching=0", ":live-caching=0",
-            ":file-caching=0", ":avcodec-hw=any", ":rtsp-frame-buffer-size=4000000",
-            ":avcodec-threads=4", ":clock-jitter=0", ":clock-synchro=0",
-            ":no-sub-autodetect-file", ":no-audio"
+            // Basic configuration
+            ":verbose=0", ":rtsp-tcp", ":no-sub-autodetect-file", ":no-audio",
+            
+            // Conservative caching for network stability (was 0, now minimal buffering)
+            ":network-caching=150",        // 150ms network buffer for stability
+            ":live-caching=100",           // 100ms live cache to handle processing delays
+            ":file-caching=0",             // Keep file caching disabled
+            
+            // Buffer management for extended runtime stability
+            ":rtsp-frame-buffer-size=2000000",  // Reduced from 4MB to 2MB to prevent accumulation
+            ":avcodec-hw=any",
+            ":avcodec-threads=4",
+            
+            // Clock synchronization for drift prevention (was disabled, now enabled with tolerance)
+            ":clock-jitter=100",           // Allow 100ms jitter tolerance
+            ":clock-synchro=1",            // Enable clock synchronization
+            
+            // Additional stability options for extended runtime
+            ":rtsp-caching=100",           // RTSP-specific caching
+            ":input-repeat=0",             // Disable input repeat to prevent loops
+            ":rtsp-timeout=5",              // 5-second timeout for hung connections
+
+            // No frame skipping
+            ":avcodec-skip-frame=0",
+            ":avcodec-skip-idct=0",
+            ":skip-frames=0",
+            ":drop-late-frames=0",
+            ":rtsp-mcast-timeout=5000",
+            ":network-timeout=5000"
         ]
         options.forEach { media.addOption($0) }
         media.clearStoredCookies()
