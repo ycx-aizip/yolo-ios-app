@@ -1463,12 +1463,12 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     case .topToBottom:
       // For top to bottom, normal order (0=top, 1=bottom)
       // User expects: position 0.3 → line 30% from top
-      let height = self.bounds.height
-      let yPosition = height * position
-      
-      // Draw a horizontal line across the width of the view
-      path.move(to: CGPoint(x: 0, y: yPosition))
-      path.addLine(to: CGPoint(x: self.bounds.width, y: yPosition))
+    let height = self.bounds.height
+    let yPosition = height * position
+    
+    // Draw a horizontal line across the width of the view
+    path.move(to: CGPoint(x: 0, y: yPosition))
+    path.addLine(to: CGPoint(x: self.bounds.width, y: yPosition))
       
     case .bottomToTop:
       // For bottom to top, flipped display (0=bottom, 1=top)

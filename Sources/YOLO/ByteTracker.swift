@@ -562,9 +562,9 @@ public class ByteTracker {
                 // For top-to-bottom counting:
                 // Apply full compensation to horizontal movement (x-axis)
                 newX = track.position.x - estimatedCameraMotion.dx
-                
+            
                 // For vertical position: if fish has downward velocity, apply less compensation
-                let verticalCompensationFactor: CGFloat = expectedVerticalMotion > 0 ? 0.7 : 1.0
+            let verticalCompensationFactor: CGFloat = expectedVerticalMotion > 0 ? 0.7 : 1.0
                 newY = track.position.y - (estimatedCameraMotion.dy * verticalCompensationFactor)
                 
             case .bottomToTop:

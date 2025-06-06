@@ -19,8 +19,8 @@ public enum CountingDirection {
 
 /// Calibration utilities for auto threshold detection
 public class CalibrationUtils {
-    /// Default frame count for calibration (10 seconds at 30fps)
-    public static let defaultCalibrationFrameCount = 300  // 10 seconds at 30fps to match Python version
+    /// Default frame count for calibration (10 seconds at 30fps to match Python)
+    public static let defaultCalibrationFrameCount = 300  // Matches Python implementation: 10 seconds at 30fps
     
     /// Test function to verify OpenCV access from the YOLO package
     /// This comprehensive test checks:

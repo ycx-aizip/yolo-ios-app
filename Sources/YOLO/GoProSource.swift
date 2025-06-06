@@ -456,6 +456,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     /// - Temporarily hides UI overlays to prevent them appearing in extracted frames
     /// - Uses `afterScreenUpdates: false` to avoid waiting for screen refresh
     /// - Only recreates renderer when view bounds change
+    /// - Forces 1x scale to avoid meaningless upsampling from device scale factor
     /// 
     /// - Returns: UIImage of current frame, or nil if extraction fails
     @MainActor
@@ -471,10 +472,14 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             defer { yoloView.restoreUIOverlaysAfterExtraction() }
         }
         
-        // Use cached renderer for performance
+        // Use cached renderer for performance, but with 1x scale to avoid upsampling
         let currentBounds = playerView.bounds
         if cachedRenderer == nil || lastRendererBounds != currentBounds {
-            cachedRenderer = UIGraphicsImageRenderer(bounds: currentBounds)
+            // Create renderer with explicit 1x scale to capture at actual view size,
+            // not device native resolution. This prevents meaningless upsampling.
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1.0  // Force 1x scale regardless of device scale factor
+            cachedRenderer = UIGraphicsImageRenderer(bounds: currentBounds, format: format)
             lastRendererBounds = currentBounds
         }
         
@@ -546,16 +551,18 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                 }
             }
             
-            // Convert UIImage to CVPixelBuffer for calibration
+            // Convert UIImage to CVPixelBuffer for calibration using the actual extracted frame size
+            // This now uses the correct view size (844x390) without meaningless upsampling
             if let pixelBufferForCalibration = createStandardPixelBuffer(from: frameImage, forSourceType: sourceType) {
-                // Process the frame for calibration
+                
+                // Process the frame for calibration using the properly sized frame
                 trackingDetector.processFrame(pixelBufferForCalibration)
                 
                 // Print calibration progress by using frame count
                 let frameCount = trackingDetector.getCalibrationFrameCount()
                 if frameCount > 0 {
-                    // Estimate progress as percentage of expected frames (assume 100 frames needed)
-                    let estimatedProgress = min(Double(frameCount) / 100.0, 1.0)
+                    // Estimate progress as percentage of expected frames (assume 300 frames needed)
+                    let estimatedProgress = min(Double(frameCount) / 300.0, 1.0)
                     print("GoPro: Calibration progress: \(Int(estimatedProgress * 100))% (frame \(frameCount))")
                 }
             }
@@ -618,6 +625,26 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     private func preProcessExtractedFrame(_ image: UIImage) -> CMSampleBuffer? {
         guard let pixelBuffer = createStandardPixelBuffer(from: image, forSourceType: sourceType) else { return nil }
         return createStandardSampleBuffer(from: pixelBuffer)
+    }
+    
+    /// Resizes an image to the target video resolution for consistent calibration
+    /// 
+    /// This method ensures that calibration operates on frames with the actual video
+    /// resolution (1280x720) rather than the rendered UI view resolution which can
+    /// vary based on device screen size and view bounds.
+    /// 
+    /// - Parameters:
+    ///   - image: The source image to resize
+    ///   - targetSize: The target resolution (typically 1280x720 for GoPro RTSP)
+    /// - Returns: Resized UIImage, or nil if resizing fails
+    @MainActor
+    private func resizeImageToVideoResolution(_ image: UIImage, targetSize: CGSize) -> UIImage? {
+        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        
+        return renderer.image { context in
+            // Draw the image scaled to fill the target size
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
     }
     
     // MARK: - RTSP Streaming Management
@@ -1055,9 +1082,7 @@ extension GoProSource {
             }
         }
         
-        // Keep the original Y-coordinate flip for display consistency
         adjustedBox.origin.y = 1.0 - adjustedBox.origin.y - adjustedBox.size.height
-        
         return VNImageRectForNormalizedRect(adjustedBox, Int(containerView.bounds.width), Int(containerView.bounds.height))
     }
     

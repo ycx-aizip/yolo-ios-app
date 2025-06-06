@@ -106,23 +106,8 @@ class TrackingDetector: ObjectDetector {
     func setThresholds(_ values: [CGFloat]) {
         guard values.count >= 1 else { return }
         
-        // Convert threshold values from UI coordinate system to detection coordinate system
-        // based on the current counting direction
-        let convertedValues: [CGFloat]
-        
-        switch countingDirection {
-        case .topToBottom, .leftToRight:
-            // UI coordinates match detection coordinates (no conversion needed)
-            convertedValues = values
-            
-        case .bottomToTop, .rightToLeft:
-            // UI coordinates are flipped relative to detection coordinates
-            // Convert: UI value 0.3 (30% from bottom/right) → detection value 0.7 (70% from top/left)
-            convertedValues = values.map { 1.0 - $0 }
-        }
-        
         // Ensure thresholds are within valid range (0.0-1.0)
-        let validThresholds = convertedValues.map { max(0.0, min(1.0, $0)) }
+        let validThresholds = values.map { max(0.0, min(1.0, $0)) }
         self.thresholds = validThresholds
     }
     
@@ -167,12 +152,6 @@ class TrackingDetector: ObjectDetector {
         
         // Reset calibration state when changing direction
         resetCalibration()
-    }
-    
-    /// Gets the current counting direction
-    @MainActor
-    func getCountingDirection() -> CountingDirection {
-        return countingDirection
     }
     
     // MARK: - Auto-calibration methods
@@ -308,14 +287,9 @@ class TrackingDetector: ObjectDetector {
         
         // Process results if available
         if let results = request.results as? [VNRecognizedObjectObservation] {
-            // First check if we're in calibration mode
-            if isAutoCalibrationEnabled, let pixelBuffer = capturedPixelBuffer {
-                // Process frame for calibration on the main actor
-                Task { @MainActor in
-                    self.processFrameForCalibration(pixelBuffer)
-                }
-                
-                // Skip normal detection processing during calibration
+            // Skip processing entirely if we're in calibration mode
+            // Calibration should only use the direct processFrame() path
+            if isAutoCalibrationEnabled {
                 return
             }
             
@@ -328,15 +302,11 @@ class TrackingDetector: ObjectDetector {
             for i in 0..<100 {
                 if i < results.count && i < self.numItemsThreshold {
                     let prediction = results[i]
-                    
-                    // Use the same coordinate transformation as ObjectDetector base class
-                    // Always invert Y coordinates to maintain consistency with YOLO model output
                     let invertedBox = CGRect(
                         x: prediction.boundingBox.minX,
-                        y: 1 - prediction.boundingBox.maxY,  // Always invert Y like ObjectDetector
+                        y: 1 - prediction.boundingBox.maxY,
                         width: prediction.boundingBox.width,
                         height: prediction.boundingBox.height)
-                    
                     let imageRect = VNImageRectForNormalizedRect(
                         invertedBox, Int(inputSize.width), Int(inputSize.height))
                     
