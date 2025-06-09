@@ -193,6 +193,12 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     private var lastRendererBounds: CGRect = .zero
     /// Flag to prevent new frame extractions during model processing
     private var isModelProcessing: Bool = false
+    /// Time of last frame extraction to prevent overwhelming
+    private var lastExtractionTriggerTime: CFTimeInterval = 0
+    /// Minimum interval between extractions (20ms = 50 FPS max)
+    private let minimumExtractionInterval: CFTimeInterval = 0.020
+    /// Last trigger source for logging (timer vs completion)
+    private var lastTriggerSource: String = "unknown"
     
     // Performance metrics
     /// Time spent in last frame extraction operation (milliseconds)
@@ -403,47 +409,64 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     // MARK: - Frame Processing Pipeline
     
-    /// Initializes CADisplayLink for high-frequency frame extraction
+    /// Initializes CADisplayLink for baseline frame extraction timing
     /// 
-    /// Creates a CADisplayLink running at 40Hz to provide optimal timing granularity
-    /// for frame extraction without overwhelming the UI thread. The display link starts
-    /// paused and is activated when streaming begins.
+    /// Creates a CADisplayLink running at 30Hz to provide baseline timing
+    /// complemented by completion-triggered extractions for gap elimination.
+    /// The display link starts paused and is activated when streaming begins.
     @MainActor
     private func setupDisplayLinkForFrameRateMeasurement() {
         displayLink = CADisplayLink(target: self, selector: #selector(displayLinkCallback))
-        displayLink?.preferredFramesPerSecond = 40
+        displayLink?.preferredFramesPerSecond = 30
         displayLink?.isPaused = true
         displayLink?.add(to: .main, forMode: .default)
     }
     
-    /// CADisplayLink callback for frame extraction timing
+    /// CADisplayLink callback for baseline frame extraction timing
     /// 
-    /// Lightweight validation method called at 40Hz to trigger frame processing.
-    /// Performs quick checks to ensure streaming is active and model is available
-    /// before dispatching actual frame processing to avoid blocking the UI thread.
+    /// Provides baseline 30Hz timing complemented by completion-triggered extractions.
+    /// Performs validation and triggers smart frame extraction with gap elimination.
     /// Tracks performance metrics and logs statistics every 300 successful frames.
     @objc private func displayLinkCallback() {
         guard let videoPlayer = videoPlayer,
               [.playing, .buffering].contains(videoPlayer.state),
               let playerView = playerView,
               playerView.bounds.size.width > 0,
-              videoCaptureDelegate != nil,
-              !isModelProcessing else { return }
+              videoCaptureDelegate != nil else { return }
         
         Task { @MainActor in
-            if processCurrentFrame() {
-                frameExtractionCount += 1
-                frameExtractionTimestamps.append(CACurrentMediaTime())
-                
-                // Keep only last 60 timestamps
-                if frameExtractionTimestamps.count > 60 {
-                    frameExtractionTimestamps.removeFirst()
-                }
-                
-                // Log performance every 300 frames
-                if frameExtractionCount % 300 == 0 {
-                    logPerformanceMetrics()
-                }
+            triggerFrameExtractionIfReady(source: "timer")
+        }
+    }
+    
+    /// Smart frame extraction trigger with gap elimination
+    /// 
+    /// Respects minimum extraction interval to prevent overwhelming while allowing
+    /// completion-triggered extractions to eliminate processing gaps.
+    /// Extracts frames for display always, but only triggers inference when ready.
+    @MainActor
+    private func triggerFrameExtractionIfReady(source: String) {
+        let currentTime = CACurrentMediaTime()
+        
+        // Respect minimum interval to prevent overwhelming
+        guard currentTime - lastExtractionTriggerTime >= minimumExtractionInterval else { 
+            return 
+        }
+        
+        if processCurrentFrame(allowInference: !isModelProcessing) {
+            lastExtractionTriggerTime = currentTime
+            lastTriggerSource = source
+            frameExtractionCount += 1
+            frameExtractionTimestamps.append(currentTime)
+            
+            // Keep only last 60 timestamps
+            if frameExtractionTimestamps.count > 60 {
+                frameExtractionTimestamps.removeFirst()
+            }
+            
+            // Log performance analysis every 300 frames at extraction level to ensure consistency
+            if frameExtractionCount % 300 == 0 {
+                logPipelineAnalysisAtExtraction()
             }
         }
     }
@@ -505,11 +528,12 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     /// 4. **Format Conversion** (~3ms): Converts UIImage to CMSampleBuffer
     /// 5. **Model Inference** (~28ms): Dispatches to background for YOLO processing
     /// 
-    /// Performance: Total pipeline ~50ms (20 FPS theoretical, 16-18 FPS actual)
+    /// Performance: Total pipeline ~50ms (20 FPS theoretical, now targeting 20+ FPS actual)
     /// 
+    /// - Parameter allowInference: Whether to run inference (false when model is processing)
     /// - Returns: True if frame was successfully processed, false if skipped
     @MainActor
-    private func processCurrentFrame() -> Bool {
+    private func processCurrentFrame(allowInference: Bool = true) -> Bool {
         guard let videoPlayer = videoPlayer,
               [.playing, .buffering].contains(videoPlayer.state),
               let playerView = playerView,
@@ -571,19 +595,15 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             return false
         }
         
-        // Regular inference
-        if inferenceOK, let predictor = self.predictor {
+        // Regular inference - only if allowed and ready
+        if allowInference && inferenceOK && !isModelProcessing, let predictor = self.predictor {
             let conversionStartTime = CACurrentMediaTime()
             if let sampleBuffer = preProcessExtractedFrame(frameImage) {
                 lastConversionTime = (CACurrentMediaTime() - conversionStartTime) * 1000
                 
                 let preInferenceTime = (CACurrentMediaTime() - pipelineStartTime) * 1000
                 
-                // Log detailed timing breakdown periodically (before inference)
-                if frameExtractionCount % 300 == 0 {
-                    let frameSize = frameImage.size
-                    print("GoPro: Frame #\(frameExtractionCount) - Pre-Inference (Size: \(String(format: "%.0f", frameSize.width))×\(String(format: "%.0f", frameSize.height))): Extraction \(String(format: "%.1f", lastExtractionTime))ms + Conversion \(String(format: "%.1f", lastConversionTime))ms = \(String(format: "%.1f", preInferenceTime))ms total")
-                }
+                // Pre-inference timing is now captured in the main pipeline analysis
                 
                 // Ensure the delegate is set up correctly
                 if self.videoCaptureDelegate == nil {
@@ -593,14 +613,12 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
                     }
                 }
                 
+                // Set processing flag and run inference
+                isModelProcessing = true
+                
                 // Run inference - dispatch to background to avoid blocking UI
                 DispatchQueue.global(qos: .userInteractive).async { [weak self] in
                     guard let self = self else { return }
-                    
-                    // Set processing flag to prevent new frame extractions
-                    Task { @MainActor in
-                        self.isModelProcessing = true
-                    }
                     
                     predictor.predict(
                         sampleBuffer: sampleBuffer,
@@ -738,6 +756,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         hasReceivedFirstFrame = false
         frameExtractionCount = 0
         isModelProcessing = false
+        lastExtractionTriggerTime = 0
+        lastTriggerSource = "unknown"
         cachedRenderer = nil
         lastRendererBounds = .zero
         streamReadyCompletion = nil
@@ -821,15 +841,57 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         return timeInterval > 0 ? Double(cyclesToConsider - 1) / timeInterval : 0
     }
     
-    private func logPerformanceMetrics() {
-        guard frameExtractionTimestamps.count >= 2 else { return }
-        let windowSeconds = frameExtractionTimestamps.last! - frameExtractionTimestamps.first!
-        let successfulProcessingFPS = Double(frameExtractionTimestamps.count - 1) / windowSeconds
+    /// Logs comprehensive pipeline analysis at extraction level to ensure every 300th frame is logged
+    /// 
+    /// This ensures consistent logging regardless of whether frames go through inference,
+    /// calibration, or are skipped due to processing load.
+    @MainActor
+    private func logPipelineAnalysisAtExtraction() {
         let frameSizeStr = lastFrameSize.width > 0 ? 
             "\(String(format: "%.0f", lastFrameSize.width))×\(String(format: "%.0f", lastFrameSize.height))" : "Unknown"
         
-        print("GoPro: Performance (Frame Size: \(frameSizeStr)) - Processing FPS: \(String(format: "%.1f", successfulProcessingFPS))")
+        // Calculate extraction FPS from recent timestamps
+        let extractionFPS: Double
+        if frameExtractionTimestamps.count >= 2 {
+            let windowSeconds = frameExtractionTimestamps.last! - frameExtractionTimestamps.first!
+            extractionFPS = Double(frameExtractionTimestamps.count - 1) / windowSeconds
+        } else {
+            extractionFPS = 0
+        }
+        
+        // Calculate actual throughput FPS
+        let actualThroughputFPS = calculateThroughputFPS()
+        
+        // Show whether this is due to extraction only or if we have inference data
+        let hasInferenceData = lastInferenceTime > 0 && lastTotalPipelineTime > 0
+        
+        print("GoPro: === GOPRO SOURCE PIPELINE ANALYSIS (Frame #\(frameExtractionCount)) ===")
+        print("GoPro: Frame Size: \(frameSizeStr) | Extraction FPS: \(String(format: "%.1f", extractionFPS)) | Triggered by: \(lastTriggerSource)")
+        
+        if hasInferenceData {
+            // Full pipeline data available
+            print("GoPro: Frame Extraction: \(String(format: "%.1f", lastExtractionTime))ms + Conversion: \(String(format: "%.1f", lastConversionTime))ms = \(String(format: "%.1f", lastExtractionTime + lastConversionTime))ms")
+            print("GoPro: Model Inference: \(String(format: "%.1f", lastInferenceTime))ms (includes fish counting inside TrackingDetector)")
+            print("GoPro: UI Delegate Call: \(String(format: "%.1f", lastUITime))ms | Total Pipeline: \(String(format: "%.1f", lastTotalPipelineTime))ms")
+            
+            let theoreticalFPS = lastTotalPipelineTime > 0 ? 1000.0 / lastTotalPipelineTime : 0
+            print("GoPro: Theoretical FPS: \(String(format: "%.1f", theoreticalFPS)) | Actual Throughput: \(String(format: "%.1f", actualThroughputFPS))")
+            
+            // Calculate breakdown percentages
+            let extractionPct = (lastExtractionTime / lastTotalPipelineTime) * 100
+            let conversionPct = (lastConversionTime / lastTotalPipelineTime) * 100
+            let inferencePct = (lastInferenceTime / lastTotalPipelineTime) * 100
+            let uiPct = (lastUITime / lastTotalPipelineTime) * 100
+            
+            print("GoPro: Breakdown - Extraction: \(String(format: "%.1f", extractionPct))% | Conversion: \(String(format: "%.1f", conversionPct))% | Inference+FishCount: \(String(format: "%.1f", inferencePct))% | UI: \(String(format: "%.1f", uiPct))%")
+        } else {
+            // Only extraction data available (calibration, skipped inference, etc.)
+            print("GoPro: Frame Extraction: \(String(format: "%.1f", lastExtractionTime))ms + Conversion: \(String(format: "%.1f", lastConversionTime))ms = \(String(format: "%.1f", lastExtractionTime + lastConversionTime))ms")
+            print("GoPro: Model Inference: SKIPPED (calibration mode or processing load)")
+            print("GoPro: Extraction-only mode - Actual Throughput: \(String(format: "%.1f", actualThroughputFPS))")
+        }
     }
+
     
     private func broadcastFrameSizeChange(_ size: CGSize) {
         lastFrameSize = size
@@ -948,8 +1010,13 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
     
     nonisolated func on(result: YOLOResult) {
         Task { @MainActor in
-            // OPTIMIZATION: Clear processing flag to allow new frame extractions
+            // IMMEDIATELY clear processing flag and trigger next frame extraction
             self.isModelProcessing = false
+            
+            // Trigger immediate next frame extraction to eliminate gaps
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
+                self?.triggerFrameExtractionIfReady(source: "completion")
+            }
             
             // Record the start of post-processing phase
             let postProcessingStartTime = CACurrentMediaTime()
@@ -1021,26 +1088,7 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
             // Update delegate with actual throughput FPS (most accurate)
             self.delegate?.frameSource(self, didUpdateWithSpeed: result.speed, fps: actualThroughputFPS)
             
-            // ACCURATE logging for GoProSource pipeline analysis
-            if self.frameExtractionCount % 300 == 0 {
-                let delegateStatus = delegateCallSuccessful ? "✓" : "✗"
-                let theoreticalFPS = self.lastTotalPipelineTime > 0 ? 1000.0 / self.lastTotalPipelineTime : 0
-                
-                print("GoPro: === GOPRO SOURCE PIPELINE ANALYSIS (Frame #\(self.frameExtractionCount)) ===")
-                print("GoPro: Frame Extraction: \(String(format: "%.1f", self.lastExtractionTime))ms | Format Conversion: \(String(format: "%.1f", self.lastConversionTime))ms")
-                print("GoPro: Model Inference: \(String(format: "%.1f", self.lastInferenceTime))ms (includes fish counting inside TrackingDetector)")
-                print("GoPro: UI Delegate Call: \(String(format: "%.1f", self.lastUITime))ms \(delegateStatus) | Async UI Rendering: \(String(format: "%.1f", totalUITime - self.lastUITime))ms")
-                print("GoPro: GoProSource Total: \(String(format: "%.1f", self.lastTotalPipelineTime))ms")
-                print("GoPro: Theoretical FPS: \(String(format: "%.1f", theoreticalFPS)) | Actual Throughput: \(String(format: "%.1f", actualThroughputFPS)) | Model Reported FPS: \(String(format: "%.1f", result.fps ?? 0.0))")
-                
-                // Calculate breakdown percentages
-                let extractionPct = (self.lastExtractionTime / self.lastTotalPipelineTime) * 100
-                let conversionPct = (self.lastConversionTime / self.lastTotalPipelineTime) * 100
-                let inferencePct = (self.lastInferenceTime / self.lastTotalPipelineTime) * 100
-                let uiPct = (totalUITime / self.lastTotalPipelineTime) * 100
-                
-                print("GoPro: Breakdown - Extraction: \(String(format: "%.1f", extractionPct))% | Conversion: \(String(format: "%.1f", conversionPct))% | Inference+FishCount: \(String(format: "%.1f", inferencePct))% | UI: \(String(format: "%.1f", uiPct))%")
-            }
+            // Pipeline analysis logging is now handled at the extraction level to ensure consistency
         }
     }
 }

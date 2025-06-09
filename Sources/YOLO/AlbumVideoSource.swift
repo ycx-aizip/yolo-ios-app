@@ -9,6 +9,7 @@
 //  frame extraction, and delivery of frames to the YOLO processing pipeline. The component
 //  implements the FrameSource protocol to maintain compatibility with the existing architecture
 //  and enables seamless switching between camera feed and pre-recorded videos.
+//  Please note: upon testing, the current Album mode only works for 16:9 videos taken originally from the iPhone or GoPro camera.
 
 import AVFoundation
 import CoreVideo
