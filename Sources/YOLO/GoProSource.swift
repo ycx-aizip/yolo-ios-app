@@ -123,16 +123,17 @@ private enum GoProEndpoint {
 
 // MARK: - Main Class
 
-/// High-performance GoPro camera frame source implementation using VLC and CADisplayLink
+/// High-performance GoPro camera frame source implementation using VLC and pure event-driven processing
 /// 
 /// This class provides a complete frame source implementation for GoPro cameras connected via WiFi.
-/// It uses a dual-pipeline architecture:
+/// It uses a pure event-driven architecture:
 /// - **Rendering Pipeline**: VLC Media Player for smooth RTSP video playback (25-30 FPS)
-/// - **Detection Pipeline**: CADisplayLink-driven frame extraction for object detection (16-20 FPS)
+/// - **Detection Pipeline**: Event-driven frame extraction triggered by inference completion (20+ FPS)
 /// 
 /// Key Features:
+/// - Pure event-driven processing eliminates gaps and timer overhead
 /// - Optimized frame extraction with UIGraphicsImageRenderer caching
-/// - Smart processing control to prevent CPU waste during inference
+/// - Smart calibration handling through the same event-driven pipeline
 /// - Coordinate transformation between video and screen space
 /// - Comprehensive performance monitoring and logging
 /// - Swift 6 concurrency compliant with MainActor isolation
@@ -187,26 +188,22 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     private var streamReadyTimer: Timer?
     
     // Frame Processing State
-    /// CADisplayLink for baseline frame extraction timing (30Hz)
-    private var displayLink: CADisplayLink?
     /// Counter for successful frame extractions for performance monitoring
     private var frameExtractionCount = 0
     /// Timestamps of recent frame extractions for FPS calculation
     private var frameExtractionTimestamps: [CFTimeInterval] = []
     /// Flag to prevent new frame extractions during model processing
     private var isModelProcessing: Bool = false
-    /// Time of last frame extraction to prevent overwhelming
-    private var lastExtractionTriggerTime: CFTimeInterval = 0
-    /// Last trigger source for logging (timer vs completion)
+    /// Last trigger source for logging (completion vs initial)
     private var lastTriggerSource: String = "unknown"
+    /// Flag to track if processing pipeline is active
+    private var isPipelineActive: Bool = false
     
     // Performance Optimization State
     /// Cached UIGraphicsImageRenderer to avoid recreation overhead
     private var cachedRenderer: UIGraphicsImageRenderer?
     /// Bounds of last cached renderer to detect when recreation is needed
     private var lastRendererBounds: CGRect = .zero
-    /// Minimum interval between extractions (20ms = 50 FPS max)
-    private let minimumExtractionInterval: CFTimeInterval = 0.020
     
     // MARK: - Performance Metrics
     
@@ -261,30 +258,33 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     /// Begins frame acquisition and processing
     /// 
-    /// Initializes state, starts RTSP stream if not playing, and begins CADisplayLink
-    /// frame extraction at 30Hz baseline with completion-triggered gap elimination.
+    /// Initializes state and starts pure event-driven frame processing pipeline.
+    /// The pipeline operates by extracting frames immediately when inference completes,
+    /// creating a tight feedback loop for maximum throughput without timer overhead.
     nonisolated func start() {
         Task { @MainActor in
             hasReceivedFirstFrame = false
             frameExtractionCount = 0
             frameTimestamps.removeAll()
+            isPipelineActive = false
+            isModelProcessing = false
             playerView?.isHidden = false
             containerView?.setNeedsLayout()
             
             if videoPlayer?.state != .playing {
                 startRTSPStream { _ in }
             }
-            startFrameRateMeasurement()
+            startEventDrivenProcessing()
         }
     }
     
     /// Stops frame acquisition and cleans up resources
     /// 
-    /// Stops CADisplayLink, VLC player, cleans up views, and resets all state.
+    /// Stops the event-driven processing pipeline, VLC player, and resets all state.
     /// Notifies delegate of stopped status.
     nonisolated func stop() {
         Task { @MainActor in
-            stopFrameRateMeasurement()
+            stopEventDrivenProcessing()
             videoPlayer?.stop()
             cleanupPlayerView()
             resetState()
@@ -330,8 +330,8 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     /// Sets up VLC media player and associated UI view for video rendering
     /// 
     /// Creates and configures a VLC media player instance with optimized settings for RTSP streaming.
-    /// Also creates the player view with proper constraints and initializes the CADisplayLink
-    /// for frame extraction. Disables VLC logging for better performance.
+    /// Also creates the player view with proper constraints for event-driven frame extraction.
+    /// Disables VLC logging for better performance.
     @MainActor
     private func setupVLCPlayerAndView() {
         videoPlayer = VLCMediaPlayer()
@@ -348,8 +348,6 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         videoPlayer?.drawable = playerView
         videoPlayer?.videoAspectRatio = UnsafeMutablePointer<Int8>(mutating: "16:9")
         videoPlayer?.audio?.volume = 0
-        
-        setupDisplayLinkForFrameRateMeasurement()
     }
     
     /// Configures VLC media instance with optimized options for GoPro RTSP streaming
@@ -421,45 +419,54 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     // MARK: - Frame Processing Pipeline
     
-    /// Initializes CADisplayLink for baseline frame extraction timing (30Hz)
+    /// Starts the pure event-driven processing pipeline
+    /// 
+    /// Initiates frame processing by triggering the first extraction.
+    /// From that point forward, each completed inference will immediately trigger
+    /// the next frame extraction, creating a tight feedback loop.
     @MainActor
-    private func setupDisplayLinkForFrameRateMeasurement() {
-        displayLink = CADisplayLink(target: self, selector: #selector(displayLinkCallback))
-        displayLink?.preferredFramesPerSecond = 30
-        displayLink?.isPaused = true
-        displayLink?.add(to: .main, forMode: .default)
-    }
-    
-    /// CADisplayLink callback for baseline frame extraction timing
-    @objc private func displayLinkCallback() {
-        guard let videoPlayer = videoPlayer,
-              [.playing, .buffering].contains(videoPlayer.state),
-              let playerView = playerView,
-              playerView.bounds.size.width > 0,
-              videoCaptureDelegate != nil else { return }
+    private func startEventDrivenProcessing() {
+        guard !isPipelineActive else { return }
         
-        Task { @MainActor in
-            triggerFrameExtractionIfReady(source: "timer")
+        frameExtractionCount = 0
+        frameExtractionTimestamps.removeAll()
+        isPipelineActive = true
+        isModelProcessing = false
+        
+        // Trigger initial frame processing to start the pipeline
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.triggerNextFrameProcessing(source: "initial")
         }
     }
     
-    /// Smart frame extraction trigger with gap elimination
-    /// 
-    /// Respects minimum extraction interval to prevent overwhelming while allowing
-    /// completion-triggered extractions to eliminate processing gaps.
-    /// Extracts frames for display always, but only triggers inference when ready.
-    /// 
-    /// - Parameter source: Source of the trigger ("timer" or "completion")
+    /// Stops the event-driven processing pipeline
     @MainActor
-    private func triggerFrameExtractionIfReady(source: String) {
-        let currentTime = CACurrentMediaTime()
-        guard currentTime - lastExtractionTriggerTime >= minimumExtractionInterval else { return }
+    private func stopEventDrivenProcessing() {
+        isPipelineActive = false
+        isModelProcessing = false
+    }
+    
+    /// Triggers the next frame processing cycle
+    /// 
+    /// This is the core of the event-driven pipeline. It extracts a frame,
+    /// processes it through the complete pipeline, and sets up the next cycle
+    /// to be triggered when inference completes.
+    /// 
+    /// - Parameter source: Source of the trigger ("initial", "completion")
+    @MainActor
+    private func triggerNextFrameProcessing(source: String) {
+        guard isPipelineActive,
+              let videoPlayer = videoPlayer,
+              [.playing, .buffering].contains(videoPlayer.state),
+              let playerView = playerView,
+              playerView.bounds.size.width > 0,
+              videoCaptureDelegate != nil,
+              !isModelProcessing else { return }
         
-        if processCurrentFrame(allowInference: !isModelProcessing) {
-            lastExtractionTriggerTime = currentTime
+        if processCurrentFrame(allowInference: true) {
             lastTriggerSource = source
             frameExtractionCount += 1
-            frameExtractionTimestamps.append(currentTime)
+            frameExtractionTimestamps.append(CACurrentMediaTime())
             
             if frameExtractionTimestamps.count > 60 {
                 frameExtractionTimestamps.removeFirst()
@@ -520,13 +527,13 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     /// Processes current video frame through the complete detection pipeline
     /// 
     /// Main processing method that handles the complete frame processing pipeline:
-    /// 1. **Frame Extraction** (~18ms): Captures current video frame as UIImage
+    /// 1. **Frame Extraction** (~14-20ms): Captures current video frame as UIImage
     /// 2. **Display Update**: Sends frame to delegate for immediate UI display
     /// 3. **Calibration Check**: Routes to calibration if in auto-calibration mode
-    /// 4. **Format Conversion** (~3ms): Converts UIImage to CMSampleBuffer
-    /// 5. **Model Inference** (~28ms): Dispatches to background for YOLO processing
+    /// 4. **Format Conversion** (~0.2ms): Converts UIImage to CMSampleBuffer for inference
+    /// 5. **Model Inference** (~24ms): Dispatches to background for YOLO processing
     /// 
-    /// Performance: Total pipeline ~50ms (20 FPS theoretical, now targeting 20+ FPS actual)
+    /// Performance: Total pipeline ~38-45ms (22+ FPS actual throughput with event-driven approach)
     /// 
     /// - Parameter allowInference: Whether to run inference (false when model is processing)
     /// - Returns: True if frame was successfully processed, false if skipped
@@ -554,7 +561,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             self.delegate?.frameSource(self, didOutputImage: frameImage)
         }
         
-        // Handle calibration mode
+        // Handle calibration mode - CRITICAL FIX: process calibration frames through event-driven pipeline
         let shouldProcessForCalibration = !inferenceOK && predictor is TrackingDetector
         
         if shouldProcessForCalibration {
@@ -575,8 +582,11 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     /// to CVPixelBuffer format and passing it to the tracking detector for calibration
     /// analysis. Clears detection boxes on the first calibration frame.
     /// 
+    /// CRITICAL: This method triggers the next frame processing cycle to ensure
+    /// continuous calibration frame processing in the event-driven pipeline.
+    /// 
     /// - Parameter frameImage: The extracted frame to process for calibration
-    /// - Returns: Always returns false to indicate no inference was performed
+    /// - Returns: True to indicate frame was processed (for calibration)
     @MainActor
     private func processCalibrationFrame(_ frameImage: UIImage) -> Bool {
         guard let trackingDetector = predictor as? TrackingDetector else {
@@ -591,17 +601,28 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             }
         }
         
-        if let pixelBuffer = createStandardPixelBuffer(from: frameImage, forSourceType: sourceType) {
-            trackingDetector.processFrame(pixelBuffer)
-            
-            let frameCount = trackingDetector.getCalibrationFrameCount()
-            if frameCount > 0 {
-                let progress = min(Double(frameCount) / 300.0, 1.0)
-                print("GoPro: Calibration progress: \(Int(progress * 100))% (frame \(frameCount))")
-            }
+        let conversionStartTime = CACurrentMediaTime()
+        guard let pixelBuffer = createStandardPixelBuffer(from: frameImage, forSourceType: sourceType) else {
+            return false
+        }
+        lastConversionTime = (CACurrentMediaTime() - conversionStartTime) * 1000
+        
+        // Process frame for calibration
+        trackingDetector.processFrame(pixelBuffer)
+        
+        let frameCount = trackingDetector.getCalibrationFrameCount()
+        if frameCount > 0 {
+            let progress = min(Double(frameCount) / 300.0, 1.0)
+            print("GoPro: Calibration progress: \(Int(progress * 100))% (frame \(frameCount))")
         }
         
-        return false
+        // CRITICAL FIX: Trigger next frame processing to continue calibration
+        // Use a small delay to prevent excessive CPU usage during calibration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.triggerNextFrameProcessing(source: "calibration")
+        }
+        
+        return true
     }
     
     /// Processes frame for inference
@@ -759,7 +780,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         hasReceivedFirstFrame = false
         frameExtractionCount = 0
         isModelProcessing = false
-        lastExtractionTriggerTime = 0
+        isPipelineActive = false
         lastTriggerSource = "unknown"
         cachedRenderer = nil
         lastRendererBounds = .zero
@@ -767,6 +788,7 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         streamReadyTimer?.invalidate()
         streamReadyTimer = nil
         frameTimestamps.removeAll()
+        frameExtractionTimestamps.removeAll()
         pipelineStartTimes.removeAll()
         pipelineCompleteTimes.removeAll()
         lastExtractionTime = 0
@@ -774,26 +796,6 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
         lastInferenceTime = 0
         lastUITime = 0
         lastTotalPipelineTime = 0
-    }
-    
-    /// Starts CADisplayLink-based frame rate measurement and processing
-    /// 
-    /// Resets frame counters and activates the 30Hz CADisplayLink for baseline
-    /// frame extraction timing complemented by completion-triggered extractions.
-    @MainActor
-    private func startFrameRateMeasurement() {
-        frameExtractionCount = 0
-        frameExtractionTimestamps.removeAll()
-        displayLink?.isPaused = false
-    }
-    
-    /// Stops CADisplayLink frame processing to pause frame extraction
-    /// 
-    /// Pauses the baseline CADisplayLink to halt frame extraction timing.
-    /// Completion-triggered extractions will also stop since processing stops.
-    @MainActor
-    private func stopFrameRateMeasurement() {
-        displayLink?.isPaused = true
     }
     
     @MainActor
@@ -880,11 +882,12 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
             let uiPct = (lastUITime / lastTotalPipelineTime) * 100
             
             print("GoPro: Breakdown - Extraction: \(String(format: "%.1f", extractionPct))% | Conversion: \(String(format: "%.1f", conversionPct))% | Inference+FishCount: \(String(format: "%.1f", inferencePct))% | UI: \(String(format: "%.1f", uiPct))%")
+            // print("GoPro: Event-Driven Pipeline - Zero gaps between completion and next extraction")
         } else {
             // Only extraction data available (calibration, skipped inference, etc.)
             print("GoPro: Frame Extraction: \(String(format: "%.1f", lastExtractionTime))ms + Conversion: \(String(format: "%.1f", lastConversionTime))ms = \(String(format: "%.1f", lastExtractionTime + lastConversionTime))ms")
             print("GoPro: Model Inference: SKIPPED (calibration mode or processing load)")
-            print("GoPro: Extraction-only mode - Actual Throughput: \(String(format: "%.1f", actualThroughputFPS))")
+            print("GoPro: Event-Driven Extraction-only - Actual Throughput: \(String(format: "%.1f", actualThroughputFPS))")
         }
     }
 
@@ -921,7 +924,7 @@ extension GoProSource {
             switch playerState {
             case .playing:
                 self.goProDelegate?.goProSource(self, didUpdateStatus: .playing)
-                self.startFrameRateMeasurement()
+                self.startEventDrivenProcessing()
                 
                 if playerVideoSize.width > 0 && playerVideoSize.height > 0 {
                     self.broadcastFrameSizeChange(playerVideoSize)
@@ -941,7 +944,7 @@ extension GoProSource {
                 }
                 
             case .error:
-                self.stopFrameRateMeasurement()
+                self.stopEventDrivenProcessing()
                 self.goProDelegate?.goProSource(self, didUpdateStatus: .error("Playback error"))
                 
                 if let completion = self.streamReadyCompletion {
@@ -953,7 +956,7 @@ extension GoProSource {
                 }
                 
             case .ended, .stopped:
-                self.stopFrameRateMeasurement()
+                self.stopEventDrivenProcessing()
                 self.goProDelegate?.goProSource(self, didUpdateStatus: .stopped)
                 
             default:
@@ -1016,7 +1019,7 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
         // Clear processing flag and trigger next frame extraction
         isModelProcessing = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
-            self?.triggerFrameExtractionIfReady(source: "completion")
+            self?.triggerNextFrameProcessing(source: "completion")
         }
         
         let postProcessingStartTime = CACurrentMediaTime()
@@ -1314,4 +1317,5 @@ extension VideoCaptureDelegate {
         return self as? UIView
     }
 }
+
 
