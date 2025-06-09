@@ -743,7 +743,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     sliderNumItems.isHidden = true
     self.addSubview(sliderNumItems)
 
-    labelSliderConf.text = "Conf: 0.75"
+    labelSliderConf.text = "Conf: 0.5"
     labelSliderConf.textAlignment = .left
     labelSliderConf.textColor = .white
     labelSliderConf.font = UIFont.systemFont(ofSize: 16, weight: .medium)
@@ -751,7 +751,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
 
     sliderConf.minimumValue = 0
     sliderConf.maximumValue = 1
-    sliderConf.value = 0.75
+    sliderConf.value = 0.5
     sliderConf.minimumTrackTintColor = .white
     sliderConf.maximumTrackTintColor = .lightGray
     sliderConf.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
