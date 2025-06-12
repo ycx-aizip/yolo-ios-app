@@ -160,6 +160,12 @@ protocol FrameSource: AnyObject {
     /// - Parameter boxViews: The bounding box views to add
     @MainActor
     func addBoundingBoxViews(_ boxViews: [BoundingBoxView])
+    
+    /// Resets processing state to allow normal inference to resume after calibration
+    /// This method should be called when calibration completes to ensure the frame source
+    /// is ready to process frames for normal inference again
+    @MainActor
+    func resetProcessingState()
 }
 
 /// Enumeration of available frame source types.
@@ -365,5 +371,14 @@ extension FrameSource {
     func addBoundingBoxViews(_ boxViews: [BoundingBoxView]) {
         // Default implementation does nothing
         // Each source should override this with its specific bounding box view addition logic
+    }
+    
+    /// Resets processing state to allow normal inference to resume after calibration
+    /// This method should be called when calibration completes to ensure the frame source
+    /// is ready to process frames for normal inference again
+    @MainActor
+    func resetProcessingState() {
+        // Default implementation does nothing
+        // Each source should override this with its specific reset logic
     }
 } 

@@ -1679,6 +1679,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
           
           // IMPORTANT: Resume normal inference
           self.currentFrameSource.inferenceOK = true
+          
+          // CRITICAL FIX: Reset processing state to ensure normal inference can start
+          self.currentFrameSource.resetProcessingState()
         }
       }
       

@@ -370,6 +370,13 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     
     // MARK: - Private Methods
     
+    /// Resets processing state to allow normal inference to resume after calibration
+    @MainActor
+    func resetProcessingState() {
+        isProcessingFrame = false
+        print("Album: Processing state reset - ready for normal inference")
+    }
+    
     /// Completion handler for content selection UI
     private var contentSelectionCompletion: ((Bool) -> Void)?
     

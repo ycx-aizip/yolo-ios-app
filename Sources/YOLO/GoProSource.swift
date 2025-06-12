@@ -177,6 +177,13 @@ class GoProSource: NSObject, @preconcurrency FrameSource, @preconcurrency VLCMed
     
     // MARK: - State Management
     
+    /// Resets processing state to allow normal inference to resume after calibration
+    @MainActor
+    func resetProcessingState() {
+        isModelProcessing = false
+        print("GoPro: Processing state reset - ready for normal inference")
+    }
+    
     // Stream State
     /// Flag indicating if first valid frame has been received from stream
     private var hasReceivedFirstFrame = false

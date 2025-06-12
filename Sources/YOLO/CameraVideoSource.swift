@@ -226,6 +226,15 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
     } catch {}
   }
   
+  // MARK: - State Management
+  
+  /// Resets processing state to allow normal inference to resume after calibration
+  @MainActor
+  func resetProcessingState() {
+    isModelProcessing = false
+    print("Camera: Processing state reset - ready for normal inference")
+  }
+  
   private func processFrameOnCameraQueue(sampleBuffer: CMSampleBuffer) {
     guard let predictor = predictor else {
       print("predictor is nil")

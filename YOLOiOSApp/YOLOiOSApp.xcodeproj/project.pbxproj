@@ -18,7 +18,6 @@
 		73D95D192D45DAA50050E640 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 73D95D182D45DAA50050E640 /* ZIPFoundation */; };
 		73D95D1B2D45DB800050E640 /* RemoteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73D95D1A2D45DB800050E640 /* RemoteModels.swift */; };
 		E107A7972DF6BCEC00FA0672 /* opencv2.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E107A7962DF6BCEB00FA0672 /* opencv2.framework */; };
-		E107A7982DF6BCEC00FA0672 /* opencv2.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E107A7962DF6BCEB00FA0672 /* opencv2.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E1374EDD2DA62A7400DD5959 /* softbanklogo.png in Resources */ = {isa = PBXBuildFile; fileRef = E1374EDC2DA62A7400DD5959 /* softbanklogo.png */; };
 		E1639E542DCF7CB80028276C /* OpenCVBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = E1639E512DCF7CB80028276C /* OpenCVBridge.mm */; };
 		E185A6212D9D260400E074A2 /* FishCountModels in Resources */ = {isa = PBXBuildFile; fileRef = E185A6202D9D25F600E074A2 /* FishCountModels */; };
@@ -49,7 +48,6 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				E107A7982DF6BCEC00FA0672 /* opencv2.framework in Embed Frameworks */,
 				E1F2477C2DE1D5930014C4CC /* MobileVLCKit.xcframework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
