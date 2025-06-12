@@ -72,6 +72,26 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
 
   private var currentBuffer: CVPixelBuffer?
   
+  // MARK: - Performance Metrics (similar to GoProSource)
+  
+  // Frame Processing State
+  private var frameProcessingCount = 0
+  private var frameProcessingTimestamps: [CFTimeInterval] = []
+  private var isModelProcessing: Bool = false
+  private var lastTriggerSource: String = "camera"
+  
+  // Performance Timing Metrics
+  private var lastFramePreparationTime: Double = 0
+  private var lastConversionTime: Double = 0
+  private var lastInferenceTime: Double = 0
+  private var lastUITime: Double = 0
+  private var lastTotalPipelineTime: Double = 0
+  
+  // FPS Calculation Arrays
+  private var frameTimestamps: [CFTimeInterval] = []
+  private var pipelineStartTimes: [CFTimeInterval] = []
+  private var pipelineCompleteTimes: [CFTimeInterval] = []
+  
   // Default initializer
   override init() {
     super.init()
@@ -212,6 +232,12 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
       return
     }
     
+    let pipelineStartTime = CACurrentMediaTime()
+    pipelineStartTimes.append(pipelineStartTime)
+    if pipelineStartTimes.count > 30 {
+      pipelineStartTimes.removeFirst()
+    }
+    
     if let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
       // Update frame size if needed
       if !frameSizeCaptured {
@@ -222,7 +248,15 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
         frameSizeCaptured = true
       }
       
+      frameProcessingCount += 1
+      frameProcessingTimestamps.append(CACurrentMediaTime())
+      if frameProcessingTimestamps.count > 60 {
+        frameProcessingTimestamps.removeFirst()
+      }
+      
       // For frameSourceDelegate, we need to safely pass the frame data to the main thread
+      let framePreparationStartTime = CACurrentMediaTime()
+      
       // Create a CIImage from the pixel buffer which can be safely passed between threads
       if let frameSourceDelegate = frameSourceDelegate {
         // Create a CIImage from the pixel buffer - this is thread-safe
@@ -241,43 +275,55 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
         }
       }
       
+      lastFramePreparationTime = (CACurrentMediaTime() - framePreparationStartTime) * 1000
+      
       // Check if we should process for calibration
       let shouldProcessForCalibration = !inferenceOK && predictor is TrackingDetector
       
       if shouldProcessForCalibration {
+        let conversionStartTime = CACurrentMediaTime()
+        
         // Create a UIImage from the pixel buffer to safely pass across threads
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         let context = CIContext()
         
         if let cgImage = context.createCGImage(ciImage, from: ciImage.extent) {
           let image = UIImage(cgImage: cgImage)
+          lastConversionTime = (CACurrentMediaTime() - conversionStartTime) * 1000
           
           // Process on main thread for auto-calibration
           DispatchQueue.main.async { [weak self] in
             guard let self = self,
                   let trackingDetector = self.predictor as? TrackingDetector else { return }
             
-            // Clear boxes when starting calibration (first frame)
             if trackingDetector.getCalibrationFrameCount() == 0 {
               self.videoCaptureDelegate?.onClearBoxes()
             }
                   
-            // Convert UIImage back to CVPixelBuffer
             if let pixelBufferForCalibration = self.createStandardPixelBuffer(from: image, forSourceType: self.sourceType) {
-              // Process the frame for calibration
               trackingDetector.processFrame(pixelBufferForCalibration)
             }
           }
+        } else {
+          lastConversionTime = (CACurrentMediaTime() - conversionStartTime) * 1000
         }
         
-        // Skip regular inference during calibration
+        // Log performance analysis every 300 frames during calibration
+        if frameProcessingCount % 300 == 0 {
+          logPipelineAnalysis(mode: "calibration")
+        }
+        
         return
       }
       
-      // Only run regular inference when inferenceOK is true and we're not calibrating
-      if inferenceOK {
-        // Process with predictor - this happens on camera queue
+      if inferenceOK && !isModelProcessing {
+        isModelProcessing = true
         predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
+      }
+      
+      // Log performance analysis every 300 frames
+      if frameProcessingCount % 300 == 0 {
+        logPipelineAnalysis(mode: "inference")
       }
     }
   }
@@ -510,6 +556,8 @@ extension CameraVideoSource: AVCaptureVideoDataOutputSampleBufferDelegate {
 
 extension CameraVideoSource: ResultsListener, InferenceTimeListener {
   func on(inferenceTime: Double, fpsRate: Double) {
+    lastInferenceTime = inferenceTime
+    
     DispatchQueue.main.async {
       self.videoCaptureDelegate?.onInferenceTime(speed: inferenceTime, fps: fpsRate)
       self.frameSourceDelegate?.frameSource(self, didUpdateWithSpeed: inferenceTime, fps: fpsRate)
@@ -517,8 +565,40 @@ extension CameraVideoSource: ResultsListener, InferenceTimeListener {
   }
 
   func on(result: YOLOResult) {
+    let postProcessingStartTime = CACurrentMediaTime()
+    let timestamp = CACurrentMediaTime()
+    
+    // Clear processing flag
+    isModelProcessing = false
+    
+    // Update frame timestamps for FPS calculation
+    frameTimestamps.append(timestamp)
+    if frameTimestamps.count > 30 {
+      frameTimestamps.removeFirst()
+    }
+    
+    // Handle UI updates
+    let uiDelegateStartTime = CACurrentMediaTime()
+    
     DispatchQueue.main.async {
       self.videoCaptureDelegate?.onPredict(result: result)
+    }
+    
+    // Calculate timing metrics
+    lastUITime = (CACurrentMediaTime() - uiDelegateStartTime) * 1000
+    let totalUITime = (CACurrentMediaTime() - postProcessingStartTime) * 1000
+    lastTotalPipelineTime = lastFramePreparationTime + lastInferenceTime + totalUITime
+    
+    // Update completion timestamps for throughput calculation
+    pipelineCompleteTimes.append(timestamp)
+    if pipelineCompleteTimes.count > 30 {
+      pipelineCompleteTimes.removeFirst()
+    }
+    
+    // Update delegate with throughput FPS
+    let actualThroughputFPS = calculateThroughputFPS()
+    DispatchQueue.main.async {
+      self.frameSourceDelegate?.frameSource(self, didUpdateWithSpeed: result.speed, fps: actualThroughputFPS)
     }
   }
   
@@ -562,5 +642,62 @@ extension CameraVideoSource: ResultsListener, InferenceTimeListener {
     context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
     
     return pixel
+  }
+  
+  // MARK: - Performance Analysis Methods
+  
+  /// Logs comprehensive pipeline analysis every 300 frames
+  private func logPipelineAnalysis(mode: String) {
+    let frameSizeStr = frameSizeCaptured ? 
+      "\(String(format: "%.0f", longSide))×\(String(format: "%.0f", shortSide))" : "Unknown"
+    
+    // Calculate frame processing FPS from recent timestamps
+    let processingFPS: Double
+    if frameProcessingTimestamps.count >= 2 {
+      let windowSeconds = frameProcessingTimestamps.last! - frameProcessingTimestamps.first!
+      processingFPS = Double(frameProcessingTimestamps.count - 1) / windowSeconds
+    } else {
+      processingFPS = 0
+    }
+    
+    // Calculate actual throughput FPS
+    let actualThroughputFPS = calculateThroughputFPS()
+    
+    print("Camera: === CAMERA SOURCE PIPELINE ANALYSIS (Frame #\(frameProcessingCount)) ===")
+    print("Camera: Frame Size: \(frameSizeStr) | Processing FPS: \(String(format: "%.1f", processingFPS)) | Mode: \(mode)")
+    
+    if mode == "inference" && lastInferenceTime > 0 && lastTotalPipelineTime > 0 {
+      // Full pipeline data available
+      print("Camera: Frame Preparation: \(String(format: "%.1f", lastFramePreparationTime))ms")
+      print("Camera: Model Inference: \(String(format: "%.1f", lastInferenceTime))ms (includes fish counting inside TrackingDetector)")
+      print("Camera: UI Delegate Call: \(String(format: "%.1f", lastUITime))ms | Total Pipeline: \(String(format: "%.1f", lastTotalPipelineTime))ms")
+      
+      let theoreticalFPS = lastTotalPipelineTime > 0 ? 1000.0 / lastTotalPipelineTime : 0
+      print("Camera: Theoretical FPS: \(String(format: "%.1f", theoreticalFPS)) | Actual Throughput: \(String(format: "%.1f", actualThroughputFPS))")
+      
+      // Calculate breakdown percentages
+      let preparationPct = (lastFramePreparationTime / lastTotalPipelineTime) * 100
+      let inferencePct = (lastInferenceTime / lastTotalPipelineTime) * 100
+      let uiPct = (lastUITime / lastTotalPipelineTime) * 100
+      
+      print("Camera: Breakdown - Preparation: \(String(format: "%.1f", preparationPct))% | Inference+FishCount: \(String(format: "%.1f", inferencePct))% | UI: \(String(format: "%.1f", uiPct))%")
+    } else if mode == "calibration" {
+      // Calibration mode data
+      print("Camera: Frame Preparation: \(String(format: "%.1f", lastFramePreparationTime))ms + Conversion: \(String(format: "%.1f", lastConversionTime))ms = \(String(format: "%.1f", lastFramePreparationTime + lastConversionTime))ms")
+      print("Camera: Model Inference: CALIBRATION MODE - Actual Throughput: \(String(format: "%.1f", actualThroughputFPS))")
+    } else {
+      // Limited data available
+      print("Camera: Frame Preparation: \(String(format: "%.1f", lastFramePreparationTime))ms")
+      print("Camera: Model Inference: PENDING - Actual Throughput: \(String(format: "%.1f", actualThroughputFPS))")
+    }
+  }
+  
+  /// Calculates actual pipeline throughput FPS based on complete processing cycles
+  private func calculateThroughputFPS() -> Double {
+    guard pipelineCompleteTimes.count >= 2 else { return 0 }
+    let cyclesToConsider = min(10, pipelineCompleteTimes.count)
+    let recentCompletions = Array(pipelineCompleteTimes.suffix(cyclesToConsider))
+    let timeInterval = recentCompletions.last! - recentCompletions.first!
+    return timeInterval > 0 ? Double(cyclesToConsider - 1) / timeInterval : 0
   }
 }
