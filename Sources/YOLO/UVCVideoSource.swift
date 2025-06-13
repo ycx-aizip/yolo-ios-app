@@ -37,6 +37,9 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     var shortSide: CGFloat = 4
     var frameSizeCaptured = false
     
+    // Track the last known valid orientation for coordinate transformation
+    private var lastKnownOrientation: UIDeviceOrientation = .portrait
+    
     // Implement FrameSource protocol property
     var delegate: FrameSourceDelegate? {
         get { return frameSourceDelegate }
@@ -280,7 +283,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             // Rotate -90 degrees: landscape stream → portrait display
             videoOrientation = .landscapeRight
         case .portraitUpsideDown:
-            // Rotate +90 degrees: landscape stream → upside-down portrait display
+            // Rotate +90 degrees: landscape stream → upside down portrait display (180° from portrait)
             videoOrientation = .landscapeLeft
         case .landscapeLeft:
             // Rotate 180 degrees: flip the landscape stream
@@ -568,16 +571,23 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         case .portrait:
             // Rotate -90 degrees: landscape stream → portrait display
             videoOrientation = .landscapeRight
+            lastKnownOrientation = .portrait
         case .portraitUpsideDown:
-            // Rotate +90 degrees: landscape stream → upside-down portrait display  
+            // Rotate +90 degrees: landscape stream → upside down portrait display (180° from portrait)
             videoOrientation = .landscapeLeft
+            lastKnownOrientation = .portraitUpsideDown
         case .landscapeLeft:
             // Rotate 180 degrees: flip the landscape stream
             videoOrientation = .landscapeRight
+            lastKnownOrientation = .landscapeLeft
         case .landscapeRight:
             // Rotate 180 degrees: flip the landscape stream
             videoOrientation = .landscapeLeft
+            lastKnownOrientation = .landscapeRight
         default:
+            // When device is flat (.faceUp, .faceDown, .unknown), don't change video orientation
+            // Keep using the last known orientation for coordinate transformation
+            print("UVC: Device flat/unknown orientation (\(orientation.rawValue)), maintaining last known orientation: \(lastKnownOrientation.rawValue)")
             return
         }
         
@@ -690,25 +700,17 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         let width = viewBounds.width
         let height = viewBounds.height
         
-        var displayRect = rect
-        
+        // Use last known orientation for flat/unknown device orientations
+        let effectiveOrientation: UIDeviceOrientation
         switch orientation {
-        case .portraitUpsideDown:
-            displayRect = CGRect(
-                x: 1.0 - rect.origin.x - rect.width,
-                y: 1.0 - rect.origin.y - rect.height,
-                width: rect.width,
-                height: rect.height)
-        case .landscapeLeft, .landscapeRight:
-            break
-        case .unknown:
-            print("UVC: Device orientation is unknown, predictions may be affected")
-            fallthrough
+        case .faceUp, .faceDown, .unknown:
+            effectiveOrientation = lastKnownOrientation
+            print("UVC: Using last known orientation \(lastKnownOrientation.rawValue) for coordinate transform (device: \(orientation.rawValue))")
         default:
-            break
+            effectiveOrientation = orientation
         }
         
-        if orientation == .portrait || orientation == .portraitUpsideDown || orientation == .unknown {
+        if effectiveOrientation == .portrait || effectiveOrientation == .portraitUpsideDown {
             // For UVC cameras in portrait mode with letterboxing (resizeAspect)
             // The stream maintains 16:9 aspect ratio in the center with black bars
             let frameAspectRatio: CGFloat = 16.0 / 9.0  // UVC stream is 1280×720
@@ -719,14 +721,14 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             let blackBarHeight = (height - streamHeight) / 2  // Height of each black bar
             
             // Scale coordinates to the actual stream area
-            let scaledY = displayRect.origin.y * streamHeight + blackBarHeight
-            let scaledHeight = displayRect.size.height * streamHeight
+            let scaledY = rect.origin.y * streamHeight + blackBarHeight
+            let scaledHeight = rect.size.height * streamHeight
             
             // Apply coordinate system flip for portrait
             let flippedRect = CGRect(
-                x: displayRect.origin.x * width,
+                x: rect.origin.x * width,
                 y: height - scaledY - scaledHeight,
-                width: displayRect.size.width * width,
+                width: rect.size.width * width,
                 height: scaledHeight
             )
             
@@ -751,10 +753,10 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             }
             
             let screenRect = CGRect(
-                x: displayRect.origin.x * longSide * scaleX - offsetX,
-                y: height - (displayRect.origin.y * shortSide * scaleY - offsetY + displayRect.size.height * shortSide * scaleY),
-                width: displayRect.size.width * longSide * scaleX,
-                height: displayRect.size.height * shortSide * scaleY
+                x: rect.origin.x * longSide * scaleX - offsetX,
+                y: height - (rect.origin.y * shortSide * scaleY - offsetY + rect.size.height * shortSide * scaleY),
+                width: rect.size.width * longSide * scaleX,
+                height: rect.size.height * shortSide * scaleY
             )
             
             return screenRect
