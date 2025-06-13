@@ -43,6 +43,16 @@ enum FrameSourceSettings {
     /// Standard pixel format to use for camera sources (used in CameraVideoSource)
     static let cameraSourcePixelFormat = kCVPixelFormatType_32BGRA
     
+    /// Performance logging configuration - automatically disabled in release builds
+    #if DEBUG
+    static let enablePerformanceLogging = true
+    #else
+    static let enablePerformanceLogging = false
+    #endif
+    
+    /// Frame interval for performance logging (every N frames)
+    static let performanceLoggingInterval = 300
+    
     /// Standard documentation for the expected input format for predictors
     /// This provides guidance on what frame sources should provide to predictors
     static let predictorInputFormatDescription = """
@@ -380,5 +390,76 @@ extension FrameSource {
     func resetProcessingState() {
         // Default implementation does nothing
         // Each source should override this with its specific reset logic
+    }
+    
+    // MARK: - Unified Performance Logging Interface
+    
+    /// Logs performance analysis with unified format across all frame sources
+    /// - Parameters:
+    ///   - frameCount: Current frame processing count
+    ///   - sourcePrefix: Source identifier (e.g., "Camera", "Album", "GoPro")
+    ///   - frameSize: Current frame dimensions
+    ///   - processingFPS: Frame processing rate
+    ///   - mode: Processing mode ("inference", "calibration", etc.)
+    ///   - timingData: Dictionary containing timing information
+    func logUnifiedPerformanceAnalysis(
+        frameCount: Int,
+        sourcePrefix: String,
+        frameSize: CGSize,
+        processingFPS: Double,
+        mode: String,
+        timingData: [String: Double]
+    ) {
+        // Only log in debug builds
+        guard FrameSourceSettings.enablePerformanceLogging else { return }
+        
+        let frameSizeStr = frameSize.width > 0 ? 
+            "\(String(format: "%.0f", frameSize.width))×\(String(format: "%.0f", frameSize.height))" : "Unknown"
+        
+        print("\(sourcePrefix): === \(sourcePrefix.uppercased()) SOURCE PIPELINE ANALYSIS (Frame #\(frameCount)) ===")
+        print("\(sourcePrefix): Frame Size: \(frameSizeStr) | Processing FPS: \(String(format: "%.1f", processingFPS)) | Mode: \(mode)")
+        
+        let preparation = timingData["preparation"] ?? 0
+        let conversion = timingData["conversion"] ?? 0
+        let inference = timingData["inference"] ?? 0
+        let ui = timingData["ui"] ?? 0
+        let total = timingData["total"] ?? 0
+        let throughput = timingData["throughput"] ?? 0
+        
+        if mode == "inference" && inference > 0 && total > 0 {
+            // Full pipeline data available
+            print("\(sourcePrefix): Frame Preparation: \(String(format: "%.1f", preparation))ms")
+            print("\(sourcePrefix): Model Inference: \(String(format: "%.1f", inference))ms (includes fish counting inside TrackingDetector)")
+            print("\(sourcePrefix): UI Delegate Call: \(String(format: "%.1f", ui))ms | Total Pipeline: \(String(format: "%.1f", total))ms")
+            
+            let theoreticalFPS = total > 0 ? 1000.0 / total : 0
+            print("\(sourcePrefix): Theoretical FPS: \(String(format: "%.1f", theoreticalFPS)) | Actual Throughput: \(String(format: "%.1f", throughput))")
+            
+            // Calculate breakdown percentages
+            if total > 0 {
+                let preparationPct = (preparation / total) * 100
+                let conversionPct = (conversion / total) * 100
+                let inferencePct = (inference / total) * 100
+                let uiPct = (ui / total) * 100
+                
+                print("\(sourcePrefix): Breakdown - Preparation: \(String(format: "%.1f", preparationPct))% | Conversion: \(String(format: "%.1f", conversionPct))% | Inference+FishCount: \(String(format: "%.1f", inferencePct))% | UI: \(String(format: "%.1f", uiPct))%")
+            }
+        } else if mode == "calibration" {
+            // Calibration mode data
+            print("\(sourcePrefix): Frame Preparation: \(String(format: "%.1f", preparation))ms + Conversion: \(String(format: "%.1f", conversion))ms = \(String(format: "%.1f", preparation + conversion))ms")
+            print("\(sourcePrefix): Model Inference: CALIBRATION MODE - Actual Throughput: \(String(format: "%.1f", throughput))")
+        } else {
+            // Limited data available
+            print("\(sourcePrefix): Frame Preparation: \(String(format: "%.1f", preparation))ms")
+            print("\(sourcePrefix): Model Inference: PENDING - Actual Throughput: \(String(format: "%.1f", throughput))")
+        }
+    }
+    
+    /// Checks if performance logging should be performed based on frame count and settings
+    /// - Parameter frameCount: Current frame processing count
+    /// - Returns: True if logging should be performed
+    func shouldLogPerformance(frameCount: Int) -> Bool {
+        return FrameSourceSettings.enablePerformanceLogging && 
+               frameCount % FrameSourceSettings.performanceLoggingInterval == 0
     }
 } 

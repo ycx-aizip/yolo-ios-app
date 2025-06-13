@@ -63,6 +63,9 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     /// The size of the video frames.
     private var videoSize: CGSize = .zero
     
+    /// The actual size of processed frames (may differ from video asset size)
+    private var actualFrameSize: CGSize = .zero
+    
     /// The long side of the video frame (for compatibility with CameraVideoSource).
     var longSide: CGFloat = 3
     
@@ -110,6 +113,26 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     private var isRunning = false
     private var isProcessingFrame = false
     private var shouldForceStop = false
+    
+    // MARK: - Performance Metrics (similar to other frame sources)
+    
+    // Frame Processing State
+    private var frameProcessingCount = 0
+    private var frameProcessingTimestamps: [CFTimeInterval] = []
+    private var isModelProcessing: Bool = false
+    private var lastTriggerSource: String = "album"
+    
+    // Performance Timing Metrics
+    private var lastFramePreparationTime: Double = 0
+    private var lastConversionTime: Double = 0
+    private var lastInferenceTime: Double = 0
+    private var lastUITime: Double = 0
+    private var lastTotalPipelineTime: Double = 0
+    
+    // FPS Calculation Arrays
+    private var frameTimestamps: [CFTimeInterval] = []
+    private var pipelineStartTimes: [CFTimeInterval] = []
+    private var pipelineCompleteTimes: [CFTimeInterval] = []
     
     // MARK: - Initialization
     
@@ -354,6 +377,8 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     // MARK: - ResultsListener & InferenceTimeListener Implementation
     
     func on(inferenceTime: Double, fpsRate: Double) {
+        lastInferenceTime = inferenceTime
+        
         // Forward to delegates on the main thread
         Task { @MainActor in
             self.videoCaptureDelegate?.onInferenceTime(speed: inferenceTime, fps: fpsRate)
@@ -362,9 +387,41 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     }
     
     func on(result: YOLOResult) {
+        let postProcessingStartTime = CACurrentMediaTime()
+        let timestamp = CACurrentMediaTime()
+        
+        // Clear processing flag
+        isModelProcessing = false
+        
+        // Update frame timestamps for FPS calculation
+        frameTimestamps.append(timestamp)
+        if frameTimestamps.count > 30 {
+            frameTimestamps.removeFirst()
+        }
+        
+        // Handle UI updates
+        let uiDelegateStartTime = CACurrentMediaTime()
+        
         // Forward results to VideoCaptureDelegate on the main thread
         Task { @MainActor in
             self.videoCaptureDelegate?.onPredict(result: result)
+        }
+        
+        // Calculate timing metrics
+        lastUITime = (CACurrentMediaTime() - uiDelegateStartTime) * 1000
+        let totalUITime = (CACurrentMediaTime() - postProcessingStartTime) * 1000
+        lastTotalPipelineTime = lastFramePreparationTime + lastConversionTime + lastInferenceTime + totalUITime
+        
+        // Update completion timestamps for throughput calculation
+        pipelineCompleteTimes.append(timestamp)
+        if pipelineCompleteTimes.count > 30 {
+            pipelineCompleteTimes.removeFirst()
+        }
+        
+        // Update delegate with throughput FPS
+        let actualThroughputFPS = calculateThroughputFPS()
+        Task { @MainActor in
+            self.delegate?.frameSource(self, didUpdateWithSpeed: result.speed, fps: actualThroughputFPS)
         }
     }
     
@@ -374,6 +431,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     @MainActor
     func resetProcessingState() {
         isProcessingFrame = false
+        isModelProcessing = false
         print("Album: Processing state reset - ready for normal inference")
     }
     
@@ -447,30 +505,76 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     private func extractAndProcessNextFrame() {
         guard isProcessing, let predictor = predictor else { return }
         
+        let pipelineStartTime = CACurrentMediaTime()
+        pipelineStartTimes.append(pipelineStartTime)
+        if pipelineStartTimes.count > 30 {
+            pipelineStartTimes.removeFirst()
+        }
+        
         // Measure frame time for FPS calculation
         let currentTime = CACurrentMediaTime()
         let deltaTime = currentTime - lastFrameTime
         lastFrameTime = currentTime
         
+        frameProcessingCount += 1
+        frameProcessingTimestamps.append(CACurrentMediaTime())
+        if frameProcessingTimestamps.count > 60 {
+            frameProcessingTimestamps.removeFirst()
+        }
+        
+        // For frameSourceDelegate, we need to safely pass the frame data to the main thread
+        let framePreparationStartTime = CACurrentMediaTime()
+        
         // Try to get frame from asset reader first (more efficient)
         if let frame = getNextFrameFromAssetReader() {
+            lastFramePreparationTime = (CACurrentMediaTime() - framePreparationStartTime) * 1000
+            
+            // Update actual frame size from the processed frame
+            if actualFrameSize == .zero {
+                actualFrameSize = frame.size
+                print("Album: Asset reader frame size: \(Int(frame.size.width))×\(Int(frame.size.height)) (vs video asset: \(Int(videoSize.width))×\(Int(videoSize.height)))")
+            }
+            
             // Always pass the frame to the delegate for display
             processFrame(frame)
             
             // Check if we need to handle calibration
-            if !inferenceOK, let trackingDetector = predictor as? TrackingDetector,
-               let pixelBuffer = createStandardPixelBuffer(from: frame, forSourceType: .videoFile) {
-                
-                // Already on main actor, can call directly
-                trackingDetector.processFrame(pixelBuffer)
-                
-                // Skip regular inference during calibration
-                return
+            if !inferenceOK, let trackingDetector = predictor as? TrackingDetector {
+                let conversionStartTime = CACurrentMediaTime()
+                if let pixelBuffer = createStandardPixelBuffer(from: frame, forSourceType: .videoFile) {
+                    lastConversionTime = (CACurrentMediaTime() - conversionStartTime) * 1000
+                    
+                    // Process frame for calibration
+                    trackingDetector.processFrame(pixelBuffer)
+                    
+                    // Log performance analysis every 300 frames during calibration
+                    if shouldLogPerformance(frameCount: frameProcessingCount) {
+                        logPipelineAnalysis(mode: "calibration")
+                    }
+                    
+                    // Skip regular inference during calibration
+                    return
+                } else {
+                    lastConversionTime = (CACurrentMediaTime() - conversionStartTime) * 1000
+                }
             }
             // Only perform normal inference if inferenceOK is true
-            else if inferenceOK, let sampleBuffer = createSampleBufferFrom(image: frame) {
-                // Process with predictor - using self as the results and inference time listener
-                predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
+            else if inferenceOK && !isModelProcessing {
+                let conversionStartTime = CACurrentMediaTime()
+                if let sampleBuffer = createSampleBufferFrom(image: frame) {
+                    lastConversionTime = (CACurrentMediaTime() - conversionStartTime) * 1000
+                    
+                    isModelProcessing = true
+                    // Process with predictor - using self as the results and inference time listener
+                    predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
+                } else {
+                    lastConversionTime = (CACurrentMediaTime() - conversionStartTime) * 1000
+                }
+            }
+            
+            // Log performance analysis every 300 frames
+            if shouldLogPerformance(frameCount: frameProcessingCount) {
+                logPipelineAnalysis(mode: "inference")
             }
             
             return
@@ -492,6 +596,10 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
                 longSide = max(frameWidth, frameHeight)
                 shortSide = min(frameWidth, frameHeight)
                 frameSizeCaptured = true
+                
+                // Update actual frame size from pixel buffer
+                actualFrameSize = CGSize(width: frameWidth, height: frameHeight)
+                print("Album: Video output frame size: \(Int(frameWidth))×\(Int(frameHeight)) (vs video asset: \(Int(videoSize.width))×\(Int(videoSize.height)))")
             }
             
             // Convert CVPixelBuffer to UIImage for display
@@ -728,11 +836,10 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     /// Converts normalized video coordinates to screen coordinates based on content rect
     @MainActor
     func convertNormalizedRectToScreenRect(_ normalizedRect: CGRect) -> CGRect {
-        // Calculate the x coordinate - simple scaling and offset
+        // For resizeAspectFill, we can use simple scaling since video fills the entire layer
         let x = normalizedRect.minX * videoToScreenScale.x + videoToScreenOffset.x
         
-        // Calculate y-coordinate with flipping for display consistency
-        // This ensures proper display orientation for bounding boxes
+        // Y-coordinate with flipping for display consistency
         let y = (1.0 - normalizedRect.minY - normalizedRect.height) * videoToScreenScale.y + videoToScreenOffset.y
         
         let width = normalizedRect.width * videoToScreenScale.x
@@ -816,6 +923,22 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         if let playerLayer = self._previewLayer {
             playerLayer.frame = view.bounds
             view.layer.insertSublayer(playerLayer, at: 0)
+            
+            // Ensure coordinate transformation is updated after integration
+            // This fixes the initial box sync issue on iPad
+            DispatchQueue.main.async { [weak self] in
+                // Force layout update
+                view.setNeedsLayout()
+                view.layoutIfNeeded()
+                
+                // Update video content rect with proper bounds
+                self?.updateVideoContentRect()
+                
+                // Additional layout update to ensure coordinate transformation is ready
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    self?.updateVideoContentRect()
+                }
+            }
         }
     }
     
@@ -848,6 +971,54 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         // For video source, we need to use the videoContentRect to account for letterboxing/pillarboxing
         // Use our existing method that already handles this conversion
         return convertNormalizedRectToScreenRect(rect)
+    }
+    
+    // MARK: - Performance Analysis Methods
+    
+    /// Calculates actual pipeline throughput FPS based on complete processing cycles
+    private func calculateThroughputFPS() -> Double {
+        guard pipelineCompleteTimes.count >= 2 else { return 0 }
+        let cyclesToConsider = min(10, pipelineCompleteTimes.count)
+        let recentCompletions = Array(pipelineCompleteTimes.suffix(cyclesToConsider))
+        let timeInterval = recentCompletions.last! - recentCompletions.first!
+        return timeInterval > 0 ? Double(cyclesToConsider - 1) / timeInterval : 0
+    }
+    
+    /// Logs comprehensive pipeline analysis every 300 frames
+    private func logPipelineAnalysis(mode: String) {
+        // Use unified performance logging interface
+        guard shouldLogPerformance(frameCount: frameProcessingCount) else { return }
+        
+        // Calculate frame processing FPS from recent timestamps
+        let processingFPS: Double
+        if frameProcessingTimestamps.count >= 2 {
+            let windowSeconds = frameProcessingTimestamps.last! - frameProcessingTimestamps.first!
+            processingFPS = Double(frameProcessingTimestamps.count - 1) / windowSeconds
+        } else {
+            processingFPS = 0
+        }
+        
+        // Calculate actual throughput FPS
+        let actualThroughputFPS = calculateThroughputFPS()
+        
+        // Prepare timing data for unified logging
+        let timingData: [String: Double] = [
+            "preparation": lastFramePreparationTime,
+            "conversion": lastConversionTime,
+            "inference": lastInferenceTime,
+            "ui": lastUITime,
+            "total": lastTotalPipelineTime,
+            "throughput": actualThroughputFPS
+        ]
+        
+        logUnifiedPerformanceAnalysis(
+            frameCount: frameProcessingCount,
+            sourcePrefix: "Album",
+            frameSize: actualFrameSize.width > 0 ? actualFrameSize : videoSize,
+            processingFPS: processingFPS,
+            mode: mode,
+            timingData: timingData
+        )
     }
 }
 
