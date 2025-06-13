@@ -1782,8 +1782,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
 
   // Method to switch between frame sources
   public func switchToFrameSource(_ sourceType: FrameSourceType) {
-    // Already using this source type
-    if frameSourceType == sourceType {
+    // Already using this source type - but allow Album reselection for choosing new videos
+    if frameSourceType == sourceType && sourceType != .videoFile {
       return
     }
     
@@ -1876,6 +1876,12 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       }
       
     case .videoFile:
+      // Remove any existing video player layer (important for Album -> Album switching)
+      if let albumSource = albumVideoSource, let playerLayer = albumSource.playerLayer {
+        playerLayer.removeFromSuperlayer()
+        print("YOLOView: Removed existing album player layer for video reselection")
+      }
+      
       // Create album video source if needed
       if albumVideoSource == nil {
         albumVideoSource = AlbumVideoSource()
@@ -2093,9 +2099,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     // Video file source - renamed to "Album"
     let albumAction = UIAlertAction(title: "Album", style: .default) { [weak self] _ in
       guard let self = self else { return }
-      if self.frameSourceType != .videoFile {
-        self.switchToFrameSource(.videoFile)
-      }
+      // Always allow video selection, even when already in Album mode
+      // This allows users to select a different video when already using Album source
+      self.switchToFrameSource(.videoFile)
     }
     // Add checkmark to current source
     if frameSourceType == .videoFile {
