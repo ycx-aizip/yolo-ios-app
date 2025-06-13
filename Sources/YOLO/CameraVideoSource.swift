@@ -92,22 +92,60 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
   private var pipelineStartTimes: [CFTimeInterval] = []
   private var pipelineCompleteTimes: [CFTimeInterval] = []
   
+  // MARK: - Device-Specific Camera Configuration
+  
+  /// Determines the optimal camera session preset for YOLO model performance
+  /// 
+  /// All devices now use HD 720p (1280×720) for optimal YOLO processing:
+  /// - YOLO model uses 640×640 input, so 1280×720 provides perfect 2:1 scaling
+  /// - Significantly reduces processing overhead compared to higher resolutions
+  /// - Maintains excellent visual quality through resizeAspectFill display scaling
+  /// - Previous performance issue was due to .photo preset using ~4M+ pixels vs 720p's ~0.9M pixels
+  @MainActor
+  private var optimalSessionPreset: AVCaptureSession.Preset {
+    // Unified resolution for optimal YOLO performance across all devices
+    return .hd1280x720  // 1280×720 resolution - perfect for 640×640 YOLO input
+  }
+  
+  /// Gets a human-readable description of the current session preset
+  @MainActor
+  private var sessionPresetDescription: String {
+    switch optimalSessionPreset {
+    case .hd1280x720:
+      return "HD 1280×720 (Optimized for YOLO)"
+    case .hd1920x1080:
+      return "Full HD 1920×1080"
+    case .photo:
+      return "Photo (4032×3024+)"
+    default:
+      return "Unknown"
+    }
+  }
+  
   // Default initializer
   override init() {
     super.init()
   }
 
   func setUp(
-    sessionPreset: AVCaptureSession.Preset = .hd1280x720,
+    sessionPreset: AVCaptureSession.Preset? = nil,
     position: AVCaptureDevice.Position,
     orientation: UIDeviceOrientation,
-    completion: @escaping (Bool) -> Void
+    completion: @escaping @MainActor @Sendable (Bool) -> Void
   ) {
-    cameraQueue.async {
-      let success = self.setUpCamera(
-        sessionPreset: sessionPreset, position: position, orientation: orientation)
-      DispatchQueue.main.async {
-        completion(success)
+    // Get the preset on main actor if needed
+    Task { @MainActor in
+      let preset = sessionPreset ?? self.optimalSessionPreset
+      
+      // Move to background queue for camera setup
+      Task.detached {
+        let success = self.setUpCamera(
+          sessionPreset: preset, position: position, orientation: orientation)
+        
+        // Call completion on main queue
+        await MainActor.run {
+          completion(success)
+        }
       }
     }
   }
@@ -115,17 +153,19 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
   // Simplified version for FrameSource protocol compatibility
   @MainActor
   func setUp(completion: @escaping @Sendable (Bool) -> Void) {
-    // Capture orientation on the main actor
+    // Capture orientation and preset on the main actor
     let orientation = UIDevice.current.orientation
+    let preset = self.optimalSessionPreset
     
     // Then dispatch to background queue for camera setup
-    cameraQueue.async {
+    Task.detached {
       let success = self.setUpCamera(
-        sessionPreset: .hd1280x720, 
+        sessionPreset: preset, 
         position: .back, 
         orientation: orientation)
       
-      DispatchQueue.main.async {
+      // Call completion on main actor
+      await MainActor.run {
         completion(success)
       }
     }
@@ -137,6 +177,13 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
   ) -> Bool {
     captureSession.beginConfiguration()
     captureSession.sessionPreset = sessionPreset
+    
+    // Log the device type and resolution being used for performance analysis
+    Task { @MainActor in
+      let deviceType = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+      let presetDescription = self.sessionPresetDescription
+      print("Camera: Configuring \(deviceType) with \(presetDescription) for unified YOLO optimization")
+    }
 
     captureDevice = bestCaptureDevice(position: position)
     videoInput = try! AVCaptureDeviceInput(device: captureDevice!)
@@ -255,6 +302,13 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
         longSide = max(frameWidth, frameHeight)
         shortSide = min(frameWidth, frameHeight)
         frameSizeCaptured = true
+        
+        // Log actual captured frame dimensions for performance analysis
+        Task { @MainActor in
+          let deviceType = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+          let presetDescription = self.sessionPresetDescription
+          print("Camera: \(deviceType) actual frame size captured: \(Int(frameWidth))×\(Int(frameHeight)) (unified 720p)")
+        }
       }
       
       frameProcessingCount += 1
@@ -499,10 +553,14 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
     if orientation == .portrait || orientation == .portraitUpsideDown || orientation == .unknown {
       var ratio: CGFloat = 1.0
       
-      if captureSession.sessionPreset == .photo {
-        ratio = (height / width) / (4.0 / 3.0)
-      } else {
-        ratio = (height / width) / (16.0 / 9.0)
+      // Determine aspect ratio based on the session preset
+      switch captureSession.sessionPreset {
+      case .photo:
+        ratio = (height / width) / (4.0 / 3.0)  // 4:3 aspect ratio for photo preset
+      case .hd1280x720, .hd1920x1080:
+        ratio = (height / width) / (16.0 / 9.0)  // 16:9 aspect ratio for HD presets
+      default:
+        ratio = (height / width) / (16.0 / 9.0)  // Default to 16:9 for most video presets
       }
       
       if ratio >= 1 {

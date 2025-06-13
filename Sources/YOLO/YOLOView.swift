@@ -187,7 +187,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   
   // Add property to store reference to GoPro source - ensure single instance
   private var goProSource: GoProSource?
-  
+
   // MARK: - Device Detection Properties
   
   /// Determines if the current device is an iPad
@@ -409,9 +409,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     if !busy {
       busy = true
       let orientation = UIDevice.current.orientation
-      videoCapture.setUp(sessionPreset: .photo, position: position, orientation: orientation) {
-        success in
-        // .hd4K3840x2160 or .photo (4032x3024)  Warning: 4k may not work on all devices i.e. 2019 iPod
+      // Use device-specific optimal resolution (nil means use CameraVideoSource's optimalSessionPreset)
+      videoCapture.setUp(sessionPreset: nil, position: position, orientation: orientation) { @MainActor success in
+        // Unified 1280×720 resolution for optimal YOLO performance across all devices
         if success {
           // Use the new integration method
           self.videoCapture.integrateWithYOLOView(view: self)
@@ -452,10 +452,16 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     let height = self.bounds.height
 
     var ratio: CGFloat = 1.0
-    if videoCapture.captureSession.sessionPreset == .photo {
-      ratio = (4.0 / 3.0)
-    } else {
-      ratio = (16.0 / 9.0)
+    // Determine aspect ratio based on the session preset
+    switch videoCapture.captureSession.sessionPreset {
+    case .photo:
+      ratio = (4.0 / 3.0)  // 4:3 aspect ratio for photo preset
+    case .hd1280x720:
+      ratio = (16.0 / 9.0)  // 16:9 aspect ratio for unified HD 720p
+    case .hd1920x1080:
+      ratio = (16.0 / 9.0)  // 16:9 aspect ratio for HD 1080p (legacy)
+    default:
+      ratio = (16.0 / 9.0)  // Default to 16:9 for most video presets
     }
     var offSet = CGFloat.zero
     var margin = CGFloat.zero
