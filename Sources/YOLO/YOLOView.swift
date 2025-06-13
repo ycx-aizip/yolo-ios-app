@@ -1375,7 +1375,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     // Update layout for UVC source if using UVC
     if frameSourceType == .uvc, let uvcSource = uvcVideoSource {
-      // Update UVC source for orientation change
+      // Update UVC source for orientation change (includes video gravity update)
       uvcSource.updateForOrientationChange(orientation: UIDevice.current.orientation)
       
       // Update preview layer frame for new orientation

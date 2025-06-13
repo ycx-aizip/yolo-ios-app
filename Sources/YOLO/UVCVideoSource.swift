@@ -273,22 +273,33 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             return false
         }
         
-        // Configure video orientation
+        // Configure video orientation using UVC-specific mapping
         var videoOrientation = AVCaptureVideoOrientation.portrait
         switch orientation {
         case .portrait:
-            videoOrientation = .portrait
-        case .landscapeLeft:
+            // Rotate -90 degrees: landscape stream → portrait display
             videoOrientation = .landscapeRight
-        case .landscapeRight:
+        case .portraitUpsideDown:
+            // Rotate +90 degrees: landscape stream → upside-down portrait display
             videoOrientation = .landscapeLeft
+        case .landscapeLeft:
+            // Match device orientation
+            videoOrientation = .landscapeLeft
+        case .landscapeRight:
+            // Match device orientation
+            videoOrientation = .landscapeRight
         default:
-            videoOrientation = .portrait
+            videoOrientation = .landscapeRight  // Default to portrait mode mapping
         }
         
         print("UVC: Creating preview layer...")
         let previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
-        previewLayer.videoGravity = AVLayerVideoGravity.resizeAspectFill
+        // Set initial video gravity based on orientation
+        if orientation == .portrait || orientation == .portraitUpsideDown {
+            previewLayer.videoGravity = AVLayerVideoGravity.resizeAspect  // Letterboxing for portrait
+        } else {
+            previewLayer.videoGravity = AVLayerVideoGravity.resizeAspectFill  // Fill for landscape
+        }
         previewLayer.connection?.videoOrientation = videoOrientation
         self.previewLayer = previewLayer
         print("UVC: Preview layer created with gravity: \(previewLayer.videoGravity.rawValue)")
@@ -313,18 +324,20 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         let connection = videoOutput.connection(with: AVMediaType.video)
         connection?.videoOrientation = videoOrientation
         
-        // Configure mirroring for UVC cameras to fix coordinate flip
+        // Configure mirroring for UVC cameras based on orientation
         if let conn = connection, conn.isVideoMirroringSupported {
             conn.automaticallyAdjustsVideoMirroring = false
-            conn.isVideoMirrored = true
-            print("UVC: Video output mirroring configured during setup")
+            // Mirror for portrait modes only, not for landscape
+            conn.isVideoMirrored = (orientation == .portrait || orientation == .portraitUpsideDown)
+            print("UVC: Video output mirroring configured during setup: \(conn.isVideoMirrored)")
         }
         
         // Configure preview layer connection mirroring
         if let previewConn = previewLayer.connection, previewConn.isVideoMirroringSupported {
             previewConn.automaticallyAdjustsVideoMirroring = false
-            previewConn.isVideoMirrored = true
-            print("UVC: Preview layer mirroring configured during setup")
+            // Mirror for portrait modes only, not for landscape
+            previewConn.isVideoMirrored = (orientation == .portrait || orientation == .portraitUpsideDown)
+            print("UVC: Preview layer mirroring configured during setup: \(previewConn.isVideoMirrored)")
         }
 
         // Configure UVC device settings if supported
@@ -549,25 +562,55 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     func updateForOrientationChange(orientation: UIDeviceOrientation) {
         var videoOrientation: AVCaptureVideoOrientation = .portrait
         
-        // UVC cameras need different orientation mapping than built-in cameras
+        // UVC cameras need special orientation mapping to display correctly
+        // The camera stream is naturally landscape, so we need to rotate it for portrait modes
         switch orientation {
         case .portrait:
-            videoOrientation = .portrait
+            // Rotate -90 degrees: landscape stream → portrait display
+            videoOrientation = .landscapeRight
         case .portraitUpsideDown:
-            videoOrientation = .portraitUpsideDown
+            // Rotate +90 degrees: landscape stream → upside-down portrait display  
+            videoOrientation = .landscapeLeft
         case .landscapeLeft:
-            // For UVC cameras, use the same mapping as device orientation
+            // Match device orientation
             videoOrientation = .landscapeLeft
         case .landscapeRight:
+            // Match device orientation
             videoOrientation = .landscapeRight
         default:
             return
         }
         
         print("UVC: Orientation change - device: \(orientation.rawValue), video: \(videoOrientation.rawValue)")
+        
+        // Update video gravity for the new orientation
+        setVideoGravityForOrientation(orientation: orientation)
+        
         updateVideoOrientation(orientation: videoOrientation)
     }
     
+    @MainActor
+    private func setVideoGravityForOrientation(orientation: UIDeviceOrientation) {
+        guard let previewLayer = self.previewLayer else { return }
+        
+        switch orientation {
+        case .portrait, .portraitUpsideDown:
+            // In portrait mode, maintain aspect ratio with letterboxing (black bars)
+            // This prevents the 16:9 landscape stream from being stretched/rotated
+            previewLayer.videoGravity = .resizeAspect
+            print("UVC: Portrait mode - using resizeAspect for letterboxing")
+        case .landscapeLeft, .landscapeRight:
+            // In landscape mode, fill the screen since orientations match
+            previewLayer.videoGravity = .resizeAspectFill
+            print("UVC: Landscape mode - using resizeAspectFill")
+        default:
+            // Default to aspect fit for unknown orientations
+            previewLayer.videoGravity = .resizeAspect
+            print("UVC: Unknown orientation - using resizeAspect")
+        }
+    }
+    
+    @MainActor
     func updateVideoOrientation(orientation: AVCaptureVideoOrientation) {
         guard let connection = videoOutput.connection(with: .video) else { 
             print("UVC: No video connection available for orientation update")
@@ -576,12 +619,14 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         
         connection.videoOrientation = orientation
         
-        // UVC cameras need mirroring to fix coordinate flip
-        // First disable automatic adjustment, then set mirroring
+        // Configure mirroring based on device orientation
+        let deviceOrientation = UIDevice.current.orientation
+        let shouldMirror = (deviceOrientation == .portrait || deviceOrientation == .portraitUpsideDown)
+        
         if connection.isVideoMirroringSupported {
             connection.automaticallyAdjustsVideoMirroring = false
-            connection.isVideoMirrored = true
-            print("UVC: Video output mirroring updated successfully")
+            connection.isVideoMirrored = shouldMirror
+            print("UVC: Video output mirroring updated: \(shouldMirror)")
         } else {
             print("UVC: Video mirroring not supported on this connection")
         }
@@ -591,8 +636,8 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             previewConnection.videoOrientation = orientation
             if previewConnection.isVideoMirroringSupported {
                 previewConnection.automaticallyAdjustsVideoMirroring = false
-                previewConnection.isVideoMirrored = true
-                print("UVC: Preview layer mirroring updated successfully")
+                previewConnection.isVideoMirrored = shouldMirror
+                print("UVC: Preview layer mirroring updated: \(shouldMirror)")
             } else {
                 print("UVC: Preview layer mirroring not supported")
             }
@@ -606,11 +651,12 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         if let previewLayer = self.previewLayer {
             view.layer.insertSublayer(previewLayer, at: 0)
             previewLayer.frame = view.bounds
-            // Use resizeAspectFill like Album source for consistent display
-            previewLayer.videoGravity = .resizeAspectFill
+            
+            // Set appropriate video gravity based on orientation
+            let orientation = UIDevice.current.orientation
+            setVideoGravityForOrientation(orientation: orientation)
             
             // Ensure proper orientation setup
-            let orientation = UIDevice.current.orientation
             updateForOrientationChange(orientation: orientation)
             
             print("UVC: Integrated with YOLOView - frame: \(previewLayer.frame), gravity: \(previewLayer.videoGravity.rawValue)")
@@ -644,10 +690,6 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         let width = viewBounds.width
         let height = viewBounds.height
         
-        // Debug coordinate transformation
-        print("UVC: Transform input - rect: \(rect), viewBounds: \(viewBounds), orientation: \(orientation.rawValue)")
-        print("UVC: Frame dimensions - longSide: \(longSide), shortSide: \(shortSide)")
-        
         var displayRect = rect
         
         switch orientation {
@@ -667,30 +709,28 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         }
         
         if orientation == .portrait || orientation == .portraitUpsideDown || orientation == .unknown {
-            var ratio: CGFloat = 1.0
-            
-            // For UVC cameras, we know the frame is 1280×720 (16:9)
-            let frameAspectRatio: CGFloat = 16.0 / 9.0
+            // For UVC cameras in portrait mode with letterboxing (resizeAspect)
+            // The stream maintains 16:9 aspect ratio in the center with black bars
+            let frameAspectRatio: CGFloat = 16.0 / 9.0  // UVC stream is 1280×720
             let viewAspectRatio = height / width
-            ratio = viewAspectRatio / frameAspectRatio
             
-            print("UVC: Portrait mode - viewAspectRatio: \(viewAspectRatio), frameAspectRatio: \(frameAspectRatio), ratio: \(ratio)")
+            // Calculate the actual display area of the video stream (excluding black bars)
+            let streamHeight = width / frameAspectRatio  // Height of the video stream area
+            let blackBarHeight = (height - streamHeight) / 2  // Height of each black bar
             
-            if ratio >= 1 {
-                let offset = (1 - ratio) * (0.5 - displayRect.minX)
-                let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: offset, y: -1)
-                displayRect = displayRect.applying(transform)
-                displayRect.size.width *= ratio
-            } else {
-                let offset = (ratio - 1) * (0.5 - displayRect.maxY)
-                let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: 0, y: offset - 1)
-                displayRect = displayRect.applying(transform)
-                displayRect.size.height /= ratio
-            }
+            // Scale coordinates to the actual stream area
+            let scaledY = displayRect.origin.y * streamHeight + blackBarHeight
+            let scaledHeight = displayRect.size.height * streamHeight
             
-            let result = VNImageRectForNormalizedRect(displayRect, Int(width), Int(height))
-            print("UVC: Portrait transform result: \(result)")
-            return result
+            // Apply coordinate system flip for portrait
+            let flippedRect = CGRect(
+                x: displayRect.origin.x * width,
+                y: height - scaledY - scaledHeight,
+                width: displayRect.size.width * width,
+                height: scaledHeight
+            )
+            
+            return flippedRect
         } else {
             // Landscape mode
             let frameAspectRatio = longSide / shortSide
