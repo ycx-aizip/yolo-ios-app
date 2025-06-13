@@ -572,7 +572,7 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
         let offset = (ratio - 1) * (0.5 - displayRect.maxY)
         let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: 0, y: offset - 1)
         displayRect = displayRect.applying(transform)
-        ratio = (height / width) / (3.0 / 4.0)
+        // Don't recalculate ratio - use the original calculated ratio
         displayRect.size.height /= ratio
       }
       

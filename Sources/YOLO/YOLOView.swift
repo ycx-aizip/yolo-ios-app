@@ -1378,6 +1378,12 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       // Update UVC source for orientation change
       uvcSource.updateForOrientationChange(orientation: UIDevice.current.orientation)
       
+      // Update preview layer frame for new orientation
+      if let previewLayer = uvcSource.previewLayer {
+        previewLayer.frame = self.bounds
+        print("YOLOView: Updated UVC preview layer frame to \(self.bounds)")
+      }
+      
       // Ensure overlay is properly updated
       setupOverlayLayer()
     }
@@ -1795,6 +1801,13 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     // Clear UVC source reference when switching away from UVC
     if frameSourceType == .uvc && sourceType != .uvc {
       print("YOLOView: Clearing UVCVideoSource reference when switching away from UVC")
+      
+      // Remove UVC preview layer from view
+      if let uvcPreviewLayer = uvcVideoSource?.previewLayer {
+        uvcPreviewLayer.removeFromSuperlayer()
+        print("YOLOView: Removed UVC preview layer")
+      }
+      
       uvcVideoSource = nil
     }
     
