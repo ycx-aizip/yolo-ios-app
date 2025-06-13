@@ -187,6 +187,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   
   // Add property to store reference to GoPro source - ensure single instance
   private var goProSource: GoProSource?
+  
+  // Add property to store reference to UVC source - ensure single instance
+  private var uvcVideoSource: UVCVideoSource?
 
   // MARK: - Device Detection Properties
   
@@ -1369,6 +1372,15 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       // Ensure overlay is properly updated
       setupOverlayLayer()
     }
+    
+    // Update layout for UVC source if using UVC
+    if frameSourceType == .uvc, let uvcSource = uvcVideoSource {
+      // Update UVC source for orientation change
+      uvcSource.updateForOrientationChange(orientation: UIDevice.current.orientation)
+      
+      // Ensure overlay is properly updated
+      setupOverlayLayer()
+    }
   }
 
   private func setUpOrientationChangeNotification() {
@@ -1460,9 +1472,12 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         // Normal resume
         albumSource.start()
       }
+    } else if frameSourceType == .uvc, let uvcSource = uvcVideoSource {
+      // For UVC source - standard behavior
+      uvcSource.start()
     } else {
       // Camera source - standard behavior
-    self.videoCapture.start()
+      self.videoCapture.start()
     }
     
     playButton.isEnabled = false
@@ -1777,6 +1792,12 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       goProSource = nil
     }
     
+    // Clear UVC source reference when switching away from UVC
+    if frameSourceType == .uvc && sourceType != .uvc {
+      print("YOLOView: Clearing UVCVideoSource reference when switching away from UVC")
+      uvcVideoSource = nil
+    }
+    
     // Stop current frame source
     currentFrameSource.stop()
     
@@ -1926,6 +1947,70 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       // Show GoPro connection prompt - this will handle the full setup flow
       self.showGoProConnectionPrompt(viewController: viewController)
       
+    case .uvc:
+      // UVC External Camera source (iPad only)
+      guard isIPad else {
+        print("UVC source is only supported on iPad")
+        return
+      }
+      
+      print("YOLOView: Switching to UVC source...")
+      
+      // Create UVC video source if needed
+      if uvcVideoSource == nil {
+        print("YOLOView: Creating new UVCVideoSource")
+        uvcVideoSource = UVCVideoSource()
+        uvcVideoSource?.predictor = videoCapture.predictor
+        uvcVideoSource?.delegate = self
+        uvcVideoSource?.videoCaptureDelegate = self
+      }
+      
+      // Hide camera preview layer
+      if let previewLayer = videoCapture.previewLayer {
+        previewLayer.isHidden = true
+        print("YOLOView: Hidden camera preview layer")
+      }
+      
+      // Remove any existing video player layer
+      if let albumSource = albumVideoSource, let playerLayer = albumSource.playerLayer {
+        playerLayer.removeFromSuperlayer()
+        print("YOLOView: Removed album player layer")
+      }
+      
+      // Set up UVC source with proper error handling
+      uvcVideoSource?.setUp { [weak self] success in
+        Task { @MainActor in
+          guard let self = self else { return }
+          
+          if success {
+            print("YOLOView: UVC setup successful, integrating with view")
+            
+            // Set as current frame source
+            self.currentFrameSource = self.uvcVideoSource!
+            self.frameSourceType = .uvc
+            
+            // Ensure inferenceOK is set to true for the new source
+            self.currentFrameSource.inferenceOK = true
+            
+            // Integrate UVC source with YOLOView
+            self.uvcVideoSource?.integrateWithYOLOView(view: self)
+            
+            // Add bounding box views and overlay layer
+            self.uvcVideoSource?.addBoundingBoxViews(self.boundingBoxViews)
+            self.uvcVideoSource?.addOverlayLayer(self.overlayLayer)
+            
+            // Start UVC capture
+            self.uvcVideoSource?.start()
+            
+            print("YOLOView: UVC source started successfully")
+          } else {
+            print("YOLOView: UVC setup failed, switching back to camera")
+            // Switch back to camera if UVC setup fails
+            self.switchToFrameSource(.camera)
+          }
+        }
+      }
+      
     default:
       // For other future source types
       break
@@ -2014,6 +2099,21 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     }
     
     alert.addAction(goProAction)
+    
+    // UVC External Camera action (iPad only)
+    if isIPad {
+      let uvcAction = UIAlertAction(title: "External Camera (UVC)", style: .default) { [weak self] _ in
+        guard let self = self else { return }
+        if self.frameSourceType != .uvc {
+          self.switchToFrameSource(.uvc)
+        }
+      }
+      // Add checkmark to current source
+      if frameSourceType == .uvc {
+        uvcAction.setValue(true, forKey: "checked")
+      }
+      alert.addAction(uvcAction)
+    }
     
     // Cancel action
     alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
