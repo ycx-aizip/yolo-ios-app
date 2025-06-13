@@ -283,11 +283,11 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             // Rotate +90 degrees: landscape stream → upside-down portrait display
             videoOrientation = .landscapeLeft
         case .landscapeLeft:
-            // Match device orientation
-            videoOrientation = .landscapeLeft
-        case .landscapeRight:
-            // Match device orientation
+            // Rotate 180 degrees: flip the landscape stream
             videoOrientation = .landscapeRight
+        case .landscapeRight:
+            // Rotate 180 degrees: flip the landscape stream
+            videoOrientation = .landscapeLeft
         default:
             videoOrientation = .landscapeRight  // Default to portrait mode mapping
         }
@@ -563,7 +563,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         var videoOrientation: AVCaptureVideoOrientation = .portrait
         
         // UVC cameras need special orientation mapping to display correctly
-        // The camera stream is naturally landscape, so we need to rotate it for portrait modes
+        // The camera stream needs to be rotated to match the expected orientation
         switch orientation {
         case .portrait:
             // Rotate -90 degrees: landscape stream → portrait display
@@ -572,11 +572,11 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             // Rotate +90 degrees: landscape stream → upside-down portrait display  
             videoOrientation = .landscapeLeft
         case .landscapeLeft:
-            // Match device orientation
-            videoOrientation = .landscapeLeft
-        case .landscapeRight:
-            // Match device orientation
+            // Rotate 180 degrees: flip the landscape stream
             videoOrientation = .landscapeRight
+        case .landscapeRight:
+            // Rotate 180 degrees: flip the landscape stream
+            videoOrientation = .landscapeLeft
         default:
             return
         }
