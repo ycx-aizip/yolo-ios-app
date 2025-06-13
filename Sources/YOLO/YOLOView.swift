@@ -187,6 +187,24 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   
   // Add property to store reference to GoPro source - ensure single instance
   private var goProSource: GoProSource?
+  
+  // MARK: - Device Detection Properties
+  
+  /// Determines if the current device is an iPad
+  private var isIPad: Bool {
+    return UIDevice.current.userInterfaceIdiom == .pad
+  }
+  
+  /// Determines if the current device is an iPhone
+  private var isIPhone: Bool {
+    return UIDevice.current.userInterfaceIdiom == .phone
+  }
+  
+  /// Determines if this is an iPad Air M3 or similar large iPad for optimized layout
+  /// Uses screen size as a reliable indicator since device model detection can be complex
+  private var isLargeIPad: Bool {
+    return isIPad && (bounds.width > 1000 || bounds.height > 1000)
+  }
 
   public init(
     frame: CGRect,
@@ -927,19 +945,20 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         height: titleLabelHeight
       )
       
-      // Position FPS label at center bottom
+      // Position FPS label - different positioning for iPad Air M3 vs other devices
       let toolBarHeight: CGFloat = 50
       let subLabelHeight: CGFloat = height * 0.03
-      labelFPS.frame = CGRect(
-        x: width * 0.35,
-        y: height - toolBarHeight - subLabelHeight - 5,
-        width: width * 0.3,
-        height: subLabelHeight
-      )
       
-      // Move all controls much higher up to be well above the toolbar
-      // Start positioning from upper part of the screen
-      let topControlY = height * 0.5 // Start controls at 50% from top
+      // Move all controls - different positioning for iPad Air M3 vs other devices
+      // Start positioning from appropriate location based on device
+      let topControlY: CGFloat
+      if isLargeIPad {
+        // For iPad Air M3: Move controls closer to bottom toolbar
+        topControlY = height * 0.7 // Start controls at 70% from top (closer to bottom)
+      } else {
+        // For iPhone and smaller iPads: Keep original position
+        topControlY = height * 0.5 // Start controls at 50% from top
+      }
       
       // Calculate slider dimensions and spacing
       let sliderWidth = width * 0.22
@@ -993,6 +1012,25 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         width: autoButtonWidthLandscape,
         height: autoButtonHeightLandscape
       )
+      
+      // Position FPS label - now that variables are declared
+      if isLargeIPad {
+        // For iPad Air M3: Position FPS label below AUTO button
+        labelFPS.frame = CGRect(
+          x: width * 0.35,
+          y: secondRowY + autoButtonHeightLandscape + 8, // Position below AUTO button
+          width: width * 0.3,
+          height: subLabelHeight
+        )
+      } else {
+        // For iPhone and smaller iPads: Keep original position
+        labelFPS.frame = CGRect(
+          x: width * 0.35,
+          y: height - toolBarHeight - subLabelHeight - 5,
+          width: width * 0.3,
+          height: subLabelHeight
+        )
+      }
       
       // Right side - Threshold 2 (second row right)
       labelThreshold2.frame = CGRect(
@@ -1116,21 +1154,24 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         height: titleLabelHeight
       )
       
-      // Position FPS label just above the toolbar
+      // Position FPS label - different positioning for iPad Air M3 vs other devices
       let toolBarHeight: CGFloat = 66
       let subLabelHeight: CGFloat = height * 0.03
-      labelFPS.frame = CGRect(
-        x: 0,
-        y: height - toolBarHeight - subLabelHeight - 5,
-        width: width,
-        height: subLabelHeight
-      )
       
       // Layout for confidence and IoU sliders in the style shown in the image
       let sliderWidth = width * 0.4
       let sliderHeight: CGFloat = height * 0.02
       let sliderLabelHeight: CGFloat = 20
-      let sliderY = height * 0.85 // Position near bottom of screen
+      
+      // Different positioning for iPad Air M3 vs other devices
+      let sliderY: CGFloat
+      if isLargeIPad {
+        // For iPad Air M3: Move controls closer to bottom toolbar
+        sliderY = height * 0.88 // Position closer to bottom
+      } else {
+        // For iPhone and smaller iPads: Keep original position
+        sliderY = height * 0.85 // Position near bottom of screen
+      }
       
       // Confidence slider and label (left side)
       labelSliderConf.frame = CGRect(
@@ -1210,6 +1251,25 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         width: autoButtonWidthPortrait,
         height: autoButtonHeightPortrait
       )
+      
+      // Position FPS label - different positioning for iPad Air M3 vs other devices
+      if isLargeIPad {
+        // For iPad Air M3: Position FPS label below AUTO button in portrait mode
+        labelFPS.frame = CGRect(
+          x: 0,
+          y: thresholdY - sliderLabelHeight + autoButtonHeightPortrait + 8, // Position below AUTO button
+          width: width,
+          height: subLabelHeight
+        )
+      } else {
+        // For iPhone and smaller iPads: Keep original position
+        labelFPS.frame = CGRect(
+          x: 0,
+          y: height - toolBarHeight - subLabelHeight - 5,
+          width: width,
+          height: subLabelHeight
+        )
+      }
       
       labelThreshold2.frame = CGRect(
         x: width * 0.55,
