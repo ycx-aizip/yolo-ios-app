@@ -385,23 +385,23 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             return false
         }
         
-        // Configure video orientation using UVC-specific mapping
-        var videoOrientation = AVCaptureVideoOrientation.portrait
+        // Configure video orientation using consistent UVC mapping
+        var videoOrientation = AVCaptureVideoOrientation.landscapeRight
         switch orientation {
         case .portrait:
-            // Rotate -90 degrees: landscape stream → portrait display
+            // Portrait: Use .landscapeRight for consistent letterbox display (no flipping)
             videoOrientation = .landscapeRight
         case .portraitUpsideDown:
-            // Rotate +90 degrees: landscape stream → upside down portrait display (180° from portrait)
-            videoOrientation = .landscapeLeft
+            // Portrait Upside Down: Also use .landscapeRight for consistent letterbox display (no flipping)
+            videoOrientation = .landscapeRight
         case .landscapeLeft:
-            // Rotate 180 degrees: flip the landscape stream
+            // Landscape Left: Use .landscapeRight for full aspect fill
             videoOrientation = .landscapeRight
         case .landscapeRight:
-            // Rotate 180 degrees: flip the landscape stream
-            videoOrientation = .landscapeLeft
+            // Landscape Right: Also use .landscapeRight for full aspect fill (same as Landscape Left)
+            videoOrientation = .landscapeRight
         default:
-            videoOrientation = .landscapeRight  // Default to portrait mode mapping
+            videoOrientation = .landscapeRight  // Default to consistent orientation
         }
         
         print("UVC: Creating preview layer...")
@@ -436,19 +436,19 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         let connection = videoOutput.connection(with: AVMediaType.video)
         connection?.videoOrientation = videoOrientation
         
-        // Configure mirroring for UVC cameras based on orientation
+        // Configure mirroring for UVC cameras - use consistent no-mirroring approach
         if let conn = connection, conn.isVideoMirroringSupported {
             conn.automaticallyAdjustsVideoMirroring = false
-            // Mirror for portrait modes only, not for landscape
-            conn.isVideoMirrored = (orientation == .portrait || orientation == .portraitUpsideDown)
+            // No mirroring for UVC cameras to maintain consistent display across all orientations
+            conn.isVideoMirrored = false
             print("UVC: Video output mirroring configured during setup: \(conn.isVideoMirrored)")
         }
         
         // Configure preview layer connection mirroring
         if let previewConn = previewLayer.connection, previewConn.isVideoMirroringSupported {
             previewConn.automaticallyAdjustsVideoMirroring = false
-            // Mirror for portrait modes only, not for landscape
-            previewConn.isVideoMirrored = (orientation == .portrait || orientation == .portraitUpsideDown)
+            // No mirroring for UVC cameras to maintain consistent display across all orientations
+            previewConn.isVideoMirrored = false
             print("UVC: Preview layer mirroring configured during setup: \(previewConn.isVideoMirrored)")
         }
 
@@ -684,27 +684,26 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             return
         }
         
-        var videoOrientation: AVCaptureVideoOrientation = .portrait
+        var videoOrientation: AVCaptureVideoOrientation = .landscapeRight
         var shouldUpdateVideoSystem = true
         
-        // UVC cameras need special orientation mapping to display correctly
-        // The camera stream needs to be rotated to match the expected orientation
+        // Updated UVC orientation mapping for smooth, consistent display
         switch orientation {
         case .portrait:
-            // Rotate -90 degrees: landscape stream → portrait display
+            // Portrait: Use .landscapeRight for consistent letterbox display (no flipping)
             videoOrientation = .landscapeRight
             lastKnownOrientation = .portrait
         case .portraitUpsideDown:
-            // Rotate +90 degrees: landscape stream → upside down portrait display (180° from portrait)
-            videoOrientation = .landscapeLeft
+            // Portrait Upside Down: Also use .landscapeRight for consistent letterbox display (no flipping)
+            videoOrientation = .landscapeRight
             lastKnownOrientation = .portraitUpsideDown
         case .landscapeLeft:
-            // Rotate 180 degrees: flip the landscape stream
+            // Landscape Left: Use .landscapeRight for full aspect fill
             videoOrientation = .landscapeRight
             lastKnownOrientation = .landscapeLeft
         case .landscapeRight:
-            // Rotate 180 degrees: flip the landscape stream
-            videoOrientation = .landscapeLeft
+            // Landscape Right: Also use .landscapeRight for full aspect fill (same as Landscape Left)
+            videoOrientation = .landscapeRight
             lastKnownOrientation = .landscapeRight
         case .faceUp, .faceDown, .unknown:
             // When device is flat (.faceUp, .faceDown, .unknown), don't change video orientation
@@ -727,17 +726,17 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         // Mark as updating to prevent concurrent updates
         isUpdatingOrientation = true
         
-        // Perform orientation update asynchronously to avoid blocking main thread
+        // Perform smooth orientation update with animation
         Task {
             // Update video gravity for the new orientation (main thread)
             await MainActor.run {
                 self.setVideoGravityForOrientation(orientation: orientation)
             }
             
-            // Update video orientation on background queue to avoid blocking
+            // Update video orientation smoothly on background queue
             await Task.detached {
                 await MainActor.run {
-                    self.updateVideoOrientation(orientation: videoOrientation)
+                    self.updateVideoOrientationSmoothly(orientation: videoOrientation, deviceOrientation: orientation)
                 }
             }.value
             
@@ -764,11 +763,11 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         let newVideoGravity: AVLayerVideoGravity
         switch orientation {
         case .portrait, .portraitUpsideDown:
-            // In portrait mode, maintain aspect ratio with letterboxing (black bars)
-            // This prevents the 16:9 landscape stream from being stretched/rotated
+            // In portrait modes, use letterbox (resizeAspect) for consistent display
+            // This prevents stretching and maintains the UVC stream's aspect ratio
             newVideoGravity = .resizeAspect
         case .landscapeLeft, .landscapeRight:
-            // In landscape mode, fill the screen since orientations match
+            // In landscape modes, fill the screen since orientations are aligned
             newVideoGravity = .resizeAspectFill
         default:
             // Default to aspect fit for unknown orientations
@@ -777,13 +776,20 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         
         // Only update if gravity actually changed to avoid unnecessary operations
         if previewLayer.videoGravity != newVideoGravity {
+            // Animate the video gravity change for smoother transitions
+            CATransaction.begin()
+            CATransaction.setAnimationDuration(0.3) // Smooth 300ms transition
+            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
+            
             previewLayer.videoGravity = newVideoGravity
-            print("UVC: Video gravity updated to \(newVideoGravity.rawValue)")
+            print("UVC: Video gravity smoothly updated to \(newVideoGravity.rawValue)")
+            
+            CATransaction.commit()
         }
     }
     
     @MainActor
-    func updateVideoOrientation(orientation: AVCaptureVideoOrientation) {
+    func updateVideoOrientationSmoothly(orientation: AVCaptureVideoOrientation, deviceOrientation: UIDeviceOrientation) {
         guard let connection = videoOutput.connection(with: .video) else { 
             print("UVC: No video connection available for orientation update")
             return 
@@ -794,11 +800,16 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             return
         }
         
+        // Animate the orientation change for smoother transitions
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.25) // Smooth 250ms transition
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
+        
         connection.videoOrientation = orientation
         
-        // Configure mirroring based on device orientation
-        let deviceOrientation = UIDevice.current.orientation
-        let shouldMirror = (deviceOrientation == .portrait || deviceOrientation == .portraitUpsideDown)
+        // Configure mirroring based on device orientation - simplified for UVC consistency
+        // For UVC cameras, we'll use minimal mirroring to maintain consistent display
+        let shouldMirror = false // No mirroring for UVC cameras to maintain consistency
         
         if connection.isVideoMirroringSupported {
             connection.automaticallyAdjustsVideoMirroring = false
@@ -809,7 +820,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             }
         }
         
-        // Update preview layer connection
+        // Update preview layer connection with smooth animation
         if let previewConnection = self.previewLayer?.connection {
             // Only update if orientation changed
             if previewConnection.videoOrientation != orientation {
@@ -826,7 +837,16 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             }
         }
         
-        print("UVC: Video orientation updated to \(orientation.rawValue)")
+        CATransaction.commit()
+        
+        print("UVC: Video orientation smoothly updated to \(orientation.rawValue)")
+    }
+    
+    // MARK: - Legacy method for compatibility (deprecated in favor of updateVideoOrientationSmoothly)
+    @MainActor
+    func updateVideoOrientation(orientation: AVCaptureVideoOrientation) {
+        // Delegate to the smooth version with unknown device orientation
+        updateVideoOrientationSmoothly(orientation: orientation, deviceOrientation: .unknown)
     }
     
     @MainActor
