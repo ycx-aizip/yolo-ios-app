@@ -129,8 +129,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   public var threshold2Slider = UISlider()
   public var labelThreshold1 = UILabel()
   public var labelThreshold2 = UILabel()
-  public var threshold1: CGFloat = 0.3 // Add threshold1 property with default value
-  public var threshold2: CGFloat = 0.5 // Add threshold2 property with default value
+  public var threshold1: CGFloat = 0.2 // Add threshold1 property with default value
+  public var threshold2: CGFloat = 0.4 // Add threshold2 property with default value
   
   // Auto calibration button
   public var autoCalibrationButton = UIButton()
@@ -159,7 +159,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   
   // Add properties for direction selection button
   public var directionButton = UIButton()
-  private var countingDirection: CountingDirection = .topToBottom
+  private var countingDirection: CountingDirection = .bottomToTop
   
   /// Action delegate to communicate with ViewController
   public weak var actionDelegate: YOLOViewActionDelegate?
@@ -803,7 +803,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     self.labelSliderIoU.text = "IoU: " + String(Double(round(100 * sliderIoU.value)) / 100)
 
     // Initialize fish counting threshold UI elements
-    let threshold1Value = String(format: "%.2f", 0.3)
+    let threshold1Value = String(format: "%.2f", 0.2)
     labelThreshold1.text = "Threshold 1: " + threshold1Value
     labelThreshold1.textAlignment = .left
     labelThreshold1.textColor = UIColor.red
@@ -812,13 +812,13 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     threshold1Slider.minimumValue = 0
     threshold1Slider.maximumValue = 1
-    threshold1Slider.value = 0.3 // Initial value
+    threshold1Slider.value = 0.2 // Initial value
     threshold1Slider.minimumTrackTintColor = UIColor.red
     threshold1Slider.maximumTrackTintColor = UIColor.lightGray
     threshold1Slider.addTarget(self, action: #selector(threshold1Changed), for: .valueChanged)
     self.addSubview(threshold1Slider)
     
-    let threshold2Value = String(format: "%.2f", 0.5)
+    let threshold2Value = String(format: "%.2f", 0.4)
     labelThreshold2.text = "Threshold 2: " + threshold2Value
     labelThreshold2.textAlignment = .right
     labelThreshold2.textColor = UIColor.yellow
@@ -827,7 +827,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     threshold2Slider.minimumValue = 0
     threshold2Slider.maximumValue = 1
-    threshold2Slider.value = 0.5 // Initial value
+    threshold2Slider.value = 0.4 // Initial value
     threshold2Slider.minimumTrackTintColor = UIColor.yellow
     threshold2Slider.maximumTrackTintColor = UIColor.lightGray
     threshold2Slider.addTarget(self, action: #selector(threshold2Changed), for: .valueChanged)
@@ -2410,32 +2410,29 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     viewController.present(connectionAlert, animated: true)
   }
 
-  // New method to show UVC connection prompt with proper UI flow
+  /// Shows UVC connection prompt with streamlined UI flow
+  /// - Parameter viewController: The view controller to present the alert from
   private func showUVCConnectionPrompt(viewController: UIViewController) {
-    // Show connection instruction alert
     let connectionAlert = UIAlertController(
       title: "UVC External Camera",
       message: "Please connect your UVC camera to the iPad's USB-C port before continuing.",
       preferredStyle: .alert
     )
     
-    // Add Cancel button - stays on current frame source
     connectionAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
-      print("UVC: Connection setup cancelled by user - staying on current frame source")
+      print("UVC: Connection setup cancelled by user")
     })
     
-    // Add Continue button to proceed with UVC setup
     connectionAlert.addAction(UIAlertAction(title: "Continue", style: .default) { [weak self] _ in
       guard let self = self else { return }
-      
-      // Proceed directly to UVC setup without device detection UI
       self.setupUVCSource(viewController: viewController)
     })
     
     viewController.present(connectionAlert, animated: true)
   }
   
-  // Simplified UVC source setup
+  /// Sets up UVC source with streamlined configuration
+  /// - Parameter viewController: The view controller for presenting status alerts
   private func setupUVCSource(viewController: UIViewController) {
     print("YOLOView: Starting UVC source setup")
     
@@ -2448,66 +2445,49 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       uvcVideoSource?.videoCaptureDelegate = self
     }
     
-    // Hide camera preview layer
-    if let previewLayer = videoCapture.previewLayer {
-      previewLayer.isHidden = true
-      print("YOLOView: Hidden camera preview layer")
-    }
-    
-    // Remove any existing video player layer
-    if let albumSource = albumVideoSource, let playerLayer = albumSource.playerLayer {
-      playerLayer.removeFromSuperlayer()
-      print("YOLOView: Removed album player layer")
-    }
+    // Hide other preview layers
+    videoCapture.previewLayer?.isHidden = true
+    albumVideoSource?.playerLayer?.removeFromSuperlayer()
     
     // Set up UVC source
-    let orientation = UIDevice.current.orientation
     uvcVideoSource?.setUp { [weak self] success in
       Task { @MainActor in
         guard let self = self else { return }
         
         if success {
-          print("YOLOView: UVC setup successful, finalizing integration")
+          print("YOLOView: UVC setup successful")
           
-          // Perform proper frame source switching AFTER successful setup
+          // Perform frame source switching after successful setup
           self.performActualFrameSourceSwitch(to: .uvc)
-          
-          // Set as current frame source
           self.currentFrameSource = self.uvcVideoSource!
-          
-          // Ensure inferenceOK is set to true for the new source
           self.currentFrameSource.inferenceOK = true
           
-          // Integrate UVC source with YOLOView
+          // Integrate with YOLOView
           self.uvcVideoSource?.integrateWithYOLOView(view: self)
-          
-          // Add bounding box views and overlay layer
           self.uvcVideoSource?.addBoundingBoxViews(self.boundingBoxViews)
           self.uvcVideoSource?.addOverlayLayer(self.overlayLayer)
           
-          // Start UVC capture
+          // Start capture
           self.uvcVideoSource?.start()
-          
-          // Show simple status with current camera model
-          self.showUVCStatus(viewController: viewController)
           
           print("YOLOView: UVC source started successfully")
         } else {
-          print("YOLOView: UVC setup failed - will show black stream")
+          print("YOLOView: UVC setup failed - showing black stream")
           
-          // Still switch to UVC mode but with no active camera (black stream)
+          // Switch to UVC mode with no active camera
           self.performActualFrameSourceSwitch(to: .uvc)
           self.currentFrameSource = self.uvcVideoSource!
           self.currentFrameSource.inferenceOK = true
-          
-          // Show status indicating no camera
-          self.showUVCStatus(viewController: viewController)
         }
+        
+        // Show status
+        self.showUVCStatus(viewController: viewController)
       }
     }
   }
   
-  // Show simple UVC status
+  /// Shows UVC camera status
+  /// - Parameter viewController: The view controller to present the alert from
   private func showUVCStatus(viewController: UIViewController) {
     let cameraModel: String
     if let device = uvcVideoSource?.captureDevice {
@@ -2960,20 +2940,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     let alert = UIAlertController(title: "Select Counting Direction", message: nil, preferredStyle: .actionSheet)
     
     // Add action for each direction
-    // Top to Bottom
-    let topToBottomAction = UIAlertAction(title: "Top to Bottom", style: .default) { [weak self] _ in
-        guard let self = self else { return }
-        if self.countingDirection != .topToBottom {
-            self.switchCountingDirection(.topToBottom)
-        }
-    }
-    // Add checkmark to current direction
-    if countingDirection == .topToBottom {
-        topToBottomAction.setValue(true, forKey: "checked")
-    }
-    alert.addAction(topToBottomAction)
-    
-    // Bottom to Top
+    // Bottom to Top (default)
     let bottomToTopAction = UIAlertAction(title: "Bottom to Top", style: .default) { [weak self] _ in
         guard let self = self else { return }
         if self.countingDirection != .bottomToTop {
@@ -2984,6 +2951,18 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         bottomToTopAction.setValue(true, forKey: "checked")
     }
     alert.addAction(bottomToTopAction)
+    
+    // Top to Bottom
+    let topToBottomAction = UIAlertAction(title: "Top to Bottom", style: .default) { [weak self] _ in
+        guard let self = self else { return }
+        if self.countingDirection != .topToBottom {
+            self.switchCountingDirection(.topToBottom)
+        }
+    }
+    if countingDirection == .topToBottom {
+        topToBottomAction.setValue(true, forKey: "checked")
+    }
+    alert.addAction(topToBottomAction)
     
     // Left to Right
     let leftToRightAction = UIAlertAction(title: "Left to Right", style: .default) { [weak self] _ in
