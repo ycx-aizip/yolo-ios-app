@@ -2412,7 +2412,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
 
   // New method to show UVC connection prompt with proper UI flow
   private func showUVCConnectionPrompt(viewController: UIViewController) {
-    // Step 1: Show connection instruction alert
+    // Show connection instruction alert
     let connectionAlert = UIAlertController(
       title: "UVC External Camera",
       message: "Please connect your UVC camera to the iPad's USB-C port before continuing.",
@@ -2421,144 +2421,23 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     // Add Cancel button - stays on current frame source
     connectionAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
-      // DON'T change frame source - user cancelled, stay on current source
       print("UVC: Connection setup cancelled by user - staying on current frame source")
     })
     
-    // Add Continue button to check for connected devices
+    // Add Continue button to proceed with UVC setup
     connectionAlert.addAction(UIAlertAction(title: "Continue", style: .default) { [weak self] _ in
       guard let self = self else { return }
       
-      // Show loading indicator while detecting devices
-      let loadingAlert = UIAlertController(
-        title: "Detecting UVC Camera",
-        message: "Searching for connected external cameras...",
-        preferredStyle: .alert
-      )
-      viewController.present(loadingAlert, animated: true)
-      
-      // Perform device detection on background queue with proper cleanup
-      DispatchQueue.global(qos: .userInitiated).async {
-        // Give a brief moment for UI to settle
-        Thread.sleep(forTimeInterval: 0.5)
-        
-        Task { @MainActor in
-          // Force fresh device discovery with cleanup
-          let uvcDevices = UVCVideoSource.discoverUVCCamerasWithCleanup()
-          
-          // Dismiss loading alert
-          loadingAlert.dismiss(animated: true) {
-            if uvcDevices.isEmpty {
-              // No devices found - show retry/cancel options (don't switch frame source)
-              self.showUVCDeviceNotFoundAlert(viewController: viewController)
-            } else {
-              // Device(s) found - show device info and setup
-              let selectedDevice = uvcDevices.first! // Use first available device
-              self.showUVCDeviceInfoAndSetup(
-                viewController: viewController, 
-                device: selectedDevice
-              )
-            }
-          }
-        }
-      }
+      // Proceed directly to UVC setup without device detection UI
+      self.setupUVCSource(viewController: viewController)
     })
     
     viewController.present(connectionAlert, animated: true)
   }
   
-  // Show device not found alert with retry option
-  private func showUVCDeviceNotFoundAlert(viewController: UIViewController) {
-    let notFoundAlert = UIAlertController(
-      title: "No UVC Camera Found",
-      message: "No external cameras detected. Please check:\n• Camera is connected to USB-C port\n• Camera is UVC compatible\n• Camera is powered on",
-      preferredStyle: .alert
-    )
-    
-    // Add Retry button
-    notFoundAlert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
-      guard let self = self else { return }
-      // Retry the detection process
-      self.showUVCConnectionPrompt(viewController: viewController)
-    })
-    
-    // Add Cancel button - stays on current frame source
-    notFoundAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
-      print("UVC: Device detection cancelled by user - staying on current frame source")
-      // DON'T switch frame source - user cancelled, stay on current source
-    })
-    
-    viewController.present(notFoundAlert, animated: true)
-  }
-  
-  // Show device info and proceed with setup
-  private func showUVCDeviceInfoAndSetup(viewController: UIViewController, device: AVCaptureDevice) {
-    // Get detailed device information using the enhanced method
-    let deviceInfo = UVCVideoSource.getDeviceInfo(for: device)
-    let optimalConfig = UVCVideoSource.getOptimalConfiguration(for: device)
-    
-    // Extract information with fallbacks
-    let deviceName = deviceInfo["name"] ?? "Unknown Camera"
-    let deviceModel = deviceInfo["model"] ?? "Unknown Model"
-    let resolution = deviceInfo["resolution"] ?? "Unknown"
-    let frameRate = deviceInfo["frameRate"] ?? "Unknown"
-    let features = deviceInfo["features"] ?? "Basic"
-    let configNotes = optimalConfig.notes
-    
-    // Create device info alert with enhanced information
-    let deviceInfoAlert = UIAlertController(
-      title: "UVC Camera Detected",
-      message: """
-      Camera: \(deviceName)
-      Model: \(deviceModel)
-      Resolution: \(resolution)
-      Frame Rate: \(frameRate)
-      Features: \(features)
-      Configuration: \(configNotes)
-      
-      Ready to start streaming?
-      """,
-      preferredStyle: .alert
-    )
-    
-    // Add Cancel button - stays on current frame source  
-    deviceInfoAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
-      print("UVC: Device setup cancelled by user - staying on current frame source")
-      // DON'T switch frame source - user cancelled, stay on current source
-    })
-    
-    // Add OK button to proceed with setup
-    deviceInfoAlert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
-      guard let self = self else { return }
-      
-      // Show setup progress
-      let setupAlert = UIAlertController(
-        title: "Setting Up UVC Camera",
-        message: "Configuring \(deviceName) for fish counting...",
-        preferredStyle: .alert
-      )
-      viewController.present(setupAlert, animated: true)
-      
-      // CRITICAL: Only proceed with UVC setup AFTER user confirms - no frame source switching until success
-      self.setupUVCSourceWithDevice(
-        device: device,
-        optimalPreset: optimalConfig.preset,
-        viewController: viewController,
-        setupAlert: setupAlert
-      )
-    })
-    
-    viewController.present(deviceInfoAlert, animated: true)
-  }
-  
-  // Perform actual UVC source setup
-  private func setupUVCSourceWithDevice(
-    device: AVCaptureDevice,
-    optimalPreset: AVCaptureSession.Preset,
-    viewController: UIViewController,
-    setupAlert: UIAlertController
-  ) {
-    print("YOLOView: Starting UVC source setup with device: \(device.localizedName)")
+  // Simplified UVC source setup
+  private func setupUVCSource(viewController: UIViewController) {
+    print("YOLOView: Starting UVC source setup")
     
     // Create UVC video source if needed
     if uvcVideoSource == nil {
@@ -2568,9 +2447,6 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       uvcVideoSource?.delegate = self
       uvcVideoSource?.videoCaptureDelegate = self
     }
-    
-    // Pre-assign the selected device to avoid re-discovery
-    uvcVideoSource?.captureDevice = device
     
     // Hide camera preview layer
     if let previewLayer = videoCapture.previewLayer {
@@ -2584,76 +2460,70 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       print("YOLOView: Removed album player layer")
     }
     
-    // Set up UVC source with optimal preset and proper error handling
+    // Set up UVC source
     let orientation = UIDevice.current.orientation
-    uvcVideoSource?.setUp(sessionPreset: optimalPreset, orientation: orientation) { [weak self] success in
+    uvcVideoSource?.setUp { [weak self] success in
       Task { @MainActor in
         guard let self = self else { return }
         
-        // Dismiss setup alert
-        setupAlert.dismiss(animated: true) {
-          if success {
-            print("YOLOView: UVC setup successful, finalizing integration")
-            
-            // CRITICAL FIX: Perform proper frame source switching AFTER successful setup
-            self.performActualFrameSourceSwitch(to: .uvc)
-            
-            // Set as current frame source
-            self.currentFrameSource = self.uvcVideoSource!
-            
-            // Ensure inferenceOK is set to true for the new source
-            self.currentFrameSource.inferenceOK = true
-            
-            // Integrate UVC source with YOLOView
-            self.uvcVideoSource?.integrateWithYOLOView(view: self)
-            
-            // Add bounding box views and overlay layer
-            self.uvcVideoSource?.addBoundingBoxViews(self.boundingBoxViews)
-            self.uvcVideoSource?.addOverlayLayer(self.overlayLayer)
-            
-            // Start UVC capture
-            self.uvcVideoSource?.start()
-            
-            // Show success message with device name
-            let deviceName = device.localizedName
-            let successAlert = UIAlertController(
-              title: "UVC Camera Ready",
-              message: "\(deviceName) is now active and ready for fish counting!",
-              preferredStyle: .alert
-            )
-            successAlert.addAction(UIAlertAction(title: "OK", style: .default))
-            viewController.present(successAlert, animated: true)
-            
-            print("YOLOView: UVC source started successfully")
-          } else {
-            print("YOLOView: UVC setup failed, showing error")
-            
-            // Show setup failure alert
-            let failureAlert = UIAlertController(
-              title: "Setup Failed",
-              message: "Failed to configure the UVC camera. Please check the connection and try again.",
-              preferredStyle: .alert
-            )
-            
-            // Add Retry button
-            failureAlert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
-              guard let self = self else { return }
-              // Retry the entire UVC setup process
-              self.showUVCConnectionPrompt(viewController: viewController)
-            })
-            
-            // Add Cancel button - switch back to camera
-            failureAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
-              guard let self = self else { return }
-              print("YOLOView: UVC setup cancelled, switching back to camera")
-              self.switchToFrameSource(.camera)
-            })
-            
-            viewController.present(failureAlert, animated: true)
-          }
+        if success {
+          print("YOLOView: UVC setup successful, finalizing integration")
+          
+          // Perform proper frame source switching AFTER successful setup
+          self.performActualFrameSourceSwitch(to: .uvc)
+          
+          // Set as current frame source
+          self.currentFrameSource = self.uvcVideoSource!
+          
+          // Ensure inferenceOK is set to true for the new source
+          self.currentFrameSource.inferenceOK = true
+          
+          // Integrate UVC source with YOLOView
+          self.uvcVideoSource?.integrateWithYOLOView(view: self)
+          
+          // Add bounding box views and overlay layer
+          self.uvcVideoSource?.addBoundingBoxViews(self.boundingBoxViews)
+          self.uvcVideoSource?.addOverlayLayer(self.overlayLayer)
+          
+          // Start UVC capture
+          self.uvcVideoSource?.start()
+          
+          // Show simple status with current camera model
+          self.showUVCStatus(viewController: viewController)
+          
+          print("YOLOView: UVC source started successfully")
+        } else {
+          print("YOLOView: UVC setup failed - will show black stream")
+          
+          // Still switch to UVC mode but with no active camera (black stream)
+          self.performActualFrameSourceSwitch(to: .uvc)
+          self.currentFrameSource = self.uvcVideoSource!
+          self.currentFrameSource.inferenceOK = true
+          
+          // Show status indicating no camera
+          self.showUVCStatus(viewController: viewController)
         }
       }
     }
+  }
+  
+  // Show simple UVC status
+  private func showUVCStatus(viewController: UIViewController) {
+    let cameraModel: String
+    if let device = uvcVideoSource?.captureDevice {
+      cameraModel = device.localizedName
+    } else {
+      cameraModel = "No UVC camera detected"
+    }
+    
+    let statusAlert = UIAlertController(
+      title: "UVC Camera Status",
+      message: "Current camera: \(cameraModel)",
+      preferredStyle: .alert
+    )
+    
+    statusAlert.addAction(UIAlertAction(title: "OK", style: .default))
+    viewController.present(statusAlert, animated: true)
   }
   
   // Improved method for handling GoPro streams

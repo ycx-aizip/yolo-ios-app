@@ -107,18 +107,107 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         }
     }
     
-    // Default initializer
+    // MARK: - Connection Monitoring (Apple WWDC 2023 Recommendations)
+    
+    /// Discovery session for monitoring device connections
+    private var deviceDiscoverySession: AVCaptureDevice.DiscoverySession?
+    
+    /// Observer for device connection changes
+    private var deviceConnectionObserver: NSKeyValueObservation?
+    
+    // Default initializer with connection monitoring setup
     override init() {
         super.init()
+        // Setup connection monitoring asynchronously to avoid main actor isolation issues
+        Task { @MainActor in
+            self.setupConnectionMonitoring()
+        }
+    }
+    
+    deinit {
+        cleanupConnectionMonitoring()
+    }
+    
+    /// Sets up connection monitoring for external cameras as per Apple WWDC 2023 recommendations
+    @MainActor
+    private func setupConnectionMonitoring() {
+        guard #available(iOS 17.0, *) else { return }
+        
+        // Create discovery session for monitoring
+        deviceDiscoverySession = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.external],
+            mediaType: .video,
+            position: .unspecified
+        )
+        
+        // Monitor device list changes
+        if let session = deviceDiscoverySession {
+            deviceConnectionObserver = session.observe(\.devices, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor in
+                    guard let self = self, let discoverySession = self.deviceDiscoverySession else { return }
+                    self.handleDeviceListChange(session: discoverySession)
+                }
+            }
+        }
+        
+        print("UVC: Connection monitoring setup complete")
+    }
+    
+    /// Cleans up connection monitoring
+    private func cleanupConnectionMonitoring() {
+        deviceConnectionObserver?.invalidate()
+        deviceConnectionObserver = nil
+        deviceDiscoverySession = nil
+        print("UVC: Connection monitoring cleanup complete")
+    }
+    
+    /// Handles device list changes from the discovery session
+    @MainActor
+    private func handleDeviceListChange(session: AVCaptureDevice.DiscoverySession) {
+        let currentDevices = session.devices
+        print("UVC: Device list changed - \(currentDevices.count) external devices detected")
+        
+        // Check if our current device is still connected
+        if let currentDevice = captureDevice {
+            let isStillConnected = currentDevices.contains { device in
+                device.uniqueID == currentDevice.uniqueID && device.isConnected
+            }
+            
+            if !isStillConnected {
+                print("UVC: Current device \(currentDevice.localizedName) has been disconnected")
+                handleDeviceDisconnection()
+            }
+        }
+    }
+    
+    /// Handles device disconnection
+    @MainActor
+    private func handleDeviceDisconnection() {
+        print("UVC: Handling device disconnection")
+        
+        // Stop the current session
+        if captureSession.isRunning {
+            captureSession.stopRunning()
+        }
+        
+        // Clear device reference
+        captureDevice = nil
+        
+        // Notify delegates about disconnection if needed
+        if let delegate = videoCaptureDelegate as? YOLOView {
+            // Could notify YOLOView to switch back to camera source
+            print("UVC: Device disconnected - consider switching back to camera source")
+        }
     }
 
     // MARK: - UVC Device Discovery
     
-    /// Discovers available UVC (external) cameras
+    /// Discovers available UVC (external) cameras with basic validation
+    /// Note: For production use, prefer discoverUVCCamerasWithCleanup() for rigorous validation
     /// - Returns: Array of available external camera devices
     @MainActor
     static func discoverUVCCameras() -> [AVCaptureDevice] {
-        print("UVC: Starting device discovery...")
+        print("UVC: Starting basic device discovery...")
         
         // Check iOS version compatibility for external cameras
         if #available(iOS 17.0, *) {
@@ -141,14 +230,18 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
                 print("UVC: Device \(index): Connected: \(device.isConnected)")
             }
             
+            // Apply basic filtering
             let filteredDevices = allDevices.filter { device in
                 let hasVideo = device.hasMediaType(.video)
                 let isConnected = device.isConnected
-                print("UVC: Filtering device \(device.localizedName): hasVideo=\(hasVideo), isConnected=\(isConnected)")
-                return hasVideo && isConnected
+                let isExternal = device.deviceType == .external
+                
+                let isValid = hasVideo && isConnected && isExternal
+                print("UVC: Basic filtering - \(device.localizedName): \(isValid ? "VALID" : "INVALID")")
+                return isValid
             }
             
-            print("UVC: Filtered to \(filteredDevices.count) suitable external cameras")
+            print("UVC: Basic filtering complete - \(filteredDevices.count) suitable external cameras")
             return filteredDevices
         } else {
             // Fallback for iOS < 17.0 - return empty array
@@ -157,75 +250,8 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         }
     }
     
-    /// Discovers available UVC cameras with proper cleanup and real-time validation
-    /// This method forces fresh device discovery and validates actual connectivity
-    /// - Returns: Array of available and actually connected external camera devices
-    @MainActor
-    static func discoverUVCCamerasWithCleanup() -> [AVCaptureDevice] {
-        print("UVC: Starting device discovery with cleanup...")
-        
-        // Check iOS version compatibility for external cameras
-        guard #available(iOS 17.0, *) else {
-            print("UVC: External cameras require iOS 17.0 or later")
-            return []
-        }
-        
-        print("UVC: iOS 17.0+ detected, performing fresh external camera discovery...")
-        
-        // Create a new discovery session each time to avoid stale device cache
-        let discoverySession = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.external],
-            mediaType: .video,
-            position: .unspecified
-        )
-        
-        let allDevices = discoverySession.devices
-        print("UVC: Found \(allDevices.count) total devices in fresh discovery session")
-        
-        // Log all discovered devices with detailed status
-        for (index, device) in allDevices.enumerated() {
-            print("UVC: Device \(index): \(device.localizedName)")
-            print("UVC: Device \(index): Type: \(device.deviceType.rawValue)")
-            print("UVC: Device \(index): Has video: \(device.hasMediaType(.video))")
-            print("UVC: Device \(index): Position: \(device.position.rawValue)")
-            print("UVC: Device \(index): Connected: \(device.isConnected)")
-            print("UVC: Device \(index): Model ID: \(device.modelID ?? "Unknown")")
-            print("UVC: Device \(index): Unique ID: \(device.uniqueID)")
-        }
-        
-        // Filter for genuinely connected and compatible devices
-        let connectedDevices = allDevices.filter { device in
-            let hasVideo = device.hasMediaType(.video)
-            let isConnected = device.isConnected
-            let isExternal = device.deviceType == .external
-            
-            // Additional validation: try to access device properties to ensure it's actually available
-            let isAccessible: Bool
-            do {
-                // Try to access the device's active format to validate it's truly available
-                _ = device.activeFormat
-                isAccessible = true
-                print("UVC: Device \(device.localizedName) accessibility check: PASSED")
-            } catch {
-                isAccessible = false
-                print("UVC: Device \(device.localizedName) accessibility check: FAILED - \(error)")
-            }
-            
-            let isValid = hasVideo && isConnected && isExternal && isAccessible
-            print("UVC: Device \(device.localizedName) validation: hasVideo=\(hasVideo), isConnected=\(isConnected), isExternal=\(isExternal), isAccessible=\(isAccessible) -> \(isValid ? "VALID" : "INVALID")")
-            
-            return isValid
-        }
-        
-        print("UVC: Filtered to \(connectedDevices.count) valid and connected external cameras")
-        
-        // Log final selection
-        for (index, device) in connectedDevices.enumerated() {
-            print("UVC: Final device \(index): \(device.localizedName) (Model: \(device.modelID ?? "Unknown"))")
-        }
-        
-        return connectedDevices
-    }
+
+
     
     /// Gets the best available UVC camera device
     /// - Returns: The first available external camera, or nil if none found
@@ -240,101 +266,17 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         }
         
         // Return the first available UVC camera
-        return uvcCameras.first
+        let bestDevice = uvcCameras.first
+        if let device = bestDevice {
+            print("UVC: Selected best device: \(device.localizedName) (Model: \(device.modelID ?? "Unknown"))")
+        } else {
+            print("UVC: No external cameras found")
+        }
+        
+        return bestDevice
     }
 
-    /// Gets detailed information about a UVC device for UI display
-    /// - Parameter device: The UVC device to analyze
-    /// - Returns: Dictionary containing device information
-    @MainActor
-    static func getDeviceInfo(for device: AVCaptureDevice) -> [String: String] {
-        var info: [String: String] = [:]
-        
-        // Basic device information
-        info["name"] = device.localizedName
-        info["model"] = device.modelID ?? "Unknown Model"
-        info["uniqueID"] = device.uniqueID
-        
-        // Get current active format information
-        let format = device.activeFormat
-        let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-        info["resolution"] = "\(dimensions.width)×\(dimensions.height)"
-        
-        // Get frame rate information
-        if let fpsRange = format.videoSupportedFrameRateRanges.first {
-            let minFPS = fpsRange.minFrameRate
-            let maxFPS = fpsRange.maxFrameRate
-            if minFPS == maxFPS {
-                info["frameRate"] = String(format: "%.0f FPS", maxFPS)
-            } else {
-                info["frameRate"] = String(format: "%.0f-%.0f FPS", minFPS, maxFPS)
-            }
-        } else {
-            info["frameRate"] = "Unknown FPS"
-        }
-        
-        // Get codec information
-        let codecType = CMFormatDescriptionGetMediaSubType(format.formatDescription)
-        let codecString = String(describing: FourCharCode(codecType))
-        info["codec"] = codecString
-        
-        // Check supported features
-        var features: [String] = []
-        
-        if device.isFocusModeSupported(.continuousAutoFocus) {
-            features.append("Auto Focus")
-        }
-        
-        if device.isExposureModeSupported(.continuousAutoExposure) {
-            features.append("Auto Exposure")
-        }
-        
-        if device.maxAvailableVideoZoomFactor > 1.0 {
-            features.append("Zoom (\(String(format: "%.1fx", device.maxAvailableVideoZoomFactor)))")
-        }
-        
-        if device.isFlashModeSupported(.auto) {
-            features.append("Flash")
-        }
-        
-        info["features"] = features.isEmpty ? "Basic" : features.joined(separator: ", ")
-        
-        // Check supported session presets for optimal configuration
-        var supportedPresets: [String] = []
-        
-        if device.supportsSessionPreset(.hd1280x720) {
-            supportedPresets.append("HD 720p")
-        }
-        
-        if device.supportsSessionPreset(.hd1920x1080) {
-            supportedPresets.append("Full HD 1080p")
-        }
-        
-        if device.supportsSessionPreset(.hd4K3840x2160) {
-            supportedPresets.append("4K")
-        }
-        
-        info["supportedPresets"] = supportedPresets.isEmpty ? "Standard" : supportedPresets.joined(separator: ", ")
-        
-        return info
-    }
-    
-    /// Gets optimal configuration recommendation for a UVC device
-    /// - Parameter device: The UVC device to analyze
-    /// - Returns: Recommended session preset and configuration notes
-    @MainActor
-    static func getOptimalConfiguration(for device: AVCaptureDevice) -> (preset: AVCaptureSession.Preset, notes: String) {
-        // Priority order for YOLO processing: HD 720p > HD 1080p > Medium
-        if device.supportsSessionPreset(.hd1280x720) {
-            return (.hd1280x720, "Optimal for Fish Counting (1280×720)")
-        } else if device.supportsSessionPreset(.hd1920x1080) {
-            return (.hd1920x1080, "High quality (1920×1080)")
-        } else if device.supportsSessionPreset(.medium) {
-            return (.medium, "Fallback quality")
-        } else {
-            return (.low, "Basic quality")
-        }
-    }
+
 
     // MARK: - Setup Methods
     
@@ -346,7 +288,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         print("UVC: Starting setup...")
         
         Task { @MainActor in
-            // First discover UVC devices on main thread
+            // Discover UVC devices
             guard let uvcDevice = Self.bestUVCDevice() else {
                 print("UVC: No external cameras found during setup")
                 completion(false)
@@ -354,7 +296,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             }
             
             self.captureDevice = uvcDevice
-            print("UVC: Selected device: \(uvcDevice.localizedName)")
+            print("UVC: Selected device for setup: \(uvcDevice.localizedName)")
             
             let preset = sessionPreset ?? self.optimalSessionPreset
             
@@ -378,8 +320,8 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     func setUp(completion: @escaping @Sendable (Bool) -> Void) {
         print("UVC: Starting simplified setup...")
         let orientation = UIDevice.current.orientation
-        
-        // First discover UVC devices
+
+        // Discover UVC devices
         guard let uvcDevice = Self.bestUVCDevice() else {
             print("UVC: No external cameras found during simplified setup")
             completion(false)
