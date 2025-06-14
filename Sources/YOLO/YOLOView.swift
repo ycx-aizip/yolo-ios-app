@@ -129,8 +129,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   public var threshold2Slider = UISlider()
   public var labelThreshold1 = UILabel()
   public var labelThreshold2 = UILabel()
-  public var threshold1: CGFloat = 0.2 // Add threshold1 property with default value
-  public var threshold2: CGFloat = 0.4 // Add threshold2 property with default value
+  public var threshold1: CGFloat = TrackingDetectorConfig.shared.defaultThresholds.first ?? 0.2 // Use config default
+  public var threshold2: CGFloat = TrackingDetectorConfig.shared.defaultThresholds.count > 1 ? TrackingDetectorConfig.shared.defaultThresholds[1] : 0.4 // Use config default
   
   // Auto calibration button
   public var autoCalibrationButton = UIButton()
@@ -159,7 +159,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   
   // Add properties for direction selection button
   public var directionButton = UIButton()
-  private var countingDirection: CountingDirection = .bottomToTop
+  private var countingDirection: CountingDirection = TrackingDetectorConfig.shared.defaultCountingDirection
   
   /// Action delegate to communicate with ViewController
   public weak var actionDelegate: YOLOViewActionDelegate?
@@ -381,11 +381,18 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         [weak self] result in
         switch result {
         case .success(let predictor):
-          // Configure tracking detector with current thresholds
+          // Apply shared configuration and current UI values
           if let trackingDetector = predictor as? TrackingDetector,
              let slf = self {
-            trackingDetector.setThresholds([CGFloat(slf.threshold1Slider.value), 
-                                            CGFloat(slf.threshold2Slider.value)])
+            Task { @MainActor in
+              // Apply centralized configuration first
+              trackingDetector.applySharedConfiguration()
+              
+              // Then apply current UI values (which may override config defaults)
+              trackingDetector.setThresholds([CGFloat(slf.threshold1Slider.value), 
+                                              CGFloat(slf.threshold2Slider.value)])
+              trackingDetector.setCountingDirection(slf.countingDirection)
+            }
           }
           
           handleSuccess(predictor: predictor)
@@ -778,13 +785,13 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
 
     sliderConf.minimumValue = 0
     sliderConf.maximumValue = 1
-    sliderConf.value = 0.5
+    sliderConf.value = TrackingDetectorConfig.shared.defaultConfidenceThreshold // Use config default
     sliderConf.minimumTrackTintColor = .white
     sliderConf.maximumTrackTintColor = .lightGray
     sliderConf.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
     self.addSubview(sliderConf)
 
-    labelSliderIoU.text = "IoU: 0.5"
+    labelSliderIoU.text = "IoU: \(TrackingDetectorConfig.shared.defaultIoUThreshold)"
     labelSliderIoU.textAlignment = .right
     labelSliderIoU.textColor = .white
     labelSliderIoU.font = UIFont.systemFont(ofSize: 16, weight: .medium)
@@ -792,18 +799,20 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
 
     sliderIoU.minimumValue = 0
     sliderIoU.maximumValue = 1
-    sliderIoU.value = 0.5
+    sliderIoU.value = TrackingDetectorConfig.shared.defaultIoUThreshold // Use config default
     sliderIoU.minimumTrackTintColor = .white
     sliderIoU.maximumTrackTintColor = .lightGray
     sliderIoU.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
     self.addSubview(sliderIoU)
 
     self.labelSliderNumItems.text = "0 items (max " + String(Int(sliderNumItems.value)) + ")"
-    self.labelSliderConf.text = "Conf: " + String(Double(round(100 * sliderConf.value)) / 100)
-    self.labelSliderIoU.text = "IoU: " + String(Double(round(100 * sliderIoU.value)) / 100)
+    self.labelSliderConf.text = "Conf: " + String(TrackingDetectorConfig.shared.defaultConfidenceThreshold)
+    self.labelSliderIoU.text = "IoU: " + String(TrackingDetectorConfig.shared.defaultIoUThreshold)
 
-    // Initialize fish counting threshold UI elements
-    let threshold1Value = String(format: "%.2f", 0.2)
+    // Initialize fish counting threshold UI elements with centralized configuration
+    let trackingConfig = TrackingDetectorConfig.shared
+    
+    let threshold1Value = String(format: "%.2f", trackingConfig.defaultThresholds.first ?? 0.2)
     labelThreshold1.text = "Threshold 1: " + threshold1Value
     labelThreshold1.textAlignment = .left
     labelThreshold1.textColor = UIColor.red
@@ -812,13 +821,13 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     threshold1Slider.minimumValue = 0
     threshold1Slider.maximumValue = 1
-    threshold1Slider.value = 0.2 // Initial value
+    threshold1Slider.value = Float(trackingConfig.defaultThresholds.first ?? 0.2) // Use config default
     threshold1Slider.minimumTrackTintColor = UIColor.red
     threshold1Slider.maximumTrackTintColor = UIColor.lightGray
     threshold1Slider.addTarget(self, action: #selector(threshold1Changed), for: .valueChanged)
     self.addSubview(threshold1Slider)
     
-    let threshold2Value = String(format: "%.2f", 0.4)
+    let threshold2Value = String(format: "%.2f", trackingConfig.defaultThresholds.count > 1 ? trackingConfig.defaultThresholds[1] : 0.4)
     labelThreshold2.text = "Threshold 2: " + threshold2Value
     labelThreshold2.textAlignment = .right
     labelThreshold2.textColor = UIColor.yellow
@@ -827,7 +836,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     threshold2Slider.minimumValue = 0
     threshold2Slider.maximumValue = 1
-    threshold2Slider.value = 0.4 // Initial value
+    threshold2Slider.value = Float(trackingConfig.defaultThresholds.count > 1 ? trackingConfig.defaultThresholds[1] : 0.4) // Use config default
     threshold2Slider.minimumTrackTintColor = UIColor.yellow
     threshold2Slider.maximumTrackTintColor = UIColor.lightGray
     threshold2Slider.addTarget(self, action: #selector(threshold2Changed), for: .valueChanged)
@@ -1416,6 +1425,10 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     let iou = Double(round(100 * sliderIoU.value)) / 100
     self.labelSliderConf.text = "Conf: " + String(conf)
     self.labelSliderIoU.text = "IoU: " + String(iou)
+    
+    // Update centralized configuration
+    TrackingDetectorConfig.shared.updateDefaults(confidenceThreshold: Float(conf), iouThreshold: Float(iou))
+    
     if let detector = videoCapture.predictor as? ObjectDetector {
       detector.setIouThreshold(iou: iou)
       detector.setConfidenceThreshold(confidence: conf)
@@ -1614,6 +1627,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     labelThreshold1.text = "Threshold 1: " + String(format: "%.2f", value)
     updateThresholdLayer(threshold1Layer, position: value)
     
+    // Update centralized configuration
+    TrackingDetectorConfig.shared.updateDefaults(thresholds: [value, threshold2])
+    
     // Update the thresholds in the tracking detector
     if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
       trackingDetector.setThresholds([value, threshold2])
@@ -1626,6 +1642,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     threshold2 = value
     labelThreshold2.text = "Threshold 2: " + String(format: "%.2f", value)
     updateThresholdLayer(threshold2Layer, position: value)
+    
+    // Update centralized configuration
+    TrackingDetectorConfig.shared.updateDefaults(thresholds: [threshold1, value])
     
     // Update the thresholds in the tracking detector
     if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
@@ -3005,6 +3024,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   private func switchCountingDirection(_ direction: CountingDirection) {
     // Store the new direction
     countingDirection = direction
+    
+    // Update centralized configuration
+    TrackingDetectorConfig.shared.updateDefaults(countingDirection: direction)
     
     // Update the tracking detector's direction
     if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {

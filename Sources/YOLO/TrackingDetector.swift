@@ -22,6 +22,60 @@ private enum Direction {
     case right
 }
 
+/// Centralized configuration for all TrackingDetector instances
+/// This ensures consistent initial setup across all frame sources
+@MainActor
+public class TrackingDetectorConfig {
+    /// Shared singleton instance
+    public static let shared = TrackingDetectorConfig()
+    
+    /// Default thresholds for counting (normalized coordinates, 0.0-1.0)
+    public var defaultThresholds: [CGFloat] = [0.2, 0.4]
+    
+    /// Default counting direction
+    public var defaultCountingDirection: CountingDirection = .bottomToTop
+    
+    /// Default confidence threshold for YOLO detection
+    public var defaultConfidenceThreshold: Float = 0.60
+    
+    /// Default IoU threshold for non-maximum suppression
+    public var defaultIoUThreshold: Float = 0.50
+    
+    /// Default number of items threshold for detection display
+    public var defaultNumItemsThreshold: Int = 100
+    
+    private init() {
+        // Private initializer to enforce singleton pattern
+    }
+    
+    /// Update all default values at once
+    public func updateDefaults(
+        thresholds: [CGFloat]? = nil,
+        countingDirection: CountingDirection? = nil,
+        confidenceThreshold: Float? = nil,
+        iouThreshold: Float? = nil,
+        numItemsThreshold: Int? = nil
+    ) {
+        if let thresholds = thresholds {
+            self.defaultThresholds = thresholds
+        }
+        if let countingDirection = countingDirection {
+            self.defaultCountingDirection = countingDirection
+        }
+        if let confidenceThreshold = confidenceThreshold {
+            self.defaultConfidenceThreshold = confidenceThreshold
+        }
+        if let iouThreshold = iouThreshold {
+            self.defaultIoUThreshold = iouThreshold
+        }
+        if let numItemsThreshold = numItemsThreshold {
+            self.defaultNumItemsThreshold = numItemsThreshold
+        }
+        
+        print("TrackingDetectorConfig: Updated defaults - thresholds: \(self.defaultThresholds), direction: \(self.defaultCountingDirection), conf: \(self.defaultConfidenceThreshold), iou: \(self.defaultIoUThreshold)")
+    }
+}
+
 /**
  * TrackingDetector
  *
@@ -42,7 +96,7 @@ private enum Direction {
 class TrackingDetector: ObjectDetector {
     
     /// The ByteTracker instance used for tracking objects
-    @MainActor private let byteTracker = ByteTracker()
+    @MainActor private lazy var byteTracker = ByteTracker()
     
     /// Total count of objects that have crossed the threshold(s)
     private var totalCount: Int = 0
@@ -50,7 +104,7 @@ class TrackingDetector: ObjectDetector {
     /// Thresholds used for counting (normalized coordinates, 0.0-1.0)
     /// For vertical directions (topToBottom, bottomToTop), these are y-coordinates
     /// For horizontal directions (leftToRight, rightToLeft), these are x-coordinates
-    private var thresholds: [CGFloat] = [0.3, 0.5]
+    private var thresholds: [CGFloat]
     
     /// Map of track IDs to counting status
     private var countedTracks: [Int: Bool] = [:]
@@ -59,7 +113,7 @@ class TrackingDetector: ObjectDetector {
     private var trackedObjects: [STrack] = []
     
     /// Current counting direction
-    private var countingDirection: CountingDirection = .topToBottom
+    private var countingDirection: CountingDirection
     
     /// Direction of fish movement
     private var crossingDirections: [Int: Direction] = [:]
@@ -98,6 +152,42 @@ class TrackingDetector: ObjectDetector {
     
     /// Callback for reporting calibration completion with new thresholds
     var onCalibrationComplete: (([CGFloat]) -> Void)?
+    
+    // MARK: - Initialization
+    
+    /// Initialize TrackingDetector with default values
+    /// Configuration will be applied after initialization via applySharedConfiguration()
+    required init() {
+        // Initialize with hardcoded defaults (will be overridden by shared config)
+        self.thresholds = [0.2, 0.4]
+        self.countingDirection = .bottomToTop
+        
+        super.init()
+        
+        print("TrackingDetector: Initialized with defaults - will apply shared config after creation")
+    }
+    
+    /// Apply the shared configuration to this instance
+    /// This must be called after initialization to apply the centralized settings
+    @MainActor
+    func applySharedConfiguration() {
+        let config = TrackingDetectorConfig.shared
+        
+        // Apply configuration values
+        self.thresholds = config.defaultThresholds
+        self.countingDirection = config.defaultCountingDirection
+        self.confidenceThreshold = Double(config.defaultConfidenceThreshold)
+        self.iouThreshold = Double(config.defaultIoUThreshold)
+        self.numItemsThreshold = config.defaultNumItemsThreshold
+        
+        // Set the expected movement direction in STrack
+        STrack.expectedMovementDirection = self.countingDirection
+        
+        // Update tracking parameters based on the direction
+        TrackingParameters.updateParametersForCountingDirection(self.countingDirection)
+        
+        print("TrackingDetector: Applied shared config - thresholds: \(self.thresholds), direction: \(self.countingDirection), conf: \(self.confidenceThreshold), iou: \(self.iouThreshold)")
+    }
     
     // MARK: - Threshold management
     
