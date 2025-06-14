@@ -187,7 +187,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   
   // Add property to store reference to GoPro source - ensure single instance
   private var goProSource: GoProSource?
-  
+
   // Add property to store reference to UVC source - ensure single instance
   private var uvcVideoSource: UVCVideoSource?
 
@@ -1483,7 +1483,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       uvcSource.start()
     } else {
       // Camera source - standard behavior
-      self.videoCapture.start()
+    self.videoCapture.start()
     }
     
     playButton.isEnabled = false
@@ -1787,11 +1787,52 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       return
     }
     
-    // // If switching away from GoPro mode, restore normal transparency
-    // if frameSourceType == .goPro && sourceType != .goPro {
-    //   restoreNormalTransparency()
-    // }
+    // CRITICAL FIX: For GoPro and UVC, show user prompts BEFORE stopping current source
+    // Only stop current source for immediate switches (camera, videoFile)
+    if sourceType == .goPro || sourceType == .uvc {
+      // Show prompts without stopping current source - let them handle the switching
+      if sourceType == .goPro {
+        // Find the current view controller to present alerts
+        var topViewController = UIApplication.shared.windows.first?.rootViewController
+        while let presentedViewController = topViewController?.presentedViewController {
+          topViewController = presentedViewController
+        }
+        
+        guard let viewController = topViewController else {
+          print("Could not find a view controller to present alerts")
+          return
+        }
+        
+        // Show GoPro connection prompt - this will handle the full setup flow
+        self.showGoProConnectionPrompt(viewController: viewController)
+        return
+      }
+      
+      if sourceType == .uvc {
+        // UVC External Camera source (iPad only)
+        guard isIPad else {
+          print("UVC source is only supported on iPad")
+          return
+        }
+        
+        // Find the current view controller to present alerts
+        var topViewController = UIApplication.shared.windows.first?.rootViewController
+        while let presentedViewController = topViewController?.presentedViewController {
+          topViewController = presentedViewController
+        }
+        
+        guard let viewController = topViewController else {
+          print("Could not find a view controller to present UVC alerts")
+          return
+        }
+        
+        // Show UVC connection prompt with improved UI flow - DON'T switch frame source yet
+        self.showUVCConnectionPrompt(viewController: viewController)
+        return
+      }
+    }
     
+    // For immediate switches (camera, videoFile), perform cleanup now
     // IMPORTANT: Clear goProSource reference when switching away from GoPro
     if frameSourceType == .goPro && sourceType != .goPro {
       print("YOLOView: Clearing GoProSource reference when switching away from GoPro")
@@ -1811,7 +1852,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       uvcVideoSource = nil
     }
     
-    // Stop current frame source
+    // Stop current frame source (only for immediate switches)
     currentFrameSource.stop()
     
     // Clear any existing bounding boxes
@@ -1951,46 +1992,74 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         self.currentFrameSource.inferenceOK = true
       }
       
-    case .goPro:
-      // Find the current view controller to present alerts
-      var topViewController = UIApplication.shared.windows.first?.rootViewController
-      while let presentedViewController = topViewController?.presentedViewController {
-        topViewController = presentedViewController
-      }
-      
-      guard let viewController = topViewController else {
-        print("Could not find a view controller to present alerts")
-        return
-      }
-      
-      // Show GoPro connection prompt - this will handle the full setup flow
-      self.showGoProConnectionPrompt(viewController: viewController)
-      
-    case .uvc:
-      // UVC External Camera source (iPad only)
-      guard isIPad else {
-        print("UVC source is only supported on iPad")
-        return
-      }
-      
-      // Find the current view controller to present alerts
-      var topViewController = UIApplication.shared.windows.first?.rootViewController
-      while let presentedViewController = topViewController?.presentedViewController {
-        topViewController = presentedViewController
-      }
-      
-      guard let viewController = topViewController else {
-        print("Could not find a view controller to present UVC alerts")
-        return
-      }
-      
-      // Show UVC connection prompt with improved UI flow
-      self.showUVCConnectionPrompt(viewController: viewController)
+    // .goPro and .uvc cases are now handled at the top of the function
+    // to avoid stopping current source before user confirmation
       
     default:
       // For other future source types
       break
     }
+  }
+  
+  // Internal method to actually perform frame source switching after user confirmation
+  // This is called by GoPro and UVC setup methods after successful configuration
+  private func performActualFrameSourceSwitch(to sourceType: FrameSourceType) {
+    print("YOLOView: Performing actual frame source switch to \(sourceType)")
+    
+    // IMPORTANT: Clear previous source references when switching away
+    if frameSourceType == .goPro && sourceType != .goPro {
+      print("YOLOView: Clearing GoProSource reference when switching away from GoPro")
+      goProSource = nil
+    }
+    
+    // Clear UVC source reference when switching away from UVC
+    if frameSourceType == .uvc && sourceType != .uvc {
+      print("YOLOView: Clearing UVCVideoSource reference when switching away from UVC")
+      
+      // Remove UVC preview layer from view
+      if let uvcPreviewLayer = uvcVideoSource?.previewLayer {
+        uvcPreviewLayer.removeFromSuperlayer()
+        print("YOLOView: Removed UVC preview layer")
+      }
+      
+      uvcVideoSource = nil
+    }
+    
+    // Stop current frame source
+    currentFrameSource.stop()
+    
+    // Clear any existing bounding boxes
+    boundingBoxViews.forEach { box in
+      box.hide()
+    }
+    
+    // Clear any existing layers that might show outdated content
+    resetLayers()
+    
+    // Reset calibration state if in progress
+    if isCalibrating {
+      isCalibrating = false
+      
+      // Restore the AUTO button text
+      let autoAttributedText = NSMutableAttributedString()
+      let auAttributes: [NSAttributedString.Key: Any] = [
+        .foregroundColor: UIColor.red.withAlphaComponent(0.5),
+        .font: UIFont.systemFont(ofSize: 14, weight: .bold)
+      ]
+      let toAttributes: [NSAttributedString.Key: Any] = [
+        .foregroundColor: UIColor.yellow.withAlphaComponent(0.5),
+        .font: UIFont.systemFont(ofSize: 14, weight: .bold)
+      ]
+      autoAttributedText.append(NSAttributedString(string: "AU", attributes: auAttributes))
+      autoAttributedText.append(NSAttributedString(string: "TO", attributes: toAttributes))
+      
+      autoCalibrationButton.setAttributedTitle(autoAttributedText, for: .normal)
+    }
+    
+    // Update the frame source type
+    frameSourceType = sourceType
+    
+    print("YOLOView: Frame source switch to \(sourceType) completed")
   }
   
   private func showPermissionAlert(for sourceType: FrameSourceType) {
@@ -2058,7 +2127,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       guard let self = self else { return }
       // Always allow video selection, even when already in Album mode
       // This allows users to select a different video when already using Album source
-      self.switchToFrameSource(.videoFile)
+        self.switchToFrameSource(.videoFile)
     }
     // Add checkmark to current source
     if frameSourceType == .videoFile {
@@ -2350,10 +2419,10 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       preferredStyle: .alert
     )
     
-    // Add Cancel button
+    // Add Cancel button - stays on current frame source
     connectionAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
-      // Return to current frame source if cancelled
-      print("UVC: Connection setup cancelled by user")
+      // DON'T change frame source - user cancelled, stay on current source
+      print("UVC: Connection setup cancelled by user - staying on current frame source")
     })
     
     // Add Continue button to check for connected devices
@@ -2368,19 +2437,19 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       )
       viewController.present(loadingAlert, animated: true)
       
-      // Perform device detection on background queue
+      // Perform device detection on background queue with proper cleanup
       DispatchQueue.global(qos: .userInitiated).async {
         // Give a brief moment for UI to settle
         Thread.sleep(forTimeInterval: 0.5)
         
         Task { @MainActor in
-          // Discover UVC devices
-          let uvcDevices = UVCVideoSource.discoverUVCCameras()
+          // Force fresh device discovery with cleanup
+          let uvcDevices = UVCVideoSource.discoverUVCCamerasWithCleanup()
           
           // Dismiss loading alert
           loadingAlert.dismiss(animated: true) {
             if uvcDevices.isEmpty {
-              // No devices found - show retry/cancel options
+              // No devices found - show retry/cancel options (don't switch frame source)
               self.showUVCDeviceNotFoundAlert(viewController: viewController)
             } else {
               // Device(s) found - show device info and setup
@@ -2413,10 +2482,10 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       self.showUVCConnectionPrompt(viewController: viewController)
     })
     
-    // Add Cancel button
+    // Add Cancel button - stays on current frame source
     notFoundAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
-      print("UVC: Device detection cancelled by user")
-      // Stay on current frame source
+      print("UVC: Device detection cancelled by user - staying on current frame source")
+      // DON'T switch frame source - user cancelled, stay on current source
     })
     
     viewController.present(notFoundAlert, animated: true)
@@ -2452,10 +2521,10 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       preferredStyle: .alert
     )
     
-    // Add Cancel button
+    // Add Cancel button - stays on current frame source  
     deviceInfoAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
-      print("UVC: Device setup cancelled by user")
-      // Stay on current frame source
+      print("UVC: Device setup cancelled by user - staying on current frame source")
+      // DON'T switch frame source - user cancelled, stay on current source
     })
     
     // Add OK button to proceed with setup
@@ -2470,7 +2539,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       )
       viewController.present(setupAlert, animated: true)
       
-      // Proceed with actual UVC setup using optimal configuration
+      // CRITICAL: Only proceed with UVC setup AFTER user confirms - no frame source switching until success
       self.setupUVCSourceWithDevice(
         device: device,
         optimalPreset: optimalConfig.preset,
@@ -2526,9 +2595,11 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
           if success {
             print("YOLOView: UVC setup successful, finalizing integration")
             
+            // CRITICAL FIX: Perform proper frame source switching AFTER successful setup
+            self.performActualFrameSourceSwitch(to: .uvc)
+            
             // Set as current frame source
             self.currentFrameSource = self.uvcVideoSource!
-            self.frameSourceType = .uvc
             
             // Ensure inferenceOK is set to true for the new source
             self.currentFrameSource.inferenceOK = true

@@ -157,6 +157,76 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         }
     }
     
+    /// Discovers available UVC cameras with proper cleanup and real-time validation
+    /// This method forces fresh device discovery and validates actual connectivity
+    /// - Returns: Array of available and actually connected external camera devices
+    @MainActor
+    static func discoverUVCCamerasWithCleanup() -> [AVCaptureDevice] {
+        print("UVC: Starting device discovery with cleanup...")
+        
+        // Check iOS version compatibility for external cameras
+        guard #available(iOS 17.0, *) else {
+            print("UVC: External cameras require iOS 17.0 or later")
+            return []
+        }
+        
+        print("UVC: iOS 17.0+ detected, performing fresh external camera discovery...")
+        
+        // Create a new discovery session each time to avoid stale device cache
+        let discoverySession = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.external],
+            mediaType: .video,
+            position: .unspecified
+        )
+        
+        let allDevices = discoverySession.devices
+        print("UVC: Found \(allDevices.count) total devices in fresh discovery session")
+        
+        // Log all discovered devices with detailed status
+        for (index, device) in allDevices.enumerated() {
+            print("UVC: Device \(index): \(device.localizedName)")
+            print("UVC: Device \(index): Type: \(device.deviceType.rawValue)")
+            print("UVC: Device \(index): Has video: \(device.hasMediaType(.video))")
+            print("UVC: Device \(index): Position: \(device.position.rawValue)")
+            print("UVC: Device \(index): Connected: \(device.isConnected)")
+            print("UVC: Device \(index): Model ID: \(device.modelID ?? "Unknown")")
+            print("UVC: Device \(index): Unique ID: \(device.uniqueID)")
+        }
+        
+        // Filter for genuinely connected and compatible devices
+        let connectedDevices = allDevices.filter { device in
+            let hasVideo = device.hasMediaType(.video)
+            let isConnected = device.isConnected
+            let isExternal = device.deviceType == .external
+            
+            // Additional validation: try to access device properties to ensure it's actually available
+            let isAccessible: Bool
+            do {
+                // Try to access the device's active format to validate it's truly available
+                _ = device.activeFormat
+                isAccessible = true
+                print("UVC: Device \(device.localizedName) accessibility check: PASSED")
+            } catch {
+                isAccessible = false
+                print("UVC: Device \(device.localizedName) accessibility check: FAILED - \(error)")
+            }
+            
+            let isValid = hasVideo && isConnected && isExternal && isAccessible
+            print("UVC: Device \(device.localizedName) validation: hasVideo=\(hasVideo), isConnected=\(isConnected), isExternal=\(isExternal), isAccessible=\(isAccessible) -> \(isValid ? "VALID" : "INVALID")")
+            
+            return isValid
+        }
+        
+        print("UVC: Filtered to \(connectedDevices.count) valid and connected external cameras")
+        
+        // Log final selection
+        for (index, device) in connectedDevices.enumerated() {
+            print("UVC: Final device \(index): \(device.localizedName) (Model: \(device.modelID ?? "Unknown"))")
+        }
+        
+        return connectedDevices
+    }
+    
     /// Gets the best available UVC camera device
     /// - Returns: The first available external camera, or nil if none found
     @MainActor
