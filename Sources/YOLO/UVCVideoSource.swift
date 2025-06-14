@@ -40,6 +40,10 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     // Track the last known valid orientation for coordinate transformation
     private var lastKnownOrientation: UIDeviceOrientation = .portrait
     
+    // Add orientation change optimization
+    private var isUpdatingOrientation = false
+    private var pendingOrientationUpdate: UIDeviceOrientation?
+    
     // Implement FrameSource protocol property
     var delegate: FrameSourceDelegate? {
         get { return frameSourceDelegate }
@@ -167,6 +171,99 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         
         // Return the first available UVC camera
         return uvcCameras.first
+    }
+
+    /// Gets detailed information about a UVC device for UI display
+    /// - Parameter device: The UVC device to analyze
+    /// - Returns: Dictionary containing device information
+    @MainActor
+    static func getDeviceInfo(for device: AVCaptureDevice) -> [String: String] {
+        var info: [String: String] = [:]
+        
+        // Basic device information
+        info["name"] = device.localizedName
+        info["model"] = device.modelID ?? "Unknown Model"
+        info["uniqueID"] = device.uniqueID
+        
+        // Get current active format information
+        let format = device.activeFormat
+        let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+        info["resolution"] = "\(dimensions.width)×\(dimensions.height)"
+        
+        // Get frame rate information
+        if let fpsRange = format.videoSupportedFrameRateRanges.first {
+            let minFPS = fpsRange.minFrameRate
+            let maxFPS = fpsRange.maxFrameRate
+            if minFPS == maxFPS {
+                info["frameRate"] = String(format: "%.0f FPS", maxFPS)
+            } else {
+                info["frameRate"] = String(format: "%.0f-%.0f FPS", minFPS, maxFPS)
+            }
+        } else {
+            info["frameRate"] = "Unknown FPS"
+        }
+        
+        // Get codec information
+        let codecType = CMFormatDescriptionGetMediaSubType(format.formatDescription)
+        let codecString = String(describing: FourCharCode(codecType))
+        info["codec"] = codecString
+        
+        // Check supported features
+        var features: [String] = []
+        
+        if device.isFocusModeSupported(.continuousAutoFocus) {
+            features.append("Auto Focus")
+        }
+        
+        if device.isExposureModeSupported(.continuousAutoExposure) {
+            features.append("Auto Exposure")
+        }
+        
+        if device.maxAvailableVideoZoomFactor > 1.0 {
+            features.append("Zoom (\(String(format: "%.1fx", device.maxAvailableVideoZoomFactor)))")
+        }
+        
+        if device.isFlashModeSupported(.auto) {
+            features.append("Flash")
+        }
+        
+        info["features"] = features.isEmpty ? "Basic" : features.joined(separator: ", ")
+        
+        // Check supported session presets for optimal configuration
+        var supportedPresets: [String] = []
+        
+        if device.supportsSessionPreset(.hd1280x720) {
+            supportedPresets.append("HD 720p")
+        }
+        
+        if device.supportsSessionPreset(.hd1920x1080) {
+            supportedPresets.append("Full HD 1080p")
+        }
+        
+        if device.supportsSessionPreset(.hd4K3840x2160) {
+            supportedPresets.append("4K")
+        }
+        
+        info["supportedPresets"] = supportedPresets.isEmpty ? "Standard" : supportedPresets.joined(separator: ", ")
+        
+        return info
+    }
+    
+    /// Gets optimal configuration recommendation for a UVC device
+    /// - Parameter device: The UVC device to analyze
+    /// - Returns: Recommended session preset and configuration notes
+    @MainActor
+    static func getOptimalConfiguration(for device: AVCaptureDevice) -> (preset: AVCaptureSession.Preset, notes: String) {
+        // Priority order for YOLO processing: HD 720p > HD 1080p > Medium
+        if device.supportsSessionPreset(.hd1280x720) {
+            return (.hd1280x720, "Optimal for Fish Counting (1280×720)")
+        } else if device.supportsSessionPreset(.hd1920x1080) {
+            return (.hd1920x1080, "High quality (1920×1080)")
+        } else if device.supportsSessionPreset(.medium) {
+            return (.medium, "Fallback quality")
+        } else {
+            return (.low, "Basic quality")
+        }
     }
 
     // MARK: - Setup Methods
@@ -563,7 +660,20 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     
     @MainActor
     func updateForOrientationChange(orientation: UIDeviceOrientation) {
+        // Prevent redundant orientation updates
+        guard !isUpdatingOrientation else {
+            // Store pending update if we're already processing one
+            pendingOrientationUpdate = orientation
+            return
+        }
+        
+        // Skip update if orientation hasn't actually changed
+        guard orientation != lastKnownOrientation else {
+            return
+        }
+        
         var videoOrientation: AVCaptureVideoOrientation = .portrait
+        var shouldUpdateVideoSystem = true
         
         // UVC cameras need special orientation mapping to display correctly
         // The camera stream needs to be rotated to match the expected orientation
@@ -584,39 +694,79 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             // Rotate 180 degrees: flip the landscape stream
             videoOrientation = .landscapeLeft
             lastKnownOrientation = .landscapeRight
-        default:
+        case .faceUp, .faceDown, .unknown:
             // When device is flat (.faceUp, .faceDown, .unknown), don't change video orientation
             // Keep using the last known orientation for coordinate transformation
-            print("UVC: Device flat/unknown orientation (\(orientation.rawValue)), maintaining last known orientation: \(lastKnownOrientation.rawValue)")
-            return
+            // Reduce logging noise - only log occasionally for flat orientations
+            if frameProcessingCount % 600 == 0 { // Log every ~20 seconds at 30fps
+                print("UVC: Device flat orientation (\(orientation.rawValue)), maintaining last known: \(lastKnownOrientation.rawValue)")
+            }
+            shouldUpdateVideoSystem = false
+        default:
+            // For any other unknown orientations, maintain current state
+            shouldUpdateVideoSystem = false
         }
         
-        print("UVC: Orientation change - device: \(orientation.rawValue), video: \(videoOrientation.rawValue)")
+        // Only proceed with video system updates if orientation is valid
+        guard shouldUpdateVideoSystem else { return }
         
-        // Update video gravity for the new orientation
-        setVideoGravityForOrientation(orientation: orientation)
+        print("UVC: Orientation change - device: \(orientation.rawValue) → video: \(videoOrientation.rawValue)")
         
-        updateVideoOrientation(orientation: videoOrientation)
+        // Mark as updating to prevent concurrent updates
+        isUpdatingOrientation = true
+        
+        // Perform orientation update asynchronously to avoid blocking main thread
+        Task {
+            // Update video gravity for the new orientation (main thread)
+            await MainActor.run {
+                self.setVideoGravityForOrientation(orientation: orientation)
+            }
+            
+            // Update video orientation on background queue to avoid blocking
+            await Task.detached {
+                await MainActor.run {
+                    self.updateVideoOrientation(orientation: videoOrientation)
+                }
+            }.value
+            
+            // Mark update as complete and handle any pending updates
+            await MainActor.run {
+                self.isUpdatingOrientation = false
+                
+                // Process any pending orientation update
+                if let pendingOrientation = self.pendingOrientationUpdate {
+                    self.pendingOrientationUpdate = nil
+                    // Only process if it's different from what we just applied
+                    if pendingOrientation != orientation {
+                        self.updateForOrientationChange(orientation: pendingOrientation)
+                    }
+                }
+            }
+        }
     }
     
     @MainActor
     private func setVideoGravityForOrientation(orientation: UIDeviceOrientation) {
         guard let previewLayer = self.previewLayer else { return }
         
+        let newVideoGravity: AVLayerVideoGravity
         switch orientation {
         case .portrait, .portraitUpsideDown:
             // In portrait mode, maintain aspect ratio with letterboxing (black bars)
             // This prevents the 16:9 landscape stream from being stretched/rotated
-            previewLayer.videoGravity = .resizeAspect
-            print("UVC: Portrait mode - using resizeAspect for letterboxing")
+            newVideoGravity = .resizeAspect
         case .landscapeLeft, .landscapeRight:
             // In landscape mode, fill the screen since orientations match
-            previewLayer.videoGravity = .resizeAspectFill
-            print("UVC: Landscape mode - using resizeAspectFill")
+            newVideoGravity = .resizeAspectFill
         default:
             // Default to aspect fit for unknown orientations
-            previewLayer.videoGravity = .resizeAspect
-            print("UVC: Unknown orientation - using resizeAspect")
+            newVideoGravity = .resizeAspect
+        }
+        
+        // Only update if gravity actually changed to avoid unnecessary operations
+        if previewLayer.videoGravity != newVideoGravity {
+            previewLayer.videoGravity = newVideoGravity
+            print("UVC: Video gravity updated to \(newVideoGravity.rawValue)")
         }
     }
     
@@ -627,6 +777,11 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             return 
         }
         
+        // Only update if orientation actually changed
+        guard connection.videoOrientation != orientation else {
+            return
+        }
+        
         connection.videoOrientation = orientation
         
         // Configure mirroring based on device orientation
@@ -635,25 +790,31 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         
         if connection.isVideoMirroringSupported {
             connection.automaticallyAdjustsVideoMirroring = false
-            connection.isVideoMirrored = shouldMirror
-            print("UVC: Video output mirroring updated: \(shouldMirror)")
-        } else {
-            print("UVC: Video mirroring not supported on this connection")
+            // Only update mirroring if it changed
+            if connection.isVideoMirrored != shouldMirror {
+                connection.isVideoMirrored = shouldMirror
+                print("UVC: Video output mirroring updated: \(shouldMirror)")
+            }
         }
         
         // Update preview layer connection
         if let previewConnection = self.previewLayer?.connection {
-            previewConnection.videoOrientation = orientation
+            // Only update if orientation changed
+            if previewConnection.videoOrientation != orientation {
+                previewConnection.videoOrientation = orientation
+            }
+            
             if previewConnection.isVideoMirroringSupported {
                 previewConnection.automaticallyAdjustsVideoMirroring = false
-                previewConnection.isVideoMirrored = shouldMirror
-                print("UVC: Preview layer mirroring updated: \(shouldMirror)")
-            } else {
-                print("UVC: Preview layer mirroring not supported")
+                // Only update mirroring if it changed
+                if previewConnection.isVideoMirrored != shouldMirror {
+                    previewConnection.isVideoMirrored = shouldMirror
+                    print("UVC: Preview layer mirroring updated: \(shouldMirror)")
+                }
             }
         }
         
-        print("UVC: Video orientation set to \(orientation.rawValue)")
+        print("UVC: Video orientation updated to \(orientation.rawValue)")
     }
     
     @MainActor
@@ -705,7 +866,10 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         switch orientation {
         case .faceUp, .faceDown, .unknown:
             effectiveOrientation = lastKnownOrientation
-            print("UVC: Using last known orientation \(lastKnownOrientation.rawValue) for coordinate transform (device: \(orientation.rawValue))")
+            // Reduce logging noise - only log occasionally for coordinate transforms with flat orientations
+            if frameProcessingCount % 900 == 0 { // Log every ~30 seconds at 30fps
+                print("UVC: Coordinate transform using last known orientation \(lastKnownOrientation.rawValue) (device: \(orientation.rawValue))")
+            }
         default:
             effectiveOrientation = orientation
         }
