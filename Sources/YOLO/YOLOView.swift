@@ -2521,61 +2521,11 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       preferredStyle: .alert
     )
     
-    // Add action to view raw capabilities if available
-    if uvcVideoSource?.captureDevice != nil {
-      statusAlert.addAction(UIAlertAction(title: "View Raw Capabilities", style: .default) { [weak self] _ in
-        self?.showUVCRawCapabilities(viewController: viewController)
-      })
-    }
-    
     statusAlert.addAction(UIAlertAction(title: "OK", style: .default))
     viewController.present(statusAlert, animated: true)
   }
   
-  /// Shows raw UVC camera capabilities for advanced users
-  /// - Parameter viewController: The view controller to present the alert from
-  private func showUVCRawCapabilities(viewController: UIViewController) {
-    guard let device = uvcVideoSource?.captureDevice else { return }
-    
-    // Build detailed capability report
-    var capabilities = "📊 RAW CAPABILITIES REPORT\n"
-    capabilities += "══════════════════════════\n"
-    capabilities += "Device: \(device.localizedName)\n"
-    capabilities += "Model ID: \(device.modelID ?? "Unknown")\n"
-    capabilities += "Unique ID: \(device.uniqueID)\n"
-    capabilities += "Is Connected: \(device.isConnected)\n\n"
-    
-    capabilities += "📐 ALL SUPPORTED FORMATS:\n"
-    for (index, format) in device.formats.enumerated() {
-      let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-      let frameRates = format.videoSupportedFrameRateRanges.map { 
-        String(format: "%.0f", $0.maxFrameRate) 
-      }.joined(separator: ", ")
-      
-      let pixelFormat = CMFormatDescriptionGetMediaSubType(format.formatDescription)
-      let formatString = String(format: "%c%c%c%c",
-        (pixelFormat >> 24) & 0xff,
-        (pixelFormat >> 16) & 0xff,
-        (pixelFormat >> 8) & 0xff,
-        pixelFormat & 0xff).trimmingCharacters(in: .controlCharacters)
-      
-      capabilities += "\(index + 1). \(dimensions.width)×\(dimensions.height) @ [\(frameRates)] fps (\(formatString))\n"
-    }
-    
-    capabilities += "\n🔍 ZOOM RANGE:\n"
-    capabilities += "Min: \(String(format: "%.1f", device.minAvailableVideoZoomFactor))x\n"
-    capabilities += "Max: \(String(format: "%.1f", device.maxAvailableVideoZoomFactor))x\n"
-    capabilities += "Current: \(String(format: "%.1f", device.videoZoomFactor))x\n"
-    
-    let capabilitiesAlert = UIAlertController(
-      title: "Raw UVC Capabilities",
-      message: capabilities,
-      preferredStyle: .alert
-    )
-    
-    capabilitiesAlert.addAction(UIAlertAction(title: "Close", style: .cancel))
-    viewController.present(capabilitiesAlert, animated: true)
-  }
+
   
   // Improved method for handling GoPro streams
   @MainActor

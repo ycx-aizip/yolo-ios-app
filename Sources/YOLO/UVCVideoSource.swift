@@ -95,7 +95,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     private var pipelineStartTimes: [CFTimeInterval] = []
     private var pipelineCompleteTimes: [CFTimeInterval] = []
     
-    // MARK: - UVC Configuration
+    // MARK: - UVC Configuration & Capabilities
     
     /// UVC camera capability information
     struct UVCCapabilities {
@@ -107,7 +107,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         let activeFormat: (resolution: CGSize, frameRate: Double, pixelFormat: String)
     }
     
-    /// Current UVC configuration
+    /// UVC camera configuration with priority-based fallback
     struct UVCConfiguration {
         let targetResolution: CGSize
         let targetFrameRate: Double
@@ -115,20 +115,19 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         let useWidestFOV: Bool
         let preferredPixelFormat: OSType?
         
-        // PREFERRED: 1280×720, 60fps, widest FOV, 420f format (as requested)
+        /// Default configuration: 1280×720 @ 60fps with 420f format
+        /// This is the single place to modify UVC camera settings
         static let preferred = UVCConfiguration(
-            targetResolution: CGSize(width: 1280, height: 720),  // Priority 1: 720p
-            targetFrameRate: 60.0,                               // Priority 2: 60fps
-            targetZoomFactor: 1.0,                               // Priority 3: Widest FOV
+            targetResolution: CGSize(width: 1280, height: 720),
+            targetFrameRate: 60.0,
+            targetZoomFactor: 1.0,
             useWidestFOV: true,
-            preferredPixelFormat: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange  // Priority 4: 420f format
+            preferredPixelFormat: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
         )
     }
     
-    /// Cached capability information for the current device
+    /// Cached device capabilities and active configuration
     private var cachedCapabilities: UVCCapabilities?
-    
-    /// Current active configuration
     private var activeConfiguration: UVCConfiguration?
     
     // MARK: - Connection Monitoring
@@ -221,61 +220,27 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         }
     }
 
-    // MARK: - Device-Specific Workarounds
+    // MARK: - Device Discovery & Management
     
-    /// Applies device-specific workarounds for known UVC cameras
-    /// - Parameter device: The UVC device requiring specific handling
+    /// Applies device-specific optimizations for known UVC cameras
     private func applyDeviceSpecificWorkarounds(device: AVCaptureDevice) {
         let deviceName = device.localizedName.lowercased()
-        let modelID = (device.modelID ?? "").lowercased()
         
-        print("UVC: 🔧 Checking device-specific workarounds for: \(device.localizedName)")
-        
-        // DJI Osmo Action 3 - Known streaming issues
-        if deviceName.contains("osmoaction3") {
-            print("UVC: ⚠️ DJI Osmo Action 3 detected - applying workarounds")
-            print("UVC: 📝 Note: Action 3 may require manual livestream activation on device")
-            print("UVC: 📝 Ensure: Settings > Preferences > Live Streaming is enabled")
-            print("UVC: 📝 Some Action 3 units need firmware update for proper UVC support")
-            
-            // The Action 3 often needs to be explicitly put into livestream mode
-            // This requires user action on the camera itself
-        }
-        
-        // DJI Osmo Action 5 - Performance optimization
-        else if deviceName.contains("osmoaction5") {
-            print("UVC: ✅ DJI Osmo Action 5 detected - optimized settings")
-            print("UVC: 📝 Action 5 Pro has excellent UVC support with 30fps@1080p")
-        }
-        
-        // Logitech Brio - High performance camera
-        else if deviceName.contains("brio") {
-            print("UVC: ✅ Logitech Brio detected - premium UVC camera")
-            print("UVC: 📝 Brio supports up to 60fps@720p and excellent low-light performance")
-        }
-        
-        // Generic Logitech cameras
-        else if deviceName.contains("logitech") {
-            print("UVC: ✅ Logitech camera detected - usually excellent UVC compatibility")
-        }
-        
-        // Unknown/generic devices
-        else {
-            print("UVC: 📝 Generic UVC device - using standard configuration")
+        if deviceName.contains("brio") || deviceName.contains("logitech") {
+            print("UVC: \(device.localizedName) detected - premium UVC camera")
+        } else if deviceName.contains("osmo") {
+            print("UVC: \(device.localizedName) detected - action camera")
+        } else {
+            print("UVC: Generic UVC device detected: \(device.localizedName)")
         }
     }
     
-    // MARK: - UVC Device Discovery
-    
-    /// Discovers available UVC (external) cameras with basic validation
-    /// - Returns: Array of available external camera devices
+    /// Discovers and returns the best available UVC camera device
     @MainActor
-    static func discoverUVCCameras() -> [AVCaptureDevice] {
-        print("UVC: Starting device discovery...")
-        
+    static func bestUVCDevice() -> AVCaptureDevice? {
         guard #available(iOS 17.0, *) else {
             print("UVC: External cameras require iOS 17.0 or later")
-            return []
+            return nil
         }
         
         let discoverySession = AVCaptureDevice.DiscoverySession(
@@ -284,80 +249,44 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             position: .unspecified
         )
         
-        let allDevices = discoverySession.devices
-        print("UVC: Found \(allDevices.count) total devices in discovery session")
-        
-        let filteredDevices = allDevices.filter { device in
-            let isValid = device.hasMediaType(.video) && device.isConnected && device.deviceType == .external
-            print("UVC: Device \(device.localizedName): \(isValid ? "VALID" : "INVALID")")
-            return isValid
+        let validDevices = discoverySession.devices.filter { device in
+            device.hasMediaType(.video) && device.isConnected && device.deviceType == .external
         }
         
-        print("UVC: Discovery complete - \(filteredDevices.count) suitable external cameras")
-        return filteredDevices
-    }
-    
-    /// Gets the best available UVC camera device
-    /// - Returns: The first available external camera, or nil if none found
-    @MainActor
-    static func bestUVCDevice() -> AVCaptureDevice? {
-        let uvcCameras = discoverUVCCameras()
-        
-        print("UVC: Found \(uvcCameras.count) external camera(s)")
-        for (index, camera) in uvcCameras.enumerated() {
-            print("UVC: Device \(index): \(camera.localizedName)")
-        }
-        
-        let bestDevice = uvcCameras.first
-        if let device = bestDevice {
-            print("UVC: Selected best device: \(device.localizedName) (Model: \(device.modelID ?? "Unknown"))")
+        if let bestDevice = validDevices.first {
+            print("UVC: Selected device: \(bestDevice.localizedName)")
+            return bestDevice
         } else {
             print("UVC: No external cameras found")
+            return nil
         }
-        
-        return bestDevice
     }
     
-    // MARK: - UVC Capability Analysis
+    // MARK: - Device Capability Analysis
     
-    /// Analyzes and caches the capabilities of the current UVC device
-    /// - Parameter device: The UVC device to analyze
-    /// - Returns: Comprehensive capability information
+    /// Analyzes UVC device capabilities for configuration optimization
     @MainActor
     private func analyzeUVCCapabilities(device: AVCaptureDevice) -> UVCCapabilities {
-        print("UVC: 🔍 Analyzing capabilities for \(device.localizedName)")
-        
-        // Analyze available formats
         var availableFormats: [(resolution: CGSize, frameRates: [Double], pixelFormat: String)] = []
         
         for format in device.formats {
             let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
             let resolution = CGSize(width: CGFloat(dimensions.width), height: CGFloat(dimensions.height))
-            
-            let frameRates = format.videoSupportedFrameRateRanges.map { range in
-                Double(range.maxFrameRate)
-            }.sorted()
-            
+            let frameRates = format.videoSupportedFrameRateRanges.map { Double($0.maxFrameRate) }.sorted()
             let pixelFormat = pixelFormatString(from: format.formatDescription)
             
             availableFormats.append((resolution: resolution, frameRates: frameRates, pixelFormat: pixelFormat))
         }
         
-        // Sort formats by resolution (descending)
         availableFormats.sort { first, second in
             let firstArea = first.resolution.width * first.resolution.height
             let secondArea = second.resolution.width * second.resolution.height
             return firstArea > secondArea
         }
         
-        // Analyze zoom capabilities
         let zoomRange = (min: device.minAvailableVideoZoomFactor, max: device.maxAvailableVideoZoomFactor)
+        let supportedPresets: [AVCaptureSession.Preset] = [.high, .medium, .low, .hd1280x720, .hd1920x1080, .hd4K3840x2160, .photo].filter { device.supportsSessionPreset($0) }
         
-        // Check supported session presets
-        let allPresets: [AVCaptureSession.Preset] = [.high, .medium, .low, .hd1280x720, .hd1920x1080, .hd4K3840x2160, .photo]
-        let supportedPresets = allPresets.filter { device.supportsSessionPreset($0) }
-        
-        // Get current active format info
         let currentFormat = device.activeFormat
         let dimensions = CMVideoFormatDescriptionGetDimensions(currentFormat.formatDescription)
         let resolution = CGSize(width: CGFloat(dimensions.width), height: CGFloat(dimensions.height))
@@ -374,9 +303,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             activeFormat: activeFormat
         )
         
-        // Log detailed capabilities
         logDeviceCapabilities(capabilities)
-        
         return capabilities
     }
     
@@ -504,45 +431,36 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         }
     }
 
+    // MARK: - Format Selection & Configuration
+    
     /// Finds the optimal format using priority-based fallback logic
-    /// Priority: 1) Target Resolution + Target FPS 2) Target Resolution + Any FPS 3) Device Default
-    /// - Parameters:
-    ///   - device: The UVC device
-    ///   - config: Desired configuration
-    /// - Returns: Best matching format or nil if none suitable
     private func findOptimalFormat(device: AVCaptureDevice, config: UVCConfiguration) -> AVCaptureDevice.Format? {
-        print("UVC: 🎯 Priority-based format search: \(Int(config.targetResolution.width))×\(Int(config.targetResolution.height)) @ \(config.targetFrameRate) fps")
-        
-        // PRIORITY 1: Try to find exact resolution match with target frame rate
+        // Priority 1: Exact resolution + target FPS
         if let exactMatch = findFormatWithExactResolutionAndFPS(device: device, config: config, targetFPS: config.targetFrameRate) {
             let dimensions = CMVideoFormatDescriptionGetDimensions(exactMatch.formatDescription)
             let pixelFormatStr = pixelFormatString(from: exactMatch.formatDescription)
-            print("UVC: ✅ PRIORITY 1 SUCCESS: Exact resolution \(dimensions.width)×\(dimensions.height) @ \(config.targetFrameRate) fps (\(pixelFormatStr))")
+            print("UVC: Found exact match: \(dimensions.width)×\(dimensions.height) @ \(config.targetFrameRate) fps (\(pixelFormatStr))")
             return exactMatch
         }
         
-        print("UVC: ⚠️ PRIORITY 1 FAILED: \(Int(config.targetResolution.width))×\(Int(config.targetResolution.height)) @ \(config.targetFrameRate) fps not available")
-        
-        // PRIORITY 2: Try target resolution with any available frame rate (prefer highest)
+        // Priority 2: Target resolution + any available FPS
         if let resolutionMatch = findFormatWithExactResolutionAnyFPS(device: device, config: config) {
             let dimensions = CMVideoFormatDescriptionGetDimensions(resolutionMatch.formatDescription)
             let pixelFormatStr = pixelFormatString(from: resolutionMatch.formatDescription)
             let maxFPS = resolutionMatch.videoSupportedFrameRateRanges.first?.maxFrameRate ?? 30.0
-            print("UVC: ✅ PRIORITY 2 SUCCESS: Target resolution \(dimensions.width)×\(dimensions.height) @ \(maxFPS) fps (\(pixelFormatStr))")
+            print("UVC: Found resolution match: \(dimensions.width)×\(dimensions.height) @ \(maxFPS) fps (\(pixelFormatStr))")
             return resolutionMatch
         }
         
-        print("UVC: ⚠️ PRIORITY 2 FAILED: \(Int(config.targetResolution.width))×\(Int(config.targetResolution.height)) not available at any frame rate")
-        
-        // PRIORITY 3: Use device default resolution with default frame rate
+        // Priority 3: Device default
         let currentFormat = device.activeFormat
         let dimensions = CMVideoFormatDescriptionGetDimensions(currentFormat.formatDescription)
         let pixelFormatStr = pixelFormatString(from: currentFormat.formatDescription)
-        print("UVC: ✅ PRIORITY 3 FALLBACK: Using device defaults \(dimensions.width)×\(dimensions.height) (\(pixelFormatStr))")
+        print("UVC: Using device default: \(dimensions.width)×\(dimensions.height) (\(pixelFormatStr))")
         return currentFormat
     }
     
-    /// Finds format with exact resolution match and specific frame rate
+    /// Finds format with exact resolution and frame rate match
     private func findFormatWithExactResolutionAndFPS(device: AVCaptureDevice, config: UVCConfiguration, targetFPS: Double) -> AVCaptureDevice.Format? {
         var bestFormat: AVCaptureDevice.Format?
         var bestPixelFormatScore = -1
@@ -551,24 +469,18 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
             let resolution = CGSize(width: CGFloat(dimensions.width), height: CGFloat(dimensions.height))
             
-            // Check for exact resolution match
             if resolution.width == config.targetResolution.width && resolution.height == config.targetResolution.height {
-                // Check frame rate support
                 let supportsTargetFPS = format.videoSupportedFrameRateRanges.contains { range in
                     targetFPS >= Double(range.minFrameRate) && targetFPS <= Double(range.maxFrameRate)
                 }
                 
                 if supportsTargetFPS {
-                    // Score pixel formats (higher is better)
                     let pixelFormat = CMFormatDescriptionGetMediaSubType(format.formatDescription)
                     let pixelFormatScore = getPixelFormatScore(pixelFormat, preferred: config.preferredPixelFormat)
                     
                     if pixelFormatScore > bestPixelFormatScore {
                         bestPixelFormatScore = pixelFormatScore
                         bestFormat = format
-                        
-                        let pixelFormatStr = pixelFormatString(from: format.formatDescription)
-                        print("UVC: 🎯 Exact match candidate: \(Int(resolution.width))×\(Int(resolution.height)) @ \(targetFPS) fps (\(pixelFormatStr)) - Score: \(pixelFormatScore)")
                     }
                 }
             }
@@ -577,7 +489,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         return bestFormat
     }
     
-    /// Finds format with exact resolution match and any available frame rate (prefers highest FPS)
+    /// Finds format with exact resolution match (any frame rate)
     private func findFormatWithExactResolutionAnyFPS(device: AVCaptureDevice, config: UVCConfiguration) -> AVCaptureDevice.Format? {
         var bestFormat: AVCaptureDevice.Format?
         var bestScore = -1.0
@@ -586,24 +498,15 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
             let resolution = CGSize(width: CGFloat(dimensions.width), height: CGFloat(dimensions.height))
             
-            // Check for exact resolution match
             if resolution.width == config.targetResolution.width && resolution.height == config.targetResolution.height {
-                // Get maximum frame rate for this format
                 let maxFPS = format.videoSupportedFrameRateRanges.first?.maxFrameRate ?? 30.0
-                
-                // Score pixel formats (higher is better)
                 let pixelFormat = CMFormatDescriptionGetMediaSubType(format.formatDescription)
                 let pixelFormatScore = getPixelFormatScore(pixelFormat, preferred: config.preferredPixelFormat)
-                
-                // Combined score: pixel format score + frame rate bonus
-                let totalScore = Double(pixelFormatScore) + Double(maxFPS) * 0.1  // Small FPS bonus
+                let totalScore = Double(pixelFormatScore) + Double(maxFPS) * 0.1
                 
                 if totalScore > bestScore {
                     bestScore = totalScore
                     bestFormat = format
-                    
-                    let pixelFormatStr = pixelFormatString(from: format.formatDescription)
-                    print("UVC: 🎯 Resolution match candidate: \(Int(resolution.width))×\(Int(resolution.height)) @ \(maxFPS) fps (\(pixelFormatStr)) - Score: \(totalScore)")
                 }
             }
         }
@@ -635,33 +538,22 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         }
     }
     
-    /// Applies the specified configuration using priority-based format selection
-    /// - Parameters:
-    ///   - device: The UVC device to configure
-    ///   - config: Configuration to apply
-    /// - Returns: Applied configuration details
+    /// Applies UVC configuration with priority-based format selection
     private func applyUVCConfigurationWithFallbacks(device: AVCaptureDevice, config: UVCConfiguration) -> (success: Bool, appliedConfig: UVCConfiguration) {
-        print("UVC: 🔧 Applying priority-based configuration...")
-        
         do {
             try device.lockForConfiguration()
             defer { device.unlockForConfiguration() }
             
-            // Use priority-based format selection
-            let selectedFormat = findOptimalFormat(device: device, config: config)
-            if let format = selectedFormat {
-                device.activeFormat = format
-                let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-                let pixelFormatStr = pixelFormatString(from: format.formatDescription)
-                print("UVC: ✅ Format applied: \(dimensions.width)×\(dimensions.height) (\(pixelFormatStr))")
+            // Apply optimal format
+            if let selectedFormat = findOptimalFormat(device: device, config: config) {
+                device.activeFormat = selectedFormat
             }
             
-            // Set frame rate based on what was actually selected
+            // Configure frame rate
             let appliedFormat = device.activeFormat
             let appliedDimensions = CMVideoFormatDescriptionGetDimensions(appliedFormat.formatDescription)
             let appliedResolution = CGSize(width: CGFloat(appliedDimensions.width), height: CGFloat(appliedDimensions.height))
             
-            // Try to set the target frame rate on the selected format
             var appliedFrameRate = config.targetFrameRate
             let frameDuration = CMTime(value: 1, timescale: Int32(config.targetFrameRate))
             
@@ -670,40 +562,31 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             }) {
                 device.activeVideoMinFrameDuration = frameDuration
                 device.activeVideoMaxFrameDuration = frameDuration
-                print("UVC: ✅ Frame rate set to \(appliedFrameRate) fps")
             } else {
-                // Get the maximum supported frame rate for this format
                 let maxSupportedFPS = appliedFormat.videoSupportedFrameRateRanges.first?.maxFrameRate ?? 30.0
                 appliedFrameRate = Double(maxSupportedFPS)
                 let fallbackDuration = CMTime(value: 1, timescale: Int32(maxSupportedFPS))
                 device.activeVideoMinFrameDuration = fallbackDuration
                 device.activeVideoMaxFrameDuration = fallbackDuration
-                print("UVC: ⚠️ Frame rate adjusted to format maximum: \(appliedFrameRate) fps")
             }
             
-            // Set zoom to widest FOV
+            // Configure zoom
             var appliedZoom = config.targetZoomFactor
             if config.useWidestFOV {
-                let widestZoom = device.minAvailableVideoZoomFactor
-                device.videoZoomFactor = widestZoom
-                appliedZoom = widestZoom
-                print("UVC: ✅ Zoom set to widest FOV (\(String(format: "%.1f", appliedZoom))x)")
+                appliedZoom = device.minAvailableVideoZoomFactor
+                device.videoZoomFactor = appliedZoom
             }
             
             // Configure focus and exposure
-            if device.isFocusModeSupported(.continuousAutoFocus) &&
-               device.isFocusPointOfInterestSupported {
+            if device.isFocusModeSupported(.continuousAutoFocus) && device.isFocusPointOfInterestSupported {
                 device.focusMode = .continuousAutoFocus
                 device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
-                print("UVC: ✅ Continuous autofocus enabled")
             }
             
             if device.isExposureModeSupported(.continuousAutoExposure) {
                 device.exposureMode = .continuousAutoExposure
-                print("UVC: ✅ Continuous auto-exposure enabled")
             }
             
-            // Return the actually applied configuration
             let finalConfig = UVCConfiguration(
                 targetResolution: appliedResolution,
                 targetFrameRate: appliedFrameRate,
@@ -715,15 +598,13 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             return (success: true, appliedConfig: finalConfig)
             
         } catch {
-            print("UVC: ❌ Configuration failed: \(error)")
+            print("UVC: Configuration failed: \(error)")
             return (success: false, appliedConfig: config)
         }
     }
     
     // MARK: - FrameSource Protocol Implementation
     
-    /// Sets up the UVC camera with specified configuration
-    /// - Parameter completion: Called when setup is complete, with a Boolean indicating success
     @MainActor
     func setUp(completion: @escaping (Bool) -> Void) {
         print("UVC: Starting setup...")
@@ -757,11 +638,6 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         }
     }
     
-    /// Sets up the UVC camera with simplified configuration and individual fallbacks
-    /// - Parameters:
-    ///   - device: The UVC device to configure
-    ///   - preferredConfig: Preferred configuration to apply
-    /// - Returns: True if setup was successful, false otherwise
     func setUpUVCCameraWithConfiguration(device: AVCaptureDevice, preferredConfig: UVCConfiguration) async -> Bool {
         print("UVC: Beginning camera configuration...")
         captureSession.beginConfiguration()
@@ -802,26 +678,17 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             return false
         }
         captureSession.addInput(videoInput!)
-        print("UVC: Video input added to session successfully")
         
-        // Check format after adding input
-        let formatAfterInput = device.activeFormat
-        let dimensionsAfterInput = CMVideoFormatDescriptionGetDimensions(formatAfterInput.formatDescription)
-        print("UVC: 🔍 Format after adding input: \(dimensionsAfterInput.width)×\(dimensionsAfterInput.height)")
-        
-        // Configure preview layer with consistent orientation
-        print("UVC: Creating preview layer...")
+        // Configure preview layer
         let previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
-        previewLayer.videoGravity = .resizeAspectFill  // Default to fill, will be adjusted dynamically
+        previewLayer.videoGravity = .resizeAspectFill
         previewLayer.connection?.videoOrientation = .landscapeRight
         self.previewLayer = previewLayer
-        print("UVC: Preview layer created with gravity: \(previewLayer.videoGravity.rawValue)")
 
-        // Configure video output - use native format from device to preserve resolution
-        videoOutput.videoSettings = nil  // Use native format from device
+        // Configure video output to use native device format
+        videoOutput.videoSettings = nil
         videoOutput.alwaysDiscardsLateVideoFrames = true
         videoOutput.setSampleBufferDelegate(self, queue: cameraQueue)
-        print("UVC: Video output configured to use native device format")
         
         guard captureSession.canAddOutput(videoOutput) else {
             print("UVC: Cannot add video output to session")
@@ -829,51 +696,35 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             return false
         }
         captureSession.addOutput(videoOutput)
-        
-        // Check format after adding output
-        let formatAfterOutput = device.activeFormat
-        let dimensionsAfterOutput = CMVideoFormatDescriptionGetDimensions(formatAfterOutput.formatDescription)
-        print("UVC: 🔍 Format after adding output: \(dimensionsAfterOutput.width)×\(dimensionsAfterOutput.height)")
 
-        // Configure video connection with consistent orientation and no mirroring
+        // Configure video connections without mirroring
         let connection = videoOutput.connection(with: AVMediaType.video)
         connection?.videoOrientation = .landscapeRight
         
         if let conn = connection, conn.isVideoMirroringSupported {
             conn.automaticallyAdjustsVideoMirroring = false
             conn.isVideoMirrored = false
-            print("UVC: Video output mirroring configured: false")
         }
         
         if let previewConn = previewLayer.connection, previewConn.isVideoMirroringSupported {
             previewConn.automaticallyAdjustsVideoMirroring = false
             previewConn.isVideoMirrored = false
-            print("UVC: Preview layer mirroring configured: false")
         }
 
-        print("UVC: Committing session configuration...")
         captureSession.commitConfiguration()
         
-        // CRITICAL FIX: Re-apply device format after session commit
-        // AVFoundation sometimes resets device format during commitConfiguration()
-        print("UVC: 🔧 Re-applying device format after session commit...")
+        // Re-apply device format after session commit (AVFoundation may reset it)
         let reapplyResult = applyUVCConfigurationWithFallbacks(device: device, config: preferredConfig)
-        
         if reapplyResult.success {
-            // Update stored configuration with what was actually applied
             self.activeConfiguration = reapplyResult.appliedConfig
-            print("UVC: ✅ Device format re-applied successfully after session commit")
-        } else {
-            print("UVC: ⚠️ Device format re-application failed, using session defaults")
         }
         
-        // Verify the actual format that was applied
+        // Verify final format
         let finalFormat = device.activeFormat
         let finalDimensions = CMVideoFormatDescriptionGetDimensions(finalFormat.formatDescription)
         let finalPixelFormat = pixelFormatString(from: finalFormat.formatDescription)
-        print("UVC: ✅ VERIFICATION: Device active format is \(finalDimensions.width)×\(finalDimensions.height) (\(finalPixelFormat))")
+        print("UVC: Active format: \(finalDimensions.width)×\(finalDimensions.height) (\(finalPixelFormat))")
         
-        print("UVC: Session configuration committed successfully")
         return true
     }
 
@@ -1136,8 +987,8 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         print("UVC: Video orientation smoothly updated to \(orientation.rawValue)")
     }
     
-    /// Integrates the UVC source with a YOLOView for proper display
-    /// - Parameter view: The YOLOView to integrate with
+    // MARK: - UI Integration & Coordinate Transformation
+    
     @MainActor
     func integrateWithYOLOView(view: UIView) {
         guard let previewLayer = self.previewLayer else { return }
@@ -1251,17 +1102,10 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         }
         
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { 
-            // DJI Osmo Action 3 specific debugging
-            if let device = captureDevice, device.localizedName.lowercased().contains("osmoaction3") {
-                if frameProcessingCount % 60 == 0 {  // Log every 2 seconds
-                    print("UVC: ⚠️ Action 3 - Failed to get pixel buffer from sample (count: \(frameProcessingCount))")
-                    print("UVC: 📝 Check: Is livestream mode enabled on Action 3?")
-                }
-            }
             return 
         }
         
-        // Update frame size if needed
+        // Capture frame dimensions on first frame
         if !frameSizeCaptured {
             let frameWidth = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
             let frameHeight = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
@@ -1272,15 +1116,8 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             Task { @MainActor in
                 let configDescription = self.activeConfiguration.map { 
                     "\(Int($0.targetResolution.width))×\(Int($0.targetResolution.height)) @ \(Int($0.targetFrameRate))fps" 
-                } ?? "Default UVC Config"
-                print("UVC: Frame size captured: \(Int(frameWidth))×\(Int(frameHeight)) (\(configDescription))")
-                print("UVC: Coordinate system - longSide: \(Int(self.longSide)), shortSide: \(Int(self.shortSide))")
-                
-                // DJI Osmo Action 3 - success confirmation
-                if let device = self.captureDevice, device.localizedName.lowercased().contains("osmoaction3") {
-                    print("UVC: ✅ Action 3 - Successfully receiving frames!")
-                    print("UVC: 📝 Livestream mode is properly enabled")
-                }
+                } ?? "Default"
+                print("UVC: Frame size: \(Int(frameWidth))×\(Int(frameHeight)) (\(configDescription))")
             }
         }
         
