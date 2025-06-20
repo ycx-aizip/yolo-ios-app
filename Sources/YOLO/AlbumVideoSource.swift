@@ -51,6 +51,9 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     /// Timer for controlling frame extraction rate.
     private var frameTimer: Timer?
     
+    /// Display link for smooth frame extraction (replaces timer)
+    private var displayLink: CADisplayLink?
+    
     /// Target frame rate for playback.
     private var frameRate: Float = 30.0
     
@@ -211,6 +214,12 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         
         // Try to setup asset reader for more efficient extraction
         setupAssetReader(asset: asset)
+        
+        // CRITICAL: Calculate coordinate transformation immediately
+        DispatchQueue.main.async {
+            self.updateVideoContentRect()
+            print("Album: Initial coordinate transformation calculated for video size: \(self.videoSize)")
+        }
         
         completion(true)
     }
@@ -476,34 +485,25 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         isProcessing = true
         lastFrameTime = CACurrentMediaTime()
         
-        // Target interval between frames (1/frameRate seconds)
-        let interval = 1.0 / Double(frameRate)
+        // IMPROVED: Use display link for better synchronization instead of timer
+        startDisplayLinkBasedExtraction()
+    }
+    
+    @MainActor
+    private func startDisplayLinkBasedExtraction() {
+        // Create a display link for smooth frame extraction
+        let displayLink = CADisplayLink(target: self, selector: #selector(extractFrameFromDisplayLink))
+        displayLink.preferredFramesPerSecond = Int(frameRate)
+        displayLink.add(to: .main, forMode: .common)
         
-        // Create a timer that dispatches to the main actor
-        frameTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            // Ensure we're on the main actor when the timer fires
-            if let self = self {
-                Task { @MainActor in
-                    self.extractAndProcessNextFrame()
-                }
-            }
+        // Store the display link (we'll need to add this property)
+        self.displayLink = displayLink
+    }
+    
+    @MainActor @objc private func extractFrameFromDisplayLink() {
+        guard isProcessing, let predictor = predictor, let videoOutput = videoOutput, let player = player else { 
+            return 
         }
-        
-        // Make sure the timer runs in common run loop modes (including when scrolling)
-        frameTimer?.tolerance = interval * 0.1
-        RunLoop.main.add(frameTimer!, forMode: .common)
-    }
-    
-    @MainActor
-    private func stopFrameExtraction() {
-        frameTimer?.invalidate()
-        frameTimer = nil
-        isProcessing = false
-    }
-    
-    @MainActor
-    private func extractAndProcessNextFrame() {
-        guard isProcessing, let predictor = predictor else { return }
         
         let pipelineStartTime = CACurrentMediaTime()
         pipelineStartTimes.append(pipelineStartTime)
@@ -511,173 +511,130 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
             pipelineStartTimes.removeFirst()
         }
         
-        // Measure frame time for FPS calculation
-        let currentTime = CACurrentMediaTime()
-        let deltaTime = currentTime - lastFrameTime
-        lastFrameTime = currentTime
-        
         frameProcessingCount += 1
-        frameProcessingTimestamps.append(CACurrentMediaTime())
+        frameProcessingTimestamps.append(pipelineStartTime)
         if frameProcessingTimestamps.count > 60 {
             frameProcessingTimestamps.removeFirst()
         }
         
-        // For frameSourceDelegate, we need to safely pass the frame data to the main thread
-        let framePreparationStartTime = CACurrentMediaTime()
-        
-        // Try to get frame from asset reader first (more efficient)
-        if let frame = getNextFrameFromAssetReader() {
-            lastFramePreparationTime = (CACurrentMediaTime() - framePreparationStartTime) * 1000
-            
-            // Update actual frame size from the processed frame
-            if actualFrameSize == .zero {
-                actualFrameSize = frame.size
-                print("Album: Asset reader frame size: \(Int(frame.size.width))×\(Int(frame.size.height)) (vs video asset: \(Int(videoSize.width))×\(Int(videoSize.height)))")
-            }
-            
-            // Always pass the frame to the delegate for display
-            processFrame(frame)
-            
-            // Check if we need to handle calibration
-            if !inferenceOK, let trackingDetector = predictor as? TrackingDetector {
-                let conversionStartTime = CACurrentMediaTime()
-                if let pixelBuffer = createStandardPixelBuffer(from: frame, forSourceType: .videoFile) {
-                    lastConversionTime = (CACurrentMediaTime() - conversionStartTime) * 1000
-                    
-                    // Process frame for calibration
-                    trackingDetector.processFrame(pixelBuffer)
-                    
-                    // Log performance analysis every 300 frames during calibration
-                    if shouldLogPerformance(frameCount: frameProcessingCount) {
-                        logPipelineAnalysis(mode: "calibration")
-                    }
-                    
-                    // Skip regular inference during calibration
-                    return
-                } else {
-                    lastConversionTime = (CACurrentMediaTime() - conversionStartTime) * 1000
-                }
-            }
-            // Only perform normal inference if inferenceOK is true
-            else if inferenceOK && !isModelProcessing {
-                let conversionStartTime = CACurrentMediaTime()
-                if let sampleBuffer = createSampleBufferFrom(image: frame) {
-                    lastConversionTime = (CACurrentMediaTime() - conversionStartTime) * 1000
-                    
-                    isModelProcessing = true
-                    // Process with predictor - using self as the results and inference time listener
-                    predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
-                } else {
-                    lastConversionTime = (CACurrentMediaTime() - conversionStartTime) * 1000
-                }
-            }
-            
-            // Log performance analysis every 300 frames
-            if shouldLogPerformance(frameCount: frameProcessingCount) {
-                logPipelineAnalysis(mode: "inference")
-            }
-            
-            return
-        }
-        
-        // Fallback to getting frame from video output if asset reader failed
-        guard let videoOutput = videoOutput,
-              let player = player else { return }
-        
         // Get the current playback time
         let playerTime = player.currentTime()
         
-        // Check if a new pixel buffer is available
-        if let pixelBuffer = videoOutput.copyPixelBuffer(forItemTime: playerTime, itemTimeForDisplay: nil) {
-            // Update frame dimensions if needed
-            if !frameSizeCaptured {
-                let frameWidth = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
-                let frameHeight = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
-                longSide = max(frameWidth, frameHeight)
-                shortSide = min(frameWidth, frameHeight)
-                frameSizeCaptured = true
-                
-                // Update actual frame size from pixel buffer
-                actualFrameSize = CGSize(width: frameWidth, height: frameHeight)
-                print("Album: Video output frame size: \(Int(frameWidth))×\(Int(frameHeight)) (vs video asset: \(Int(videoSize.width))×\(Int(videoSize.height)))")
-            }
+        // OPTIMIZED: Get pixel buffer directly without unnecessary conversions
+        guard let pixelBuffer = videoOutput.copyPixelBuffer(forItemTime: playerTime, itemTimeForDisplay: nil) else {
+            return
+        }
+        
+        let framePreparationStartTime = CACurrentMediaTime()
+        
+        // Update frame dimensions if needed (only once)
+        if !frameSizeCaptured {
+            let frameWidth = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
+            let frameHeight = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
+            longSide = max(frameWidth, frameHeight)
+            shortSide = min(frameWidth, frameHeight)
+            frameSizeCaptured = true
+            actualFrameSize = CGSize(width: frameWidth, height: frameHeight)
             
-            // Convert CVPixelBuffer to UIImage for display
-            let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-            let context = CIContext()
-            if let cgImage = context.createCGImage(ciImage, from: ciImage.extent) {
-                let image = UIImage(cgImage: cgImage)
-                
-                // Pass the frame to delegate for display
-                Task { @MainActor in
-                    self.delegate?.frameSource(self, didOutputImage: image)
-                }
-                
-                // Check if we need to handle calibration
-                if !inferenceOK, let trackingDetector = predictor as? TrackingDetector {
-                    // Already on main actor, can call directly
-                    trackingDetector.processFrame(pixelBuffer)
-                    
-                    // Skip regular inference during calibration
-                    return
-                }
-                // Only perform normal inference if inferenceOK is true
-                else if inferenceOK {
-                    // Create sample buffer for inference
-                    let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-                    let context = CIContext()
-                    if let cgImage = context.createCGImage(ciImage, from: ciImage.extent) {
-                        let image = UIImage(cgImage: cgImage)
-                        if let sampleBuffer = createSampleBufferFrom(image: image) {
-                            predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
-                        }
-                    } else {
-                        // Track and report performance metrics only if we didn't succeed with prediction
-                        let processingTime = CACurrentMediaTime() - currentTime
-                        updatePerformanceMetrics(processingTime: processingTime, frameTime: deltaTime)
-                    }
-                }
+            // CRITICAL: Ensure coordinate transformation is ready immediately
+            updateVideoContentRect()
+            print("Album: Frame size captured and coordinate transformation updated: \(Int(frameWidth))×\(Int(frameHeight))")
+        }
+        
+        lastFramePreparationTime = (CACurrentMediaTime() - framePreparationStartTime) * 1000
+        
+        // OPTIMIZED: Create UIImage only for display, use pixelBuffer directly for inference
+        let displayImage = createUIImageFromPixelBuffer(pixelBuffer)
+        if let displayImage = displayImage {
+            // Pass frame to delegate for display
+            delegate?.frameSource(self, didOutputImage: displayImage)
+        }
+        
+        // Handle calibration vs normal inference
+        if !inferenceOK, let trackingDetector = predictor as? TrackingDetector {
+            // Calibration mode - use pixel buffer directly
+            trackingDetector.processFrame(pixelBuffer)
+            
+            if shouldLogPerformance(frameCount: frameProcessingCount) {
+                logPipelineAnalysis(mode: "calibration")
             }
+            return
+        }
+        
+        // Normal inference mode - only if not already processing
+        if inferenceOK && !isModelProcessing {
+            let conversionStartTime = CACurrentMediaTime()
+            
+            // OPTIMIZED: Create sample buffer directly from pixel buffer
+            if let sampleBuffer = createOptimizedSampleBuffer(from: pixelBuffer) {
+                lastConversionTime = (CACurrentMediaTime() - conversionStartTime) * 1000
+                
+                isModelProcessing = true
+                predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
+            } else {
+                lastConversionTime = (CACurrentMediaTime() - conversionStartTime) * 1000
+            }
+        }
+        
+        // Log performance analysis every 300 frames
+        if shouldLogPerformance(frameCount: frameProcessingCount) {
+            logPipelineAnalysis(mode: "inference")
         }
         
         // Check if video has reached the end
         if player.currentTime() >= player.currentItem?.duration ?? CMTime.zero {
-            // Stop playback and processing when video ends
             stopMainActorIsolated()
-            
-            // Notify that playback has completed via a notification
             NotificationCenter.default.post(name: .videoPlaybackDidEnd, object: self)
         }
     }
     
-    @MainActor
-    private func getNextFrameFromAssetReader() -> UIImage? {
-        guard let trackOutput = trackOutput,
-              let sampleBuffer = trackOutput.copyNextSampleBuffer(),
-              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+    // OPTIMIZED: Direct pixel buffer to UIImage conversion
+    private func createUIImageFromPixelBuffer(_ pixelBuffer: CVPixelBuffer) -> UIImage? {
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        let context = CIContext()
+        
+        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
             return nil
         }
         
-        // Convert CVPixelBuffer to UIImage using original working method
-        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        let context = CIContext()
-        if let cgImage = context.createCGImage(ciImage, from: ciImage.extent) {
-            let image = UIImage(cgImage: cgImage)
-            return image
-        }
+        return UIImage(cgImage: cgImage)
+    }
+    
+    // OPTIMIZED: Direct pixel buffer to sample buffer conversion
+    private func createOptimizedSampleBuffer(from pixelBuffer: CVPixelBuffer) -> CMSampleBuffer? {
+        var formatDescription: CMFormatDescription?
+        CMVideoFormatDescriptionCreateForImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: pixelBuffer,
+            formatDescriptionOut: &formatDescription
+        )
         
-        return nil
+        guard let formatDesc = formatDescription else { return nil }
+        
+        var sampleBuffer: CMSampleBuffer?
+        var timingInfo = CMSampleTimingInfo()
+        timingInfo.duration = CMTime.invalid
+        timingInfo.presentationTimeStamp = CMTime(value: Int64(CACurrentMediaTime() * 1000), timescale: 1000)
+        timingInfo.decodeTimeStamp = CMTime.invalid
+        
+        let status = CMSampleBufferCreateReadyWithImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: pixelBuffer,
+            formatDescription: formatDesc,
+            sampleTiming: &timingInfo,
+            sampleBufferOut: &sampleBuffer
+        )
+        
+        return status == noErr ? sampleBuffer : nil
     }
     
     @MainActor
-    private func processFrame(_ image: UIImage) {
-        // Capture image before dispatching to main thread
-        let capturedImage = image
-        
-        // Pass the frame to delegate
-        Task { @MainActor in
-            self.delegate?.frameSource(self, didOutputImage: capturedImage)
-        }
+    private func stopFrameExtraction() {
+        frameTimer?.invalidate()
+        frameTimer = nil
+        displayLink?.invalidate()
+        displayLink = nil
+        isProcessing = false
     }
     
     @MainActor
@@ -846,73 +803,6 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         let height = normalizedRect.height * videoToScreenScale.y
         
         return CGRect(x: x, y: y, width: width, height: height)
-    }
-    
-    @MainActor
-    private func processVideo() {
-        guard let currentFrame = getNextFrameFromAssetReader() else {
-            return
-        }
-        
-        // Note the current time before processing
-        let startTime = CACurrentMediaTime()
-        
-        // Process flag to prevent reentrance
-        var isCurrentlyProcessing = false
-        
-        // Avoid multiple simultaneous video processing operations
-        if !isCurrentlyProcessing {
-            isCurrentlyProcessing = true
-            
-            // Pause normal inference if in calibration mode
-            if !inferenceOK, let trackingDetector = predictor as? TrackingDetector,
-               let pixelBuffer = createStandardPixelBuffer(from: currentFrame, forSourceType: .videoFile) {
-                
-                // Clear any existing bounding boxes
-                DispatchQueue.main.async { [weak self] in
-                    // Explicitly call onClearBoxes to ensure all boxes are cleared 
-                    self?.videoCaptureDelegate?.onClearBoxes()
-                    
-                    // Additionally, if this is the first frame in calibration,
-                    // make sure to clear any lingering boxes in the UI
-                    if trackingDetector.getCalibrationFrameCount() == 0 {
-                        self?.videoCaptureDelegate?.onClearBoxes()
-                    }
-                }
-                
-                // Process frame for calibration
-                trackingDetector.processFrame(pixelBuffer)
-                
-                // Very important: Skip further processing to ensure no boxes are shown during calibration
-                isCurrentlyProcessing = false
-                return
-            } 
-            // Only perform normal inference if inferenceOK is true
-            else if inferenceOK, let sampleBuffer = createSampleBufferFrom(image: currentFrame) {
-                // Process with predictor - using self as the results and inference time listener
-                predictor.predict(sampleBuffer: sampleBuffer, onResultsListener: self, onInferenceTime: self)
-            }
-            
-            // Display the frame regardless of inference state
-            processFrame(currentFrame)
-            
-            // Calculate processing time and update metrics
-            let endTime = CACurrentMediaTime()
-            let processingTime = endTime - startTime
-            let frameTime = processingTime  // For recorded video, frame time equals processing time
-            
-            updatePerformanceMetrics(processingTime: processingTime, frameTime: frameTime)
-            
-            isCurrentlyProcessing = false
-            
-            // Schedule the next frame - use a proper delay for smoother playback
-            let targetFrameTime: Double = 1.0 / 30.0  // Target 30 fps
-            let nextFrameDelay = max(0.001, targetFrameTime - processingTime)  // Ensure positive delay
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + nextFrameDelay) { [weak self] in
-                self?.processVideo()
-            }
-        }
     }
     
     // MARK: - FrameSource Protocol Implementation for UI Integration

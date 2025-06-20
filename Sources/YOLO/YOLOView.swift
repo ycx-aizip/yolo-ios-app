@@ -389,8 +389,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
               trackingDetector.applySharedConfiguration()
               
               // Then apply current UI values (which may override config defaults)
-              trackingDetector.setThresholds([CGFloat(slf.threshold1Slider.value), 
-                                              CGFloat(slf.threshold2Slider.value)])
+            trackingDetector.setThresholds([CGFloat(slf.threshold1Slider.value), 
+                                            CGFloat(slf.threshold2Slider.value)])
               trackingDetector.setCountingDirection(slf.countingDirection)
             }
           }
@@ -1423,9 +1423,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     // Update the current frame source's orientation
     currentFrameSource.updateForOrientationChange(orientation: orientation)
-    
-    // Update overlay layer
-    setupOverlayLayer()
+      
+      // Update overlay layer
+      setupOverlayLayer()
   }
 
   @objc func sliderChanged(_ sender: Any) {
@@ -1680,7 +1680,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     guard task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector else {
       return
     }
-
+    
     // Get current calibration state from the detector
     let isCurrentlyCalibrating = trackingDetector.getAutoCalibrationEnabled()
     
@@ -1714,10 +1714,10 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       
       // Clear all bounding boxes to avoid lingering boxes during calibration
       // This ensures the bound box views are hidden in the UI
-      boundingBoxViews.forEach { box in
-        box.hide()
-      }
-      
+    boundingBoxViews.forEach { box in
+      box.hide()
+    }
+    
       // Explicitly call onClearBoxes to ensure boxes are cleared
       // This ensures that sources respond to the clearing request
       onClearBoxes()
@@ -1817,8 +1817,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   public func switchToFrameSource(_ sourceType: FrameSourceType) {
     // Handle re-selection of the same source type
     if frameSourceType == sourceType {
-      switch sourceType {
-      case .camera:
+    switch sourceType {
+    case .camera:
         // Camera mode: nothing much, just continue
         return
       case .videoFile:
@@ -1896,11 +1896,11 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         }
         
         // Find the current view controller to present alerts
-        var topViewController = UIApplication.shared.windows.first?.rootViewController
-        while let presentedViewController = topViewController?.presentedViewController {
-          topViewController = presentedViewController
-        }
-        
+    var topViewController = UIApplication.shared.windows.first?.rootViewController
+    while let presentedViewController = topViewController?.presentedViewController {
+      topViewController = presentedViewController
+    }
+    
         guard let viewController = topViewController else {
           print("Could not find a view controller to present UVC alerts")
           return
@@ -2001,24 +2001,24 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       if let albumSource = albumVideoSource, let playerLayer = albumSource.playerLayer {
         playerLayer.removeFromSuperlayer()
         print("YOLOView: Removed existing album player layer for video reselection")
-      }
+    }
+    
+    // Create album video source if needed
+    if albumVideoSource == nil {
+      albumVideoSource = AlbumVideoSource()
+      albumVideoSource?.predictor = videoCapture.predictor
+      albumVideoSource?.delegate = self
+      albumVideoSource?.videoCaptureDelegate = self
       
-      // Create album video source if needed
-      if albumVideoSource == nil {
-        albumVideoSource = AlbumVideoSource()
-        albumVideoSource?.predictor = videoCapture.predictor
-        albumVideoSource?.delegate = self
-        albumVideoSource?.videoCaptureDelegate = self
-        		
-        // Register for video playback end notification
-        NotificationCenter.default.addObserver(
-          self,
-          selector: #selector(handleVideoPlaybackEnd),
-          name: .videoPlaybackDidEnd,
-          object: nil
-        )
-      }
-      
+      // Register for video playback end notification
+      NotificationCenter.default.addObserver(
+        self,
+        selector: #selector(handleVideoPlaybackEnd),
+        name: .videoPlaybackDidEnd,
+        object: nil
+      )
+    }
+    
       // Hide camera preview layer
       if let previewLayer = videoCapture.previewLayer {
         previewLayer.isHidden = true
@@ -2568,7 +2568,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
           self.uvcVideoSource?.start()
           
           print("YOLOView: UVC source reconnection completed successfully")
-        } else {
+    } else {
           print("YOLOView: UVC setup failed - no camera detected")
           
           // Still switch to UVC mode but with no active camera
