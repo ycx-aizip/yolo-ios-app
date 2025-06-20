@@ -341,9 +341,12 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
       lastFramePreparationTime = (CACurrentMediaTime() - framePreparationStartTime) * 1000
       
       // Check if we should process for calibration
-      let shouldProcessForCalibration = !inferenceOK && predictor is TrackingDetector
+      // Phase 1 (threshold detection): Use special calibration processing (!inferenceOK)
+      // Phase 2 (movement analysis): Use normal YOLO inference (inferenceOK)
+      let isTrackingDetector = predictor is TrackingDetector
+      let shouldProcessForThresholdCalibration = !inferenceOK && isTrackingDetector
       
-      if shouldProcessForCalibration {
+      if shouldProcessForThresholdCalibration {
         let conversionStartTime = CACurrentMediaTime()
         
         // Create a UIImage from the pixel buffer to safely pass across threads

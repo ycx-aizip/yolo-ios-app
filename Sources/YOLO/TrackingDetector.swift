@@ -136,7 +136,7 @@ class TrackingDetector: ObjectDetector {
     private var isCalibrated: Bool = false
     
     /// Current calibration phase
-    private enum CalibrationPhase {
+    enum CalibrationPhase {
         case thresholdDetection    // Phase 1: OpenCV edge detection
         case movementAnalysis      // Phase 2: YOLO + movement analysis
         case completed            // Calibration finished
@@ -342,6 +342,12 @@ class TrackingDetector: ObjectDetector {
         return calibrationFrameCount
     }
     
+    /// Get the current calibration phase for frame source routing
+    @MainActor
+    func getCalibrationPhase() -> CalibrationPhase {
+        return calibrationPhase
+    }
+    
     /// Reset calibration state
     @MainActor
     private func resetCalibration() {
@@ -436,12 +442,17 @@ class TrackingDetector: ObjectDetector {
         fishMovementData.removeAll(keepingCapacity: true)
         
         // Clear tracking state for fresh start in movement analysis
+        // Safely clear all tracking state
         trackedObjects.removeAll(keepingCapacity: true)
         countedTracks.removeAll(keepingCapacity: true)
         crossingDirections.removeAll(keepingCapacity: true)
         previousPositions.removeAll(keepingCapacity: true)
         historyPositions.removeAll(keepingCapacity: true)
-        byteTracker.reset()
+        
+        // Reset tracker safely to prevent memory issues
+        DispatchQueue.main.async { [weak self] in
+            self?.byteTracker.reset()
+        }
         
         print("TrackingDetector: Starting Phase 2 - Movement Analysis (\(config.movementAnalysisFrames) frames)")
     }
@@ -449,10 +460,27 @@ class TrackingDetector: ObjectDetector {
     /// Process movement analysis for Phase 2
     @MainActor
     private func processMovementAnalysis() {
-        guard isMovementAnalysisPhase else { return }
+        // Additional safety checks to prevent re-entry and stuck states
+        guard isMovementAnalysisPhase && 
+              calibrationPhase == .movementAnalysis &&
+              isAutoCalibrationEnabled else { 
+            return 
+        }
         
         let config = AutoCalibrationConfig.shared
         movementAnalysisFrameCount += 1
+        
+        // Safety mechanism: prevent infinite analysis if something goes wrong
+        if movementAnalysisFrameCount > config.movementAnalysisFrames + 100 {
+            print("TrackingDetector: WARNING - Movement analysis exceeded expected frames, force completing")
+            completeMovementAnalysis()
+            return
+        }
+        
+        // Debug logging every 50 frames to track progress (can be removed in production)
+        if movementAnalysisFrameCount % 50 == 0 || movementAnalysisFrameCount <= 5 {
+            print("TrackingDetector: Movement analysis frame \(movementAnalysisFrameCount)/\(config.movementAnalysisFrames), tracks: \(trackedObjects.count)")
+        }
         
         // Calculate total progress across all enabled phases
         let totalFrames = config.totalCalibrationFrames
@@ -490,7 +518,17 @@ class TrackingDetector: ObjectDetector {
     /// Complete the movement analysis phase (Phase 2)
     @MainActor
     private func completeMovementAnalysis() {
+        // Prevent multiple simultaneous completions
+        guard isMovementAnalysisPhase && calibrationPhase == .movementAnalysis else {
+            print("TrackingDetector: WARNING - completeMovementAnalysis called but not in movement analysis phase")
+            return
+        }
+        
         print("TrackingDetector: Phase 2 complete - Analyzing movement patterns...")
+        
+        // Immediately mark as no longer in movement analysis to prevent re-entry
+        isMovementAnalysisPhase = false
+        calibrationPhase = .completed
         
         // Analyze collected movement data
         let movementArray = Array(fishMovementData.values)
@@ -502,7 +540,11 @@ class TrackingDetector: ObjectDetector {
         if let detectedDirection = analysis.predominantDirection {
             print("TrackingDetector: Auto-detected direction: \(detectedDirection)")
             setCountingDirection(detectedDirection)
-            onDirectionDetected?(detectedDirection)
+            
+            // Execute callback safely on main thread
+            DispatchQueue.main.async { [weak self] in
+                self?.onDirectionDetected?(detectedDirection)
+            }
         } else {
             print("TrackingDetector: No clear direction detected, keeping original: \(originalCountingDirection)")
         }
@@ -510,15 +552,23 @@ class TrackingDetector: ObjectDetector {
         // Complete entire calibration process
         completeEntireCalibration()
         
-        // Generate and send calibration summary
+        // Generate and send calibration summary safely
         let summary = generateCalibrationSummary(analysis: analysis)
-        onCalibrationSummary?(summary)
+        DispatchQueue.main.async { [weak self] in
+            self?.onCalibrationSummary?(summary)
+        }
     }
     
     /// Complete the entire calibration process
     @MainActor
     private func completeEntireCalibration() {
-        // Mark calibration as completed
+        // Prevent multiple completions
+        guard !isCalibrated else {
+            print("TrackingDetector: WARNING - completeEntireCalibration called but already completed")
+            return
+        }
+        
+        // Mark calibration as completed first to prevent re-entry
         isCalibrated = true
         isAutoCalibrationEnabled = false
         isMovementAnalysisPhase = false
@@ -569,6 +619,8 @@ class TrackingDetector: ObjectDetector {
         // Save the current pixel buffer for potential calibration use
         let capturedPixelBuffer = currentPixelBuffer
         
+        // Removed debug logging for production
+        
         // Process results if available
         if let results = request.results as? [VNRecognizedObjectObservation] {
             // Skip processing entirely if we're in threshold calibration mode
@@ -608,15 +660,19 @@ class TrackingDetector: ObjectDetector {
             }
             
             // Update tracks with new detections using enhanced ByteTracker
-            Task { @MainActor in
-                trackedObjects = byteTracker.update(detections: detectionBoxes, scores: scores, classes: labels)
+            // Use async to prevent blocking, but ensure proper serialization
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                
+                // Thread-safe update of tracked objects
+                self.trackedObjects = self.byteTracker.update(detections: detectionBoxes, scores: scores, classes: labels)
                 
                 // Handle movement analysis if we're in Phase 2
-                if isMovementAnalysisPhase {
-                    processMovementAnalysis()
-                } else {
+                if self.isMovementAnalysisPhase && self.calibrationPhase == .movementAnalysis {
+                    self.processMovementAnalysis()
+                } else if !self.isAutoCalibrationEnabled && !self.isMovementAnalysisPhase {
                     // Normal counting - check for threshold crossings
-                    updateCounting()
+                    self.updateCounting()
                 }
             }
             
@@ -652,15 +708,16 @@ class TrackingDetector: ObjectDetector {
             switch calibrationPhase {
             case .thresholdDetection:
                 processFrameForCalibration(pixelBuffer)
+                return  // Only return for threshold detection - skip normal YOLO
             case .movementAnalysis:
                 // Movement analysis uses normal YOLO inference, so we let it continue
                 // The movement analysis happens in processObservations
+                // Don't return here - continue to normal YOLO processing
                 break
             case .completed:
                 // Should not reach here, but handle gracefully
                 break
             }
-            return
         }
         
         // For normal processing, the existing Vision pipeline will be used,

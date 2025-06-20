@@ -1755,7 +1755,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         }
       }
       
-      // Set up completion callback
+      // Set up completion callback (Phase 1 complete)
       trackingDetector.onCalibrationComplete = { [weak self] thresholds in
         guard let self = self else { return }
         
@@ -1779,6 +1779,43 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             self.threshold2 = thresholds[1]
           }
           
+          // CRITICAL FIX: Restore normal inference for Phase 2 (movement analysis)
+          // Phase 1 (threshold detection) is complete, now allow normal YOLO to run for Phase 2
+          let config = AutoCalibrationConfig.shared
+          if config.isDirectionCalibrationEnabled {
+            // Phase 2 needs normal YOLO inference - restore inferenceOK
+            self.currentFrameSource.inferenceOK = true
+            print("YOLOView: Phase 1 complete - Restored normal inference for Phase 2")
+          }
+          
+          // Note: Don't reset calibration state here - Phase 2 may still be running
+          // Phase 2 (movement analysis) may continue
+        }
+      }
+      
+      // Set up direction detection callback (when direction auto-detected)
+      trackingDetector.onDirectionDetected = { [weak self] detectedDirection in
+        guard let self = self else { return }
+        
+        DispatchQueue.main.async {
+          // Update the UI direction without user confirmation since it's auto-detected
+          self.countingDirection = detectedDirection
+          
+          // Update centralized configuration
+          TrackingDetectorConfig.shared.updateDefaults(countingDirection: detectedDirection)
+          
+          // Re-draw the threshold lines for the new direction
+          self.updateThresholdLinesForDirection(detectedDirection)
+          
+          print("YOLOView: Direction auto-updated to \(detectedDirection)")
+        }
+      }
+      
+      // Set up calibration summary callback (complete calibration finished)
+      trackingDetector.onCalibrationSummary = { [weak self] summary in
+        guard let self = self else { return }
+        
+        DispatchQueue.main.async {
           // Reset calibration state
           self.isCalibrating = false
           
@@ -1802,6 +1839,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
           
           // CRITICAL FIX: Reset processing state to ensure normal inference can start
           self.currentFrameSource.resetProcessingState()
+          
+          // Show calibration summary popup
+          self.showCalibrationSummary(summary)
         }
       }
       
@@ -1810,6 +1850,29 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       
       // Pause normal inference during calibration
       currentFrameSource.inferenceOK = false
+      
+      // Safety timeout to prevent stuck calibration (30 seconds)
+      DispatchQueue.main.asyncAfter(deadline: .now() + 30.0) { [weak self] in
+        guard let self = self, self.isCalibrating else { return }
+        
+        print("YOLOView: WARNING - Auto-calibration timeout, force stopping")
+        self.isCalibrating = false
+        self.currentFrameSource.inferenceOK = true
+        
+        // Restore AUTO button
+        let autoAttributedText = NSMutableAttributedString()
+        let auAttributes: [NSAttributedString.Key: Any] = [
+          .foregroundColor: UIColor.red.withAlphaComponent(0.5),
+          .font: UIFont.systemFont(ofSize: 14, weight: .bold)
+        ]
+        let toAttributes: [NSAttributedString.Key: Any] = [
+          .foregroundColor: UIColor.yellow.withAlphaComponent(0.5),
+          .font: UIFont.systemFont(ofSize: 14, weight: .bold)
+        ]
+        autoAttributedText.append(NSAttributedString(string: "AU", attributes: auAttributes))
+        autoAttributedText.append(NSAttributedString(string: "TO", attributes: toAttributes))
+        self.autoCalibrationButton.setAttributedTitle(autoAttributedText, for: .normal)
+      }
     }
   }
 
@@ -3276,6 +3339,76 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     fishCountAttributedText.append(NSAttributedString(string: "\(count)", attributes: numberAttributes))
     
     labelFishCount.attributedText = fishCountAttributedText
+  }
+  
+  // MARK: - Calibration Summary Display
+  
+  /// Show calibration summary popup with results
+  private func showCalibrationSummary(_ summary: CalibrationSummary) {
+    // Find the current view controller to present the alert
+    var topViewController = UIApplication.shared.windows.first?.rootViewController
+    while let presentedViewController = topViewController?.presentedViewController {
+      topViewController = presentedViewController
+    }
+    
+    guard let viewController = topViewController else {
+      print("Could not find a view controller to present calibration summary")
+      return
+    }
+    
+    // Create summary message
+    var message = "Auto-calibration completed!\n\n"
+    
+    // Phase 1 results
+    if summary.thresholdCalibrationEnabled {
+      message += "✅ Phase 1: Threshold Detection\n"
+      message += "Thresholds: \(String(format: "%.2f", summary.thresholds[0])), \(String(format: "%.2f", summary.thresholds[1]))\n\n"
+    }
+    
+    // Phase 2 results  
+    if summary.directionCalibrationEnabled {
+      message += "✅ Phase 2: Movement Analysis\n"
+      
+      if summary.movementAnalysisSuccess, let detectedDirection = summary.detectedDirection {
+        let directionName: String
+        switch detectedDirection {
+        case .topToBottom: directionName = "Top to Bottom"
+        case .bottomToTop: directionName = "Bottom to Top"
+        case .leftToRight: directionName = "Left to Right"
+        case .rightToLeft: directionName = "Right to Left"
+        }
+        
+        message += "Direction detected: \(directionName)\n"
+        message += "Analyzed tracks: \(summary.qualifiedTracksCount)\n"
+        
+        if detectedDirection != summary.originalDirection {
+          message += "⚠️ Direction changed from original\n"
+        }
+      } else {
+        message += "❌ Direction analysis failed\n"
+        message += "Keeping original direction\n"
+        message += "Analyzed tracks: \(summary.qualifiedTracksCount)\n"
+      }
+      
+      // Add warnings if any
+      if !summary.warnings.isEmpty {
+        message += "\n⚠️ Warnings:\n"
+        for warning in summary.warnings {
+          message += "• \(warning)\n"
+        }
+      }
+    }
+    
+    // Create and present alert
+    let alert = UIAlertController(
+      title: "Auto-Calibration Results", 
+      message: message, 
+      preferredStyle: .alert
+    )
+    
+    alert.addAction(UIAlertAction(title: "OK", style: .default, handler: nil))
+    
+    viewController.present(alert, animated: true, completion: nil)
   }
 }
 

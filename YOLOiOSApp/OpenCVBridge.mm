@@ -35,7 +35,12 @@
     OSType pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer);
     
     // Debug log the pixel format
-    NSLog(@"Processing pixel buffer with format: %d (width: %zu, height: %zu)", pixelFormat, width, height);
+    // Reduced logging for calibration - only log once at start
+    static BOOL hasLoggedFormat = NO;
+    if (!hasLoggedFormat) {
+        NSLog(@"OpenCV calibration started - Processing pixel buffer with format: %d (width: %zu, height: %zu)", pixelFormat, width, height);
+        hasLoggedFormat = YES;
+    }
     
     cv::Mat mat;
     
