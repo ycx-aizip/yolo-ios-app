@@ -684,7 +684,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     // Update fish count display if we're in fish count mode
     if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
       let currentCount = trackingDetector.getCount()
-      labelFishCount.text = "Fish Count: \(currentCount)"
+      updateFishCountDisplay(count: currentCount)
     }
   }
 
@@ -777,10 +777,12 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     sliderNumItems.isHidden = true
     self.addSubview(sliderNumItems)
 
+    // HIDDEN: Conf and IoU sliders - using default values, no user adjustment needed
     labelSliderConf.text = "Conf: 0.5"
     labelSliderConf.textAlignment = .left
     labelSliderConf.textColor = .white
     labelSliderConf.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+    labelSliderConf.isHidden = true // Hide from UI
     self.addSubview(labelSliderConf)
 
     sliderConf.minimumValue = 0
@@ -789,12 +791,14 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     sliderConf.minimumTrackTintColor = .white
     sliderConf.maximumTrackTintColor = .lightGray
     sliderConf.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
+    sliderConf.isHidden = true // Hide from UI
     self.addSubview(sliderConf)
 
     labelSliderIoU.text = "IoU: \(TrackingDetectorConfig.shared.defaultIoUThreshold)"
     labelSliderIoU.textAlignment = .right
     labelSliderIoU.textColor = .white
     labelSliderIoU.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+    labelSliderIoU.isHidden = true // Hide from UI
     self.addSubview(labelSliderIoU)
 
     sliderIoU.minimumValue = 0
@@ -803,6 +807,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     sliderIoU.minimumTrackTintColor = .white
     sliderIoU.maximumTrackTintColor = .lightGray
     sliderIoU.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
+    sliderIoU.isHidden = true // Hide from UI
     self.addSubview(sliderIoU)
 
     self.labelSliderNumItems.text = "0 items (max " + String(Int(sliderNumItems.value)) + ")"
@@ -864,10 +869,21 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     self.addSubview(autoCalibrationButton)
 
     // Initialize Fish Count display and Reset button
-    labelFishCount.text = "Fish Count: 0"
+    // Use attributed string for larger fish count number (3x larger)
+    let fishCountAttributedText = NSMutableAttributedString()
+    let labelAttributes: [NSAttributedString.Key: Any] = [
+      .foregroundColor: UIColor.white,
+      .font: UIFont.systemFont(ofSize: 16, weight: .bold)
+    ]
+    let numberAttributes: [NSAttributedString.Key: Any] = [
+      .foregroundColor: UIColor.white,
+      .font: UIFont.systemFont(ofSize: 48, weight: .bold) // 3x larger (16 * 3 = 48)
+    ]
+    fishCountAttributedText.append(NSAttributedString(string: "Fish Count: ", attributes: labelAttributes))
+    fishCountAttributedText.append(NSAttributedString(string: "0", attributes: numberAttributes))
+    
+    labelFishCount.attributedText = fishCountAttributedText
     labelFishCount.textAlignment = .center
-    labelFishCount.textColor = UIColor.white
-    labelFishCount.font = UIFont.systemFont(ofSize: 16, weight: .bold)
     labelFishCount.backgroundColor = UIColor.darkGray.withAlphaComponent(0.7)
     labelFishCount.layer.cornerRadius = 12
     labelFishCount.layer.masksToBounds = true
@@ -983,10 +999,10 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       let sliderLabelHeight: CGFloat = 20
       let sliderHeight: CGFloat = height * 0.05
       
-      // First row - Fish Count and Reset (moved much higher)
-      let fishCountWidth = width * 0.18
-      let resetButtonWidth = fishCountWidth * 0.7
-      let controlHeight: CGFloat = 36
+      // First row - Fish Count and Reset (match threshold slider width)
+      let fishCountWidth = sliderWidth // Match Threshold 1 slider width
+      let resetButtonWidth = fishCountWidth * 0.6
+      let controlHeight: CGFloat = 60 // Increased height for larger number
       
       // Fish count on left side 
       labelFishCount.frame = CGRect(
@@ -1066,26 +1082,25 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         height: sliderHeight
       )
       
-      // Left side - Confidence (third row left)
+      // HIDDEN: Conf and IoU sliders (third row) - positioned off-screen but maintain logic
       let thirdRowY = secondRowY + sliderLabelHeight + sliderHeight + height * 0.02
       
       labelSliderConf.frame = CGRect(
-        x: width * 0.05,
+        x: -1000, // Position off-screen (hidden)
         y: thirdRowY,
         width: sliderWidth,
         height: sliderLabelHeight
       )
       
       sliderConf.frame = CGRect(
-        x: width * 0.05,
+        x: -1000, // Position off-screen (hidden)
         y: thirdRowY + sliderLabelHeight + 2,
         width: sliderWidth,
         height: sliderHeight
       )
       
-      // Right side - IoU (third row right, properly right-aligned)
       labelSliderIoU.frame = CGRect(
-        x: width - width * 0.05 - sliderWidth,
+        x: -1000, // Position off-screen (hidden)
         y: thirdRowY,
         width: sliderWidth,
         height: sliderLabelHeight
@@ -1093,7 +1108,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       labelSliderIoU.textAlignment = .right
       
       sliderIoU.frame = CGRect(
-        x: width - width * 0.05 - sliderWidth,
+        x: -1000, // Position off-screen (hidden)
         y: thirdRowY + sliderLabelHeight + 2,
         width: sliderWidth,
         height: sliderHeight
@@ -1181,55 +1196,54 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       let sliderHeight: CGFloat = height * 0.02
       let sliderLabelHeight: CGFloat = 20
       
-      // Different positioning for iPad Air M3 vs other devices
-      let sliderY: CGFloat
+      // SIMPLIFIED UI: Move fish counting controls higher since Conf/IoU sliders are hidden
+      let bottomControlsY: CGFloat
       if isLargeIPad {
         // For iPad Air M3: Move controls closer to bottom toolbar
-        sliderY = height * 0.88 // Position closer to bottom
+        bottomControlsY = height * 0.88 // Position closer to bottom
       } else {
         // For iPhone and smaller iPads: Keep original position
-        sliderY = height * 0.85 // Position near bottom of screen
+        bottomControlsY = height * 0.85 // Position near bottom of screen
       }
       
-      // Confidence slider and label (left side)
+      // HIDDEN: Confidence and IoU sliders - positioned off-screen but maintain logic
       labelSliderConf.frame = CGRect(
-        x: width * 0.05,
-        y: sliderY - sliderLabelHeight - 5,
+        x: -1000, // Position off-screen (hidden)
+        y: bottomControlsY - sliderLabelHeight - 5,
         width: sliderWidth * 0.5,
         height: sliderLabelHeight
       )
       
       sliderConf.frame = CGRect(
-        x: width * 0.05,
-        y: sliderY,
+        x: -1000, // Position off-screen (hidden)
+        y: bottomControlsY,
         width: sliderWidth,
         height: sliderHeight
       )
       
-      // IoU slider and label (right side)
       labelSliderIoU.frame = CGRect(
-        x: width * 0.55,
-        y: sliderY - sliderLabelHeight - 5,
+        x: -1000, // Position off-screen (hidden)
+        y: bottomControlsY - sliderLabelHeight - 5,
         width: sliderWidth,
         height: sliderLabelHeight
       )
       labelSliderIoU.textAlignment = .right
       
       sliderIoU.frame = CGRect(
-        x: width * 0.55,
-        y: sliderY,
+        x: -1000, // Position off-screen (hidden)
+        y: bottomControlsY,
         width: sliderWidth,
         height: sliderHeight
       )
       
-      // Position fish threshold sliders - closer to confidence/IoU sliders
-      let thresholdY = sliderY - sliderHeight - 40 // Position just above the confidence/IoU sliders
+      // Position fish threshold sliders - move up to where Conf/IoU sliders were
+      let thresholdY = bottomControlsY // Position where the Conf/IoU sliders were
       
       // Position Fish Count display and Reset button above threshold togglers
-      let fishCountWidth = width * 0.4
-      let fishCountHeight: CGFloat = 40
+      let fishCountWidth = sliderWidth // Match Threshold 1 slider width
+      let fishCountHeight: CGFloat = 70 // Increased height for larger number
       let fishCountY = thresholdY - sliderHeight - fishCountHeight - 15 // Position above threshold sliders
-      let resetButtonWidth = fishCountWidth * 0.5
+      let resetButtonWidth = fishCountWidth * 0.4 // Adjusted proportion
       
       labelFishCount.frame = CGRect(
         x: width * 0.05,
@@ -1656,7 +1670,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     // Reset the fish count in tracking detector
     if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
       trackingDetector.resetCount()
-      labelFishCount.text = "Fish Count: 0"
+      updateFishCountDisplay(count: 0)
     }
   }
 
@@ -3133,10 +3147,10 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     // Hide all control elements except toolbar
     labelFPS.isHidden = true
-    labelSliderConf.isHidden = true
-    labelSliderIoU.isHidden = true
-    sliderConf.isHidden = true
-    sliderIoU.isHidden = true
+    // labelSliderConf.isHidden = true // Already hidden permanently
+    // labelSliderIoU.isHidden = true // Already hidden permanently  
+    // sliderConf.isHidden = true // Already hidden permanently
+    // sliderIoU.isHidden = true // Already hidden permanently
     labelThreshold1.isHidden = true
     labelThreshold2.isHidden = true
     threshold1Slider.isHidden = true
@@ -3169,10 +3183,10 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     // Restore all control elements
     labelFPS.isHidden = false
-    labelSliderConf.isHidden = false
-    labelSliderIoU.isHidden = false
-    sliderConf.isHidden = false
-    sliderIoU.isHidden = false
+    // labelSliderConf.isHidden = false // Keep hidden permanently
+    // labelSliderIoU.isHidden = false // Keep hidden permanently
+    // sliderConf.isHidden = false // Keep hidden permanently
+    // sliderIoU.isHidden = false // Keep hidden permanently
     labelThreshold1.isHidden = false
     labelThreshold2.isHidden = false
     threshold1Slider.isHidden = false
@@ -3190,16 +3204,16 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     // Apply to labels
     labelFPS.alpha = reducedAlpha
-    labelSliderConf.alpha = reducedAlpha
-    labelSliderIoU.alpha = reducedAlpha
+    // labelSliderConf.alpha = reducedAlpha // Skip - already hidden
+    // labelSliderIoU.alpha = reducedAlpha // Skip - already hidden
     labelThreshold1.alpha = reducedAlpha
     labelThreshold2.alpha = reducedAlpha
     labelFishCount.alpha = reducedAlpha
     labelSliderNumItems.alpha = reducedAlpha
     
     // Apply to sliders
-    sliderConf.alpha = reducedAlpha
-    sliderIoU.alpha = reducedAlpha
+    // sliderConf.alpha = reducedAlpha // Skip - already hidden
+    // sliderIoU.alpha = reducedAlpha // Skip - already hidden
     threshold1Slider.alpha = reducedAlpha
     threshold2Slider.alpha = reducedAlpha
     sliderNumItems.alpha = reducedAlpha
@@ -3219,16 +3233,16 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     // Restore labels
     labelFPS.alpha = normalAlpha
-    labelSliderConf.alpha = normalAlpha
-    labelSliderIoU.alpha = normalAlpha
+    // labelSliderConf.alpha = normalAlpha // Skip - keep hidden
+    // labelSliderIoU.alpha = normalAlpha // Skip - keep hidden
     labelThreshold1.alpha = normalAlpha
     labelThreshold2.alpha = normalAlpha
     labelFishCount.alpha = normalAlpha
     labelSliderNumItems.alpha = normalAlpha
     
     // Restore sliders
-    sliderConf.alpha = normalAlpha
-    sliderIoU.alpha = normalAlpha
+    // sliderConf.alpha = normalAlpha // Skip - keep hidden
+    // sliderIoU.alpha = normalAlpha // Skip - keep hidden
     threshold1Slider.alpha = normalAlpha
     threshold2Slider.alpha = normalAlpha
     sliderNumItems.alpha = normalAlpha
@@ -3242,10 +3256,26 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     threshold2Layer?.opacity = 0.5
   }
 
-  // Helper method to update the fish count display
+  // Helper method to update the fish count display with large number
   private func updateFishCountDisplay() {
-    // Update the fish count label with the current count
-    labelFishCount.text = "Fish Count: \(fishCount)"
+    updateFishCountDisplay(count: fishCount)
+  }
+  
+  // Helper method to create attributed fish count text with large number
+  private func updateFishCountDisplay(count: Int) {
+    let fishCountAttributedText = NSMutableAttributedString()
+    let labelAttributes: [NSAttributedString.Key: Any] = [
+      .foregroundColor: UIColor.white,
+      .font: UIFont.systemFont(ofSize: 16, weight: .bold)
+    ]
+    let numberAttributes: [NSAttributedString.Key: Any] = [
+      .foregroundColor: UIColor.white,
+      .font: UIFont.systemFont(ofSize: 48, weight: .bold) // 3x larger (16 * 3 = 48)
+    ]
+    fishCountAttributedText.append(NSAttributedString(string: "Fish Count: ", attributes: labelAttributes))
+    fishCountAttributedText.append(NSAttributedString(string: "\(count)", attributes: numberAttributes))
+    
+    labelFishCount.attributedText = fishCountAttributedText
   }
 }
 
