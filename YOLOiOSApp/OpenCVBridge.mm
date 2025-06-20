@@ -1,4 +1,3 @@
-
 #import <opencv2/opencv.hpp>
 #import <opencv2/imgproc/imgproc.hpp>
 #import <opencv2/core/core.hpp>
@@ -10,12 +9,8 @@
 
 /// Check if OpenCV is properly working
 + (BOOL)isOpenCVWorking {
-    NSLog(@"Checking OpenCV functionality");
-    
     // Simple test: try to create a matrix and check if successful
     cv::Mat testMat(5, 5, CV_8UC1);
-    NSLog(@"Created a matrix. Is empty: %d", testMat.empty());
-    
     return !testMat.empty();
 }
 
@@ -34,11 +29,10 @@
     size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
     OSType pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer);
     
-    // Debug log the pixel format
-    // Reduced logging for calibration - only log once at start
+    // Log format only once for calibration startup
     static BOOL hasLoggedFormat = NO;
     if (!hasLoggedFormat) {
-        NSLog(@"OpenCV calibration started - Processing pixel buffer with format: %d (width: %zu, height: %zu)", pixelFormat, width, height);
+        NSLog(@"OpenCV: Calibration started - Processing format: %d (%zu x %zu)", pixelFormat, width, height);
         hasLoggedFormat = YES;
     }
     
@@ -58,11 +52,10 @@
         cv::cvtColor(argb, mat, cv::COLOR_BGRA2RGBA);  // Convert ARGB to format OpenCV can work with
     } else if (pixelFormat == 32) {
         // Direct support for format 32 if it's different from kCVPixelFormatType_32ARGB
-        NSLog(@"Using direct support for pixel format 32");
         cv::Mat argb((int)height, (int)width, CV_8UC4, baseAddress, bytesPerRow);
         cv::cvtColor(argb, mat, cv::COLOR_BGRA2RGBA);
     } else {
-        NSLog(@"Unsupported CVPixelBuffer format: %d", pixelFormat);
+        NSLog(@"OpenCV: Unsupported pixel format: %d", pixelFormat);
         mat = cv::Mat();
     }
     
@@ -197,14 +190,12 @@
 /// Test processing a frame
 - (BOOL)processTestFrame:(CVPixelBufferRef)pixelBuffer {
     if (pixelBuffer == nil) {
-        NSLog(@"processTestFrame: Nil pixel buffer");
         return NO;
     }
     
     // Try to convert to cv::Mat
     cv::Mat inputMat = [self cvMatFromPixelBuffer:pixelBuffer];
     if (inputMat.empty()) {
-        NSLog(@"processTestFrame: Failed to convert pixel buffer to cv::Mat");
         return NO;
     }
     
@@ -212,13 +203,7 @@
     cv::Mat grayMat;
     cv::cvtColor(inputMat, grayMat, cv::COLOR_BGRA2GRAY);
     
-    if (grayMat.empty()) {
-        NSLog(@"processTestFrame: Failed to convert to grayscale");
-        return NO;
-    }
-    
-    NSLog(@"processTestFrame: Successfully processed frame (%dx%d)", inputMat.cols, inputMat.rows);
-    return YES;
+    return !grayMat.empty();
 }
 
 /// Process a single frame for auto-calibration
@@ -226,12 +211,9 @@
 /// @param pixelBuffer The input video frame
 /// @param isVerticalDirection Whether counting direction is vertical (true) or horizontal (false)
 - (NSArray *)processCalibrationFrame:(CVPixelBufferRef)pixelBuffer isVerticalDirection:(BOOL)isVerticalDirection {
-    // NSLog(@"Processing calibration frame");
-    
     // Convert pixel buffer to cv::Mat
     cv::Mat inputFrame = [self cvMatFromPixelBuffer:pixelBuffer];
     if (inputFrame.empty()) {
-        NSLog(@"Failed to convert pixel buffer to cv::Mat");
         return @[@0.3f, @0.7f]; // Default fallback values
     }
     

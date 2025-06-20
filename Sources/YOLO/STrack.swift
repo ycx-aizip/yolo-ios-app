@@ -105,10 +105,10 @@ public class STrack {
     /// Kalman filter for this track
     private var kalmanFilter: KalmanFilter?
     
-    /// Add a new property to store movement direction consistency
-    public var movementConsistency: Float = 0.0 // Higher values = more consistent movement in expected direction
+    /// Movement direction consistency score
+    public var movementConsistency: Float = 0.0
     
-    /// Add a new property to track frame count with expected movement
+    /// Frame count with expected movement
     public var framesWithExpectedMovement: Int = 0
     
     // MARK: - Initialization

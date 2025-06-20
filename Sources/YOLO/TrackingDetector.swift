@@ -72,7 +72,7 @@ public class TrackingDetectorConfig {
             self.defaultNumItemsThreshold = numItemsThreshold
         }
         
-        print("TrackingDetectorConfig: Updated defaults - thresholds: \(self.defaultThresholds), direction: \(self.defaultCountingDirection), conf: \(self.defaultConfidenceThreshold), iou: \(self.defaultIoUThreshold)")
+        print("TrackingDetector: Configuration updated")
     }
 }
 
@@ -147,14 +147,11 @@ class TrackingDetector: ObjectDetector {
     /// Current frame number in calibration sequence
     private var calibrationFrameCount: Int = 0
     
-    /// Total number of frames to process for calibration (approx. 10 seconds at 30fps)
-    private var targetCalibrationFrames: Int = CalibrationUtils.defaultCalibrationFrameCount
+    /// Total number of frames to process for calibration
+    private var targetCalibrationFrames: Int = 300
     
     /// Reference to the current frame being processed
     private var currentPixelBuffer: CVPixelBuffer?
-    
-    /// Accumulated edge detection results for calibration
-    private var edgeAccumulator: UIImage?
     
     // MARK: - Phase 2: Movement Analysis Properties
     
@@ -195,8 +192,6 @@ class TrackingDetector: ObjectDetector {
         self.originalCountingDirection = .bottomToTop
         
         super.init()
-        
-        print("TrackingDetector: Initialized with defaults - will apply shared config after creation")
     }
     
     /// Apply the shared configuration to this instance
@@ -217,8 +212,6 @@ class TrackingDetector: ObjectDetector {
         
         // Update tracking parameters based on the direction
         TrackingParameters.updateParametersForCountingDirection(self.countingDirection)
-        
-        print("TrackingDetector: Applied shared config - thresholds: \(self.thresholds), direction: \(self.countingDirection), conf: \(self.confidenceThreshold), iou: \(self.iouThreshold)")
     }
     
     // MARK: - Threshold management
@@ -281,9 +274,8 @@ class TrackingDetector: ObjectDetector {
     /// Enable or disable auto-calibration
     @MainActor
     func setAutoCalibration(enabled: Bool) {
-        // If we're disabling calibration that was previously enabled, make sure we clean up properly
+        // If we're disabling calibration that was previously enabled, clean up properly
         if !enabled && isAutoCalibrationEnabled {
-            // Clear out any partial calibration data
             resetCalibration()
         }
         
@@ -303,25 +295,20 @@ class TrackingDetector: ObjectDetector {
             calibrationFrameCount = 0
             movementAnalysisFrameCount = 0
             fishMovementData.removeAll(keepingCapacity: true)
-            edgeAccumulator = nil
             isMovementAnalysisPhase = false
             
-            // SEQUENTIAL: Determine starting phase based on configuration
-            print("TrackingDetector: SEQUENTIAL - Configuration check:")
-            print("  - Threshold calibration enabled: \(config.isThresholdCalibrationEnabled)")
-            print("  - Direction calibration enabled: \(config.isDirectionCalibrationEnabled)")
-            
+            // Determine starting phase based on configuration
             if config.isThresholdCalibrationEnabled {
                 calibrationPhase = .thresholdDetection
                 targetCalibrationFrames = config.thresholdCalibrationFrames
-                print("TrackingDetector: SEQUENTIAL - Starting Phase 1 ONLY - Threshold Detection (\(config.thresholdCalibrationFrames) frames)")
+                print("AutoCalibration: Starting Phase 1 - Threshold Detection (\(config.thresholdCalibrationFrames) frames)")
             } else if config.isDirectionCalibrationEnabled {
                 calibrationPhase = .movementAnalysis
                 targetCalibrationFrames = config.movementAnalysisFrames
                 isMovementAnalysisPhase = true
-                print("TrackingDetector: SEQUENTIAL - Starting Phase 2 ONLY - Movement Analysis (\(config.movementAnalysisFrames) frames)")
+                print("AutoCalibration: Starting Phase 2 - Movement Analysis (\(config.movementAnalysisFrames) frames)")
             } else {
-                print("TrackingDetector: SEQUENTIAL - ERROR: No phases configured")
+                print("AutoCalibration: ERROR - No phases configured")
                 isAutoCalibrationEnabled = false
                 return
             }
@@ -336,7 +323,7 @@ class TrackingDetector: ObjectDetector {
             // Reset the ByteTracker to clear any existing tracks
             byteTracker.reset()
             
-            print("TrackingDetector: Auto-calibration started - Total frames needed: \(config.totalCalibrationFrames)")
+            print("AutoCalibration: Started - Total frames needed: \(config.totalCalibrationFrames)")
         }
     }
     
@@ -361,7 +348,6 @@ class TrackingDetector: ObjectDetector {
         calibrationPhase = .thresholdDetection
         isMovementAnalysisPhase = false
         fishMovementData.removeAll(keepingCapacity: true)
-        edgeAccumulator = nil
         currentPixelBuffer = nil
     }
     
@@ -393,7 +379,7 @@ class TrackingDetector: ObjectDetector {
             let threshold2 = CGFloat(thresholds[1].floatValue)
             
             // Update our running thresholds
-            if edgeAccumulator == nil {
+            if calibrationFrameCount == 1 {
                 // First frame - just use the values directly
                 self.thresholds = [threshold1, threshold2]
             } else {
@@ -421,19 +407,19 @@ class TrackingDetector: ObjectDetector {
         let sortedThresholds = thresholds.sorted()
         self.thresholds = sortedThresholds
         
-        print("TrackingDetector: Phase 1 complete - Thresholds: \(thresholds)")
+        print("AutoCalibration: Phase 1 complete - Thresholds: \(thresholds)")
         
         // Notify threshold completion
         onCalibrationComplete?(thresholds)
         
-        // SEQUENTIAL EXECUTION: Check what to do next
+        // Check what to do next
         if config.isDirectionCalibrationEnabled {
             // Start Phase 2 immediately and sequentially
-            print("TrackingDetector: SEQUENTIAL - Starting Phase 2 immediately after Phase 1")
+            print("AutoCalibration: Starting Phase 2 immediately after Phase 1")
             startMovementAnalysisPhaseSequentially()
         } else {
             // No Phase 2 needed, complete immediately
-            print("TrackingDetector: SEQUENTIAL - No Phase 2 needed, completing calibration")
+            print("AutoCalibration: Phase 2 not enabled, completing calibration")
             completeEntireCalibration()
         }
     }
@@ -443,14 +429,12 @@ class TrackingDetector: ObjectDetector {
     private func startMovementAnalysisPhaseSequentially() {
         let config = AutoCalibrationConfig.shared
         
-        print("TrackingDetector: SEQUENTIAL - Preparing Phase 2 transition...")
-        
         // Step 1: Update phase state immediately
         calibrationPhase = .movementAnalysis
         movementAnalysisFrameCount = 0
         isMovementAnalysisPhase = true
         
-        // Step 2: Clear all tracking data synchronously (no async)
+        // Step 2: Clear all tracking data synchronously
         fishMovementData.removeAll(keepingCapacity: true)
         trackedObjects.removeAll(keepingCapacity: true)
         countedTracks.removeAll(keepingCapacity: true)
@@ -461,14 +445,13 @@ class TrackingDetector: ObjectDetector {
         // Step 3: Reset tracker synchronously
         byteTracker.reset()
         
-        print("TrackingDetector: SEQUENTIAL - Phase 2 ready - Movement Analysis (\(config.movementAnalysisFrames) frames)")
-        print("TrackingDetector: SEQUENTIAL - Phase state: calibrationPhase=\(calibrationPhase), isMovementAnalysisPhase=\(isMovementAnalysisPhase)")
+        print("AutoCalibration: Phase 2 ready - Movement Analysis (\(config.movementAnalysisFrames) frames)")
     }
     
     /// Process movement analysis for Phase 2
     @MainActor
     private func processMovementAnalysis() {
-        // Additional safety checks to prevent re-entry and stuck states
+        // Safety checks to prevent re-entry and stuck states
         guard isMovementAnalysisPhase && 
               calibrationPhase == .movementAnalysis &&
               isAutoCalibrationEnabled else { 
@@ -480,14 +463,9 @@ class TrackingDetector: ObjectDetector {
         
         // Safety mechanism: prevent infinite analysis if something goes wrong
         if movementAnalysisFrameCount > config.movementAnalysisFrames + 100 {
-            print("TrackingDetector: WARNING - Movement analysis exceeded expected frames, force completing")
+            print("AutoCalibration: WARNING - Movement analysis exceeded expected frames, force completing")
             completeMovementAnalysis()
             return
-        }
-        
-        // Debug logging every 50 frames to track progress (can be removed in production)
-        if movementAnalysisFrameCount % 50 == 0 || movementAnalysisFrameCount <= 5 {
-            print("TrackingDetector: Movement analysis frame \(movementAnalysisFrameCount)/\(config.movementAnalysisFrames), tracks: \(trackedObjects.count)")
         }
         
         // Calculate total progress across all enabled phases
@@ -528,11 +506,10 @@ class TrackingDetector: ObjectDetector {
     private func completeMovementAnalysis() {
         // Prevent multiple simultaneous completions
         guard isMovementAnalysisPhase && calibrationPhase == .movementAnalysis else {
-            print("TrackingDetector: WARNING - completeMovementAnalysis called but not in movement analysis phase")
             return
         }
         
-        print("TrackingDetector: Phase 2 complete - Analyzing movement patterns...")
+        print("AutoCalibration: Phase 2 complete - Analyzing movement patterns...")
         
         // Immediately mark as no longer in movement analysis to prevent re-entry
         isMovementAnalysisPhase = false
@@ -542,11 +519,11 @@ class TrackingDetector: ObjectDetector {
         let movementArray = Array(fishMovementData.values)
         let analysis = MovementAnalyzer.determineDirection(from: movementArray)
         
-        print("TrackingDetector: Direction analysis - Confidence: \(analysis.confidence), Qualified tracks: \(analysis.qualifiedTracksCount)")
+        print("AutoCalibration: Direction analysis - Confidence: \(analysis.confidence), Qualified tracks: \(analysis.qualifiedTracksCount)")
         
         // Apply detected direction if confidence is sufficient
         if let detectedDirection = analysis.predominantDirection {
-            print("TrackingDetector: Auto-detected direction: \(detectedDirection)")
+            print("AutoCalibration: Auto-detected direction: \(detectedDirection)")
             setCountingDirection(detectedDirection)
             
             // Execute callback safely on main thread
@@ -554,7 +531,7 @@ class TrackingDetector: ObjectDetector {
                 self?.onDirectionDetected?(detectedDirection)
             }
         } else {
-            print("TrackingDetector: No clear direction detected, keeping original: \(originalCountingDirection)")
+            print("AutoCalibration: No clear direction detected, keeping original: \(originalCountingDirection)")
         }
         
         // Complete entire calibration process
@@ -572,7 +549,6 @@ class TrackingDetector: ObjectDetector {
     private func completeEntireCalibration() {
         // Prevent multiple completions
         guard !isCalibrated else {
-            print("TrackingDetector: WARNING - completeEntireCalibration called but already completed")
             return
         }
         
@@ -594,7 +570,7 @@ class TrackingDetector: ObjectDetector {
         // Reset current pixel buffer reference to avoid processing stale data
         currentPixelBuffer = nil
         
-        print("TrackingDetector: Complete auto-calibration finished")
+        print("AutoCalibration: Complete calibration finished")
     }
     
     /// Generate a comprehensive calibration summary
@@ -626,8 +602,6 @@ class TrackingDetector: ObjectDetector {
     override func processObservations(for request: VNRequest, error: Error?) {
         // Save the current pixel buffer for potential calibration use
         let capturedPixelBuffer = currentPixelBuffer
-        
-        // Removed debug logging for production
         
         // Process results if available
         if let results = request.results as? [VNRecognizedObjectObservation] {

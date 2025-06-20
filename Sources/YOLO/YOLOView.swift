@@ -1779,19 +1779,13 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             self.threshold2 = thresholds[1]
           }
           
-          // SEQUENTIAL FIX: Immediately restore inference for Phase 2
+          // Restore inference for Phase 2 if needed
           let config = AutoCalibrationConfig.shared
           if config.isDirectionCalibrationEnabled {
             // Phase 2 needs normal YOLO inference - restore immediately
             self.currentFrameSource.inferenceOK = true
-            print("YOLOView: SEQUENTIAL - Phase 1 complete, inference restored for Phase 2")
-            
             // Force a processing state reset to ensure immediate transition
             self.currentFrameSource.resetProcessingState()
-            print("YOLOView: SEQUENTIAL - Processing state reset for Phase 2")
-          } else {
-            // No Phase 2, keep inference off until final completion
-            print("YOLOView: SEQUENTIAL - No Phase 2, keeping inference off")
           }
           
           // Note: Don't reset calibration state here - Phase 2 may still be running
@@ -1812,8 +1806,6 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
           
           // Re-draw the threshold lines for the new direction
           self.updateThresholdLinesForDirection(detectedDirection)
-          
-          print("YOLOView: Direction auto-updated to \(detectedDirection)")
         }
       }
       
@@ -1861,7 +1853,6 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       DispatchQueue.main.asyncAfter(deadline: .now() + 30.0) { [weak self] in
         guard let self = self, self.isCalibrating else { return }
         
-        print("YOLOView: WARNING - Auto-calibration timeout, force stopping")
         self.isCalibrating = false
         self.currentFrameSource.inferenceOK = true
         
