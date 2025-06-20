@@ -412,6 +412,13 @@ public class STrack {
         // Note: We don't reset position, trackId, or state as they may be needed for reference
     }
     
+    /// Get movement vector between current and previous position
+    /// - Parameter previousPosition: The previous position to compare against
+    /// - Returns: Movement vector as (dx, dy)
+    public func getMovementVector(from previousPosition: (x: CGFloat, y: CGFloat)) -> (dx: CGFloat, dy: CGFloat) {
+        return (dx: position.x - previousPosition.x, dy: position.y - previousPosition.y)
+    }
+    
     // MARK: - Class Methods
     
     /// Gets the next available track ID (always a new, higher ID - never reuses IDs)

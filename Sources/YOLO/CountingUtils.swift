@@ -17,6 +17,308 @@ public enum CountingDirection {
     case rightToLeft
 }
 
+// MARK: - Auto-Calibration Configuration
+
+/// Configuration for auto-calibration phases
+public final class AutoCalibrationConfig: @unchecked Sendable {
+    /// Shared singleton instance for easy developer configuration
+    public static let shared = AutoCalibrationConfig()
+    
+    /// Enable/disable threshold detection phase (Phase 1: OpenCV edge detection)
+    public var isThresholdCalibrationEnabled: Bool = true
+    
+    /// Enable/disable direction detection phase (Phase 2: Movement analysis)
+    public var isDirectionCalibrationEnabled: Bool = true
+    
+    /// Number of frames for threshold detection phase
+    public var thresholdCalibrationFrames: Int = 300
+    
+    /// Number of frames for movement analysis phase
+    public var movementAnalysisFrames: Int = 300
+    
+    /// Minimum track length for movement analysis (frames)
+    public var minTrackLengthForAnalysis: Int = 10
+    
+    /// Minimum confidence for movement analysis
+    public var minConfidenceForAnalysis: Float = 0.6
+    
+    /// Percentage threshold for direction decision (60% = 0.6)
+    public var directionDecisionThreshold: Float = 0.6
+    
+    private init() {}
+    
+    /// Quick setup for common configurations
+    public func setConfiguration(
+        thresholdCalibration: Bool = true,
+        directionCalibration: Bool = true,
+        thresholdFrames: Int = 300,
+        movementFrames: Int = 300
+    ) {
+        isThresholdCalibrationEnabled = thresholdCalibration
+        isDirectionCalibrationEnabled = directionCalibration
+        thresholdCalibrationFrames = thresholdFrames
+        movementAnalysisFrames = movementFrames
+        
+        print("AutoCalibrationConfig: Updated - threshold: \(thresholdCalibration), direction: \(directionCalibration)")
+    }
+    
+    /// Get total calibration frames needed
+    public var totalCalibrationFrames: Int {
+        var total = 0
+        if isThresholdCalibrationEnabled {
+            total += thresholdCalibrationFrames
+        }
+        if isDirectionCalibrationEnabled {
+            total += movementAnalysisFrames
+        }
+        return total
+    }
+}
+
+// MARK: - Movement Analysis Data Structures
+
+/// Data structure for tracking fish movement patterns
+public struct FishMovementData {
+    let trackId: Int
+    var positions: [(x: CGFloat, y: CGFloat, timestamp: Double)]
+    var movementVectors: [(dx: CGFloat, dy: CGFloat)]
+    var confidence: Float
+    var trackLength: Int
+    var consistencyScore: Float
+    
+    /// Initialize with first position
+    init(trackId: Int, initialPosition: (x: CGFloat, y: CGFloat), confidence: Float) {
+        self.trackId = trackId
+        self.positions = [(initialPosition.x, initialPosition.y, CACurrentMediaTime())]
+        self.movementVectors = []
+        self.confidence = confidence
+        self.trackLength = 1
+        self.consistencyScore = 0.0
+    }
+    
+    /// Add a new position and calculate movement vector
+    mutating func addPosition(_ position: (x: CGFloat, y: CGFloat), confidence: Float) {
+        let timestamp = CACurrentMediaTime()
+        
+        // Calculate movement vector from last position
+        if let lastPos = positions.last {
+            let dx = position.x - lastPos.x
+            let dy = position.y - lastPos.y
+            movementVectors.append((dx: dx, dy: dy))
+        }
+        
+        positions.append((position.x, position.y, timestamp))
+        self.confidence = max(self.confidence, confidence) // Keep highest confidence
+        trackLength += 1
+        
+        // Recalculate consistency score
+        consistencyScore = MovementAnalyzer.calculateMovementConsistency(movementVectors)
+        
+        // Limit stored data to prevent memory growth
+        if positions.count > 50 {
+            positions.removeFirst()
+        }
+        if movementVectors.count > 49 {
+            movementVectors.removeFirst()
+        }
+    }
+}
+
+/// Analysis result for directional movement
+public struct DirectionalAnalysis {
+    let predominantDirection: CountingDirection?
+    let confidence: Float
+    let directionWeights: [CountingDirection: Float]
+    let qualifiedTracksCount: Int
+    let totalMovementVectors: Int
+}
+
+/// Summary of complete calibration process
+public struct CalibrationSummary {
+    let thresholds: [CGFloat]
+    let detectedDirection: CountingDirection?
+    let originalDirection: CountingDirection
+    let movementAnalysisSuccess: Bool
+    let qualifiedTracksCount: Int
+    let warnings: [String]
+    let thresholdCalibrationEnabled: Bool
+    let directionCalibrationEnabled: Bool
+}
+
+// MARK: - Movement Analysis Engine
+
+/// Core movement analysis functionality
+public class MovementAnalyzer {
+    
+    /// Analyze track movement patterns and determine consistency
+    /// - Parameter data: Fish movement data to analyze
+    /// - Returns: DirectionalAnalysis with predominant direction and confidence
+    public static func analyzeTrackMovement(_ data: FishMovementData) -> DirectionalAnalysis {
+        let vectors = data.movementVectors
+        guard !vectors.isEmpty else {
+            return DirectionalAnalysis(
+                predominantDirection: nil,
+                confidence: 0.0,
+                directionWeights: [:],
+                qualifiedTracksCount: 0,
+                totalMovementVectors: 0
+            )
+        }
+        
+        // Count movement in each direction
+        var directionCounts: [CountingDirection: Float] = [
+            .topToBottom: 0,
+            .bottomToTop: 0,
+            .leftToRight: 0,
+            .rightToLeft: 0
+        ]
+        
+        for vector in vectors {
+            let weight = Float(1.0) // Equal weight for each movement
+            
+            // Determine primary direction based on larger component
+            if abs(vector.dx) > abs(vector.dy) {
+                // Horizontal movement dominates
+                if vector.dx > 0 {
+                    directionCounts[.leftToRight]! += weight
+                } else {
+                    directionCounts[.rightToLeft]! += weight
+                }
+            } else {
+                // Vertical movement dominates
+                if vector.dy > 0 {
+                    directionCounts[.topToBottom]! += weight
+                } else {
+                    directionCounts[.bottomToTop]! += weight
+                }
+            }
+        }
+        
+        // Find predominant direction
+        let maxEntry = directionCounts.max { $0.value < $1.value }
+        let total = directionCounts.values.reduce(0, +)
+        let confidence = total > 0 ? (maxEntry?.value ?? 0) / total : 0
+        
+        return DirectionalAnalysis(
+            predominantDirection: maxEntry?.key,
+            confidence: confidence,
+            directionWeights: directionCounts,
+            qualifiedTracksCount: 1,
+            totalMovementVectors: vectors.count
+        )
+    }
+    
+    /// Calculate movement consistency score
+    /// - Parameter vectors: Array of movement vectors (dx, dy)
+    /// - Returns: Consistency score between 0.0 and 1.0
+    public static func calculateMovementConsistency(_ vectors: [(dx: CGFloat, dy: CGFloat)]) -> Float {
+        guard vectors.count >= 2 else { return 0.0 }
+        
+        // Calculate average direction
+        let avgDx = vectors.map { $0.dx }.reduce(0, +) / CGFloat(vectors.count)
+        let avgDy = vectors.map { $0.dy }.reduce(0, +) / CGFloat(vectors.count)
+        let avgMagnitude = sqrt(avgDx * avgDx + avgDy * avgDy)
+        
+        guard avgMagnitude > 0.001 else { return 0.0 } // Avoid division by zero
+        
+        // Calculate how consistent each vector is with the average direction
+        var consistencySum: Float = 0.0
+        for vector in vectors {
+            let magnitude = sqrt(vector.dx * vector.dx + vector.dy * vector.dy)
+            if magnitude > 0.001 {
+                // Dot product normalized by magnitudes = cosine of angle
+                let dotProduct = vector.dx * avgDx + vector.dy * avgDy
+                let consistency = Float(dotProduct / (magnitude * avgMagnitude))
+                consistencySum += max(0, consistency) // Only positive consistency counts
+            }
+        }
+        
+        return consistencySum / Float(vectors.count)
+    }
+    
+    /// Determine predominant direction from multiple fish tracks
+    /// - Parameter movements: Array of fish movement data
+    /// - Returns: Detected direction or nil if unclear
+    public static func determineDirection(from movements: [FishMovementData]) -> DirectionalAnalysis {
+        let config = AutoCalibrationConfig.shared
+        
+        // Filter qualified tracks
+        let qualifiedTracks = movements.filter { track in
+            return track.trackLength >= config.minTrackLengthForAnalysis &&
+                   track.confidence >= config.minConfidenceForAnalysis &&
+                   !track.movementVectors.isEmpty
+        }
+        
+        guard !qualifiedTracks.isEmpty else {
+            return DirectionalAnalysis(
+                predominantDirection: nil,
+                confidence: 0.0,
+                directionWeights: [:],
+                qualifiedTracksCount: 0,
+                totalMovementVectors: 0
+            )
+        }
+        
+        // Aggregate weighted direction counts
+        var totalDirectionWeights: [CountingDirection: Float] = [
+            .topToBottom: 0,
+            .bottomToTop: 0,
+            .leftToRight: 0,
+            .rightToLeft: 0
+        ]
+        
+        var totalVectors = 0
+        
+        for track in qualifiedTracks {
+            let trackAnalysis = analyzeTrackMovement(track)
+            let trackWeight = Float(track.trackLength) * track.confidence * track.consistencyScore
+            
+            for (direction, weight) in trackAnalysis.directionWeights {
+                totalDirectionWeights[direction]! += weight * trackWeight
+            }
+            
+            totalVectors += track.movementVectors.count
+        }
+        
+        // Find predominant direction
+        let maxEntry = totalDirectionWeights.max { $0.value < $1.value }
+        let totalWeight = totalDirectionWeights.values.reduce(0, +)
+        let confidence = totalWeight > 0 ? (maxEntry?.value ?? 0) / totalWeight : 0
+        
+        // Check if confidence meets threshold
+        let predominantDirection = confidence >= config.directionDecisionThreshold ? maxEntry?.key : nil
+        
+        return DirectionalAnalysis(
+            predominantDirection: predominantDirection,
+            confidence: confidence,
+            directionWeights: totalDirectionWeights,
+            qualifiedTracksCount: qualifiedTracks.count,
+            totalMovementVectors: totalVectors
+        )
+    }
+    
+    /// Generate warnings based on analysis results
+    /// - Parameter analysis: The directional analysis results
+    /// - Returns: Array of warning messages
+    public static func generateWarnings(from analysis: DirectionalAnalysis) -> [String] {
+        var warnings: [String] = []
+        
+        if analysis.qualifiedTracksCount < 5 {
+            warnings.append("Low track count (\(analysis.qualifiedTracksCount)) - direction may be unreliable")
+        }
+        
+        if analysis.confidence < 0.6 {
+            warnings.append("Low confidence (\(String(format: "%.1f", analysis.confidence * 100))%) - mixed movement detected")
+        }
+        
+        if analysis.totalMovementVectors < 50 {
+            warnings.append("Limited movement data (\(analysis.totalMovementVectors) vectors)")
+        }
+        
+        return warnings
+    }
+}
+
 /// Calibration utilities for auto threshold detection
 public class CalibrationUtils {
     /// Default frame count for calibration (10 seconds at 30fps to match Python)
