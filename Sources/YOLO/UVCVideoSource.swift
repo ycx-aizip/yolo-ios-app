@@ -639,8 +639,29 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     }
     
     func setUpUVCCameraWithConfiguration(device: AVCaptureDevice, preferredConfig: UVCConfiguration) async -> Bool {
-        print("UVC: Beginning camera configuration...")
+        print("UVC: Beginning camera configuration (reconnection)...")
         captureSession.beginConfiguration()
+        
+        // CRITICAL FIX: Clean up existing inputs and outputs for reconnection
+        print("UVC: Cleaning up existing session components...")
+        
+        // Remove existing inputs
+        for input in captureSession.inputs {
+            captureSession.removeInput(input)
+            print("UVC: Removed existing input: \(input)")
+        }
+        
+        // Remove existing outputs
+        for output in captureSession.outputs {
+            captureSession.removeOutput(output)
+            print("UVC: Removed existing output: \(output)")
+        }
+        
+        // Clear existing references and reset processing state
+        videoInput = nil
+        isModelProcessing = false
+        frameSizeCaptured = false
+        frameProcessingCount = 0
         
         // Apply configuration with individual setting fallbacks
         print("UVC: 🎯 Attempting configuration: 720p @ 60fps, widest FOV")
@@ -661,11 +682,11 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             print("UVC: ✅ \(deviceType) configured: \(Int(appliedConfig.targetResolution.width))×\(Int(appliedConfig.targetResolution.height)) @ \(appliedConfig.targetFrameRate) fps, zoom: \(String(format: "%.1f", appliedConfig.targetZoomFactor))x")
         }
 
-        // Create device input
+        // Create fresh device input
         do {
-            print("UVC: Creating device input for \(device.localizedName)")
+            print("UVC: Creating fresh device input for \(device.localizedName)")
             videoInput = try AVCaptureDeviceInput(device: device)
-            print("UVC: Device input created successfully")
+            print("UVC: Fresh device input created successfully")
         } catch {
             print("UVC: Failed to create device input: \(error)")
             captureSession.commitConfiguration()
@@ -678,14 +699,16 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             return false
         }
         captureSession.addInput(videoInput!)
+        print("UVC: Fresh video input added to session")
         
-        // Configure preview layer
+        // Configure fresh preview layer
         let previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
         previewLayer.videoGravity = .resizeAspectFill
         previewLayer.connection?.videoOrientation = .landscapeRight
         self.previewLayer = previewLayer
+        print("UVC: Fresh preview layer configured")
 
-        // Configure video output to use native device format
+        // Configure fresh video output to use native device format
         videoOutput.videoSettings = nil
         videoOutput.alwaysDiscardsLateVideoFrames = true
         videoOutput.setSampleBufferDelegate(self, queue: cameraQueue)
@@ -696,6 +719,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
             return false
         }
         captureSession.addOutput(videoOutput)
+        print("UVC: Fresh video output added to session")
 
         // Configure video connections without mirroring
         let connection = videoOutput.connection(with: AVMediaType.video)
