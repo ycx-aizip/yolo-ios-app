@@ -1779,13 +1779,19 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             self.threshold2 = thresholds[1]
           }
           
-          // CRITICAL FIX: Restore normal inference for Phase 2 (movement analysis)
-          // Phase 1 (threshold detection) is complete, now allow normal YOLO to run for Phase 2
+          // SEQUENTIAL FIX: Immediately restore inference for Phase 2
           let config = AutoCalibrationConfig.shared
           if config.isDirectionCalibrationEnabled {
-            // Phase 2 needs normal YOLO inference - restore inferenceOK
+            // Phase 2 needs normal YOLO inference - restore immediately
             self.currentFrameSource.inferenceOK = true
-            print("YOLOView: Phase 1 complete - Restored normal inference for Phase 2")
+            print("YOLOView: SEQUENTIAL - Phase 1 complete, inference restored for Phase 2")
+            
+            // Force a processing state reset to ensure immediate transition
+            self.currentFrameSource.resetProcessingState()
+            print("YOLOView: SEQUENTIAL - Processing state reset for Phase 2")
+          } else {
+            // No Phase 2, keep inference off until final completion
+            print("YOLOView: SEQUENTIAL - No Phase 2, keeping inference off")
           }
           
           // Note: Don't reset calibration state here - Phase 2 may still be running

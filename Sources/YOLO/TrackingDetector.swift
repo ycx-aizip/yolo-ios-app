@@ -306,18 +306,22 @@ class TrackingDetector: ObjectDetector {
             edgeAccumulator = nil
             isMovementAnalysisPhase = false
             
-            // Determine starting phase based on configuration
+            // SEQUENTIAL: Determine starting phase based on configuration
+            print("TrackingDetector: SEQUENTIAL - Configuration check:")
+            print("  - Threshold calibration enabled: \(config.isThresholdCalibrationEnabled)")
+            print("  - Direction calibration enabled: \(config.isDirectionCalibrationEnabled)")
+            
             if config.isThresholdCalibrationEnabled {
                 calibrationPhase = .thresholdDetection
                 targetCalibrationFrames = config.thresholdCalibrationFrames
-                print("TrackingDetector: Starting Phase 1 - Threshold Detection (\(config.thresholdCalibrationFrames) frames)")
+                print("TrackingDetector: SEQUENTIAL - Starting Phase 1 ONLY - Threshold Detection (\(config.thresholdCalibrationFrames) frames)")
             } else if config.isDirectionCalibrationEnabled {
                 calibrationPhase = .movementAnalysis
                 targetCalibrationFrames = config.movementAnalysisFrames
                 isMovementAnalysisPhase = true
-                print("TrackingDetector: Starting Phase 2 - Movement Analysis (\(config.movementAnalysisFrames) frames)")
+                print("TrackingDetector: SEQUENTIAL - Starting Phase 2 ONLY - Movement Analysis (\(config.movementAnalysisFrames) frames)")
             } else {
-                print("TrackingDetector: Warning - Auto-calibration enabled but no phases configured")
+                print("TrackingDetector: SEQUENTIAL - ERROR: No phases configured")
                 isAutoCalibrationEnabled = false
                 return
             }
@@ -422,39 +426,43 @@ class TrackingDetector: ObjectDetector {
         // Notify threshold completion
         onCalibrationComplete?(thresholds)
         
-        // Check if we should proceed to Phase 2
+        // SEQUENTIAL EXECUTION: Check what to do next
         if config.isDirectionCalibrationEnabled {
-            startMovementAnalysisPhase()
+            // Start Phase 2 immediately and sequentially
+            print("TrackingDetector: SEQUENTIAL - Starting Phase 2 immediately after Phase 1")
+            startMovementAnalysisPhaseSequentially()
         } else {
-            // Skip Phase 2, complete calibration
+            // No Phase 2 needed, complete immediately
+            print("TrackingDetector: SEQUENTIAL - No Phase 2 needed, completing calibration")
             completeEntireCalibration()
         }
     }
     
-    /// Start the movement analysis phase (Phase 2)
+    /// Start the movement analysis phase (Phase 2) - SEQUENTIAL VERSION
     @MainActor
-    private func startMovementAnalysisPhase() {
+    private func startMovementAnalysisPhaseSequentially() {
         let config = AutoCalibrationConfig.shared
         
+        print("TrackingDetector: SEQUENTIAL - Preparing Phase 2 transition...")
+        
+        // Step 1: Update phase state immediately
         calibrationPhase = .movementAnalysis
         movementAnalysisFrameCount = 0
         isMovementAnalysisPhase = true
-        fishMovementData.removeAll(keepingCapacity: true)
         
-        // Clear tracking state for fresh start in movement analysis
-        // Safely clear all tracking state
+        // Step 2: Clear all tracking data synchronously (no async)
+        fishMovementData.removeAll(keepingCapacity: true)
         trackedObjects.removeAll(keepingCapacity: true)
         countedTracks.removeAll(keepingCapacity: true)
         crossingDirections.removeAll(keepingCapacity: true)
         previousPositions.removeAll(keepingCapacity: true)
         historyPositions.removeAll(keepingCapacity: true)
         
-        // Reset tracker safely to prevent memory issues
-        DispatchQueue.main.async { [weak self] in
-            self?.byteTracker.reset()
-        }
+        // Step 3: Reset tracker synchronously
+        byteTracker.reset()
         
-        print("TrackingDetector: Starting Phase 2 - Movement Analysis (\(config.movementAnalysisFrames) frames)")
+        print("TrackingDetector: SEQUENTIAL - Phase 2 ready - Movement Analysis (\(config.movementAnalysisFrames) frames)")
+        print("TrackingDetector: SEQUENTIAL - Phase state: calibrationPhase=\(calibrationPhase), isMovementAnalysisPhase=\(isMovementAnalysisPhase)")
     }
     
     /// Process movement analysis for Phase 2
