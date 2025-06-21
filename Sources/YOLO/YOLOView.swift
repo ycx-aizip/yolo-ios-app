@@ -1564,61 +1564,38 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     }
   }
   
-  // Update the position of a threshold line
+  // Update the position of a threshold line using unified coordinate system
   private func updateThresholdLayer(_ layer: CAShapeLayer?, position: CGFloat) {
     guard let layer = layer else { return }
     
-    // Position is a value between 0 and 1 representing the position along the relevant axis
+    // Use unified coordinate system for threshold line positioning
+    let thresholdLines = UnifiedCoordinateSystem.thresholdsToScreen(
+      [position], 
+      countingDirection: countingDirection, 
+      screenBounds: self.bounds
+    )
+    
+    guard let thresholdLine = thresholdLines.first else { return }
+    
     let path = UIBezierPath()
     
-    // Calculate the line position based on the current counting direction
-    // Display should match user's mental model of direction
+    // Draw line based on counting direction
     switch countingDirection {
-    case .topToBottom:
-      // For top to bottom, normal order (0=top, 1=bottom)
-      // User expects: position 0.3 → line 30% from top
-      let height = self.bounds.height
-      let yPosition = height * position
+    case .topToBottom, .bottomToTop:
+      // Horizontal lines for vertical movement
+      path.move(to: CGPoint(x: thresholdLine.minX, y: thresholdLine.minY))
+      path.addLine(to: CGPoint(x: thresholdLine.maxX, y: thresholdLine.minY))
       
-      // Draw a horizontal line across the width of the view
-      path.move(to: CGPoint(x: 0, y: yPosition))
-      path.addLine(to: CGPoint(x: self.bounds.width, y: yPosition))
-      
-    case .bottomToTop:
-      // For bottom to top, flipped display (0=bottom, 1=top)
-      // User expects: position 0.3 → line 30% from bottom
-      let height = self.bounds.height
-      let yPosition = height * (1.0 - position)  // Flip for visual consistency
-      
-      // Draw a horizontal line across the width of the view
-      path.move(to: CGPoint(x: 0, y: yPosition))
-      path.addLine(to: CGPoint(x: self.bounds.width, y: yPosition))
-      
-    case .leftToRight:
-      // For left to right, normal order (0=left, 1=right)
-      // User expects: position 0.3 → line 30% from left
-      let width = self.bounds.width
-      let xPosition = width * position
-      
-      // Draw a vertical line across the height of the view
-      path.move(to: CGPoint(x: xPosition, y: 0))
-      path.addLine(to: CGPoint(x: xPosition, y: self.bounds.height))
-      
-    case .rightToLeft:
-      // For right to left, flipped display (0=right, 1=left)
-      // User expects: position 0.3 → line 30% from right
-      let width = self.bounds.width
-      let xPosition = width * (1.0 - position)  // Flip for visual consistency
-      
-      // Draw a vertical line across the height of the view
-      path.move(to: CGPoint(x: xPosition, y: 0))
-      path.addLine(to: CGPoint(x: xPosition, y: self.bounds.height))
+    case .leftToRight, .rightToLeft:
+      // Vertical lines for horizontal movement  
+      path.move(to: CGPoint(x: thresholdLine.minX, y: thresholdLine.minY))
+      path.addLine(to: CGPoint(x: thresholdLine.minX, y: thresholdLine.maxY))
     }
     
     layer.path = path.cgPath
   }
   
-  // Update threshold lines for the current direction
+  // Update threshold lines for the current direction using unified coordinate system
   private func updateThresholdLinesForDirection(_ direction: CountingDirection) {
     // Update the slider labels consistently (always use "Threshold 1" and "Threshold 2")
     labelThreshold1.text = "Threshold 1: " + String(format: "%.2f", threshold1Slider.value)
@@ -1628,16 +1605,14 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     updateThresholdLayer(threshold1Layer, position: threshold1)
     updateThresholdLayer(threshold2Layer, position: threshold2)
     
-    // Update tracking detector thresholds
+    // Update tracking detector thresholds using unified coordinate system
     if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
-      // For bottomToTop, flip threshold values to match the flipped display
-      let adjustedThresholds: [CGFloat]
-      if direction == .bottomToTop {
-        adjustedThresholds = [1.0 - threshold1, 1.0 - threshold2]
-      } else {
-        adjustedThresholds = [threshold1, threshold2]
-      }
-      trackingDetector.setThresholds(adjustedThresholds)
+      // Convert display thresholds to counting thresholds using unified coordinate system
+      let countingThresholds = UnifiedCoordinateSystem.displayToCounting(
+        [threshold1, threshold2], 
+        countingDirection: direction
+      )
+      trackingDetector.setThresholds(countingThresholds)
     }
   }
   
@@ -1651,16 +1626,14 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     // Update centralized configuration
     TrackingDetectorConfig.shared.updateDefaults(thresholds: [value, threshold2])
     
-    // Update the thresholds in the tracking detector
+    // Update the thresholds in the tracking detector using unified coordinate system
     if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
-      // For bottomToTop, flip threshold values to match the flipped display
-      let adjustedThresholds: [CGFloat]
-      if countingDirection == .bottomToTop {
-        adjustedThresholds = [1.0 - value, 1.0 - threshold2]
-      } else {
-        adjustedThresholds = [value, threshold2]
-      }
-      trackingDetector.setThresholds(adjustedThresholds)
+      // Convert display thresholds to counting thresholds using unified coordinate system
+      let countingThresholds = UnifiedCoordinateSystem.displayToCounting(
+        [value, threshold2], 
+        countingDirection: countingDirection
+      )
+      trackingDetector.setThresholds(countingThresholds)
     }
   }
   
@@ -1674,16 +1647,14 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     // Update centralized configuration
     TrackingDetectorConfig.shared.updateDefaults(thresholds: [threshold1, value])
     
-    // Update the thresholds in the tracking detector
+    // Update the thresholds in the tracking detector using unified coordinate system
     if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
-      // For bottomToTop, flip threshold values to match the flipped display
-      let adjustedThresholds: [CGFloat]
-      if countingDirection == .bottomToTop {
-        adjustedThresholds = [1.0 - threshold1, 1.0 - value]
-      } else {
-        adjustedThresholds = [threshold1, value]
-      }
-      trackingDetector.setThresholds(adjustedThresholds)
+      // Convert display thresholds to counting thresholds using unified coordinate system
+      let countingThresholds = UnifiedCoordinateSystem.displayToCounting(
+        [threshold1, value], 
+        countingDirection: countingDirection
+      )
+      trackingDetector.setThresholds(countingThresholds)
     }
   }
 
@@ -1784,18 +1755,14 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         DispatchQueue.main.async {
           // Update threshold sliders with new values
           if thresholds.count >= 2 {
-            // For bottomToTop, convert from counting coordinates back to UI coordinates
-            let uiThreshold1: CGFloat
-            let uiThreshold2: CGFloat
+            // Convert from counting coordinates back to UI coordinates using unified coordinate system
+            let uiThresholds = UnifiedCoordinateSystem.countingToDisplay(
+              thresholds, 
+              countingDirection: self.countingDirection
+            )
             
-            if self.countingDirection == .bottomToTop {
-              // Convert from counting coordinates back to UI coordinates
-              uiThreshold1 = 1.0 - thresholds[0]
-              uiThreshold2 = 1.0 - thresholds[1]
-            } else {
-              uiThreshold1 = thresholds[0]
-              uiThreshold2 = thresholds[1]
-            }
+            let uiThreshold1 = uiThresholds[0]
+            let uiThreshold2 = uiThresholds[1]
             
             self.threshold1Slider.value = Float(uiThreshold1)
             self.threshold2Slider.value = Float(uiThreshold2)

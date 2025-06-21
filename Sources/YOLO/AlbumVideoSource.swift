@@ -858,9 +858,39 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         viewBounds: CGRect,
         orientation: UIDeviceOrientation
     ) -> CGRect {
-        // For video source, we need to use the videoContentRect to account for letterboxing/pillarboxing
-        // Use our existing method that already handles this conversion
-        return convertNormalizedRectToScreenRect(rect)
+        // Convert to unified coordinate system first
+        let unifiedRect = toUnifiedCoordinates(rect)
+        
+        // Convert from unified to screen coordinates
+        return UnifiedCoordinateSystem.toScreen(unifiedRect, screenBounds: viewBounds)
+    }
+    
+    /// Converts album video detection coordinates to unified coordinate system
+    /// - Parameter rect: Detection rectangle from album video (normalized Vision coordinates)
+    /// - Returns: Rectangle in unified coordinate system
+    @MainActor
+    func toUnifiedCoordinates(_ rect: CGRect) -> UnifiedCoordinateSystem.UnifiedRect {
+        // Album video detections come from Vision framework, so convert from Vision coordinates
+        let visionRect = rect
+        
+        // Convert from Vision (bottom-left origin) to unified (top-left origin)
+        let unifiedFromVision = UnifiedCoordinateSystem.fromVision(visionRect)
+        
+        // Get actual screen bounds from the player layer if available
+        let actualDisplayBounds: CGRect
+        if let playerLayer = _previewLayer {
+            actualDisplayBounds = playerLayer.bounds
+        } else {
+            // Fallback to calculated bounds
+            actualDisplayBounds = CGRect(origin: .zero, size: CGSize(width: videoToScreenScale.x, height: videoToScreenScale.y))
+        }
+        
+        // Apply album-specific adjustments for aspect ratio and letterboxing
+        return UnifiedCoordinateSystem.fromAlbum(
+            unifiedFromVision.cgRect, 
+            videoSize: actualFrameSize.width > 0 ? actualFrameSize : videoSize, 
+            displayBounds: actualDisplayBounds
+        )
     }
     
     // MARK: - Performance Analysis Methods

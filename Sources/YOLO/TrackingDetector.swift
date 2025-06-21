@@ -781,22 +781,38 @@ class TrackingDetector: ObjectDetector {
             // Get counted state for this track
             let alreadyCounted = countedTracks[trackId, default: false]
             
-            // Only check appropriate thresholds based on the current counting direction
+            // Convert positions to unified coordinate system for consistent threshold checking
+            let currentUnified = UnifiedCoordinateSystem.UnifiedRect(
+                x: center_x, y: center_y, width: 0, height: 0
+            )
+            let lastUnified = UnifiedCoordinateSystem.UnifiedRect(
+                x: last_x, y: last_y, width: 0, height: 0
+            )
+            
+            // Convert to counting coordinates based on direction
+            let currentCounting = UnifiedCoordinateSystem.toCounting(currentUnified, countingDirection: countingDirection)
+            let lastCounting = UnifiedCoordinateSystem.toCounting(lastUnified, countingDirection: countingDirection)
+            
+            // Use direction-specific threshold crossing logic
             switch countingDirection {
             case .topToBottom:
-                // Increment count: Check for threshold crossing from top to bottom
+                // Top to bottom: fish moving downward (Y increasing)
+                let current_y = currentCounting.y
+                let last_y = lastCounting.y
+                
+                // Increment count: Check for crossing from above to below threshold
                 if !alreadyCounted {
                     for threshold in thresholds {
-                        if last_y < threshold && center_y >= threshold {
+                        if last_y < threshold && current_y >= threshold {
                             countObject(trackId: trackId)
                             break // Count only once per threshold crossing event
                         }
                     }
                 }
                 
-                // Decrement count: Check for reverse crossing from bottom to top (only first threshold)
+                // Decrement count: Check for reverse crossing (only first threshold)
                 if let firstThreshold = thresholds.first,
-                   last_y > firstThreshold && center_y <= firstThreshold && alreadyCounted {
+                   last_y > firstThreshold && current_y <= firstThreshold && alreadyCounted {
                     totalCount = max(0, totalCount - 1)
                     countedTracks[trackId] = false
                     if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
@@ -805,10 +821,14 @@ class TrackingDetector: ObjectDetector {
                 }
                 
             case .bottomToTop:
-                // Increment count: Check for threshold crossing from bottom to top
+                // Bottom to top: fish moving upward (Y decreasing)
+                let current_y = currentCounting.y
+                let last_y = lastCounting.y
+                
+                // Increment count: Check for crossing from below to above threshold
                 if !alreadyCounted {
                     for threshold in thresholds {
-                        if last_y > threshold && center_y <= threshold {
+                        if last_y > threshold && current_y <= threshold {
                             countObject(trackId: trackId)
                             break // Count only once per threshold crossing event
                         }
@@ -817,7 +837,7 @@ class TrackingDetector: ObjectDetector {
                 
                 // Decrement count: Check for reverse crossing (only first threshold)
                 if let firstThreshold = thresholds.first,
-                   last_y < firstThreshold && center_y >= firstThreshold && alreadyCounted {
+                   last_y < firstThreshold && current_y >= firstThreshold && alreadyCounted {
                     totalCount = max(0, totalCount - 1)
                     countedTracks[trackId] = false
                     if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
@@ -826,11 +846,14 @@ class TrackingDetector: ObjectDetector {
                 }
                 
             case .leftToRight:
-                // For left-to-right movement, use original coordinates (no flipping needed)
-                // Increment count: Check for threshold crossing from left to right
+                // Left to right: fish moving rightward (X increasing)
+                let current_x = currentCounting.x
+                let last_x = lastCounting.x
+                
+                // Increment count: Check for crossing from left to right of threshold
                 if !alreadyCounted {
                     for threshold in thresholds {
-                        if last_x < threshold && center_x >= threshold {
+                        if last_x < threshold && current_x >= threshold {
                             countObject(trackId: trackId)
                             break // Count only once per threshold crossing event
                         }
@@ -839,7 +862,7 @@ class TrackingDetector: ObjectDetector {
                 
                 // Decrement count: Check for reverse crossing (only first threshold)
                 if let firstThreshold = thresholds.first,
-                   last_x > firstThreshold && center_x <= firstThreshold && alreadyCounted {
+                   last_x > firstThreshold && current_x <= firstThreshold && alreadyCounted {
                     totalCount = max(0, totalCount - 1)
                     countedTracks[trackId] = false
                     if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
@@ -848,14 +871,14 @@ class TrackingDetector: ObjectDetector {
                 }
                 
             case .rightToLeft:
-                // For horizontal movements, we need to account for coordinate system transformation
-                let flipped_center_x = 1.0 - center_x
-                let flipped_last_x = 1.0 - last_x
+                // Right to left: fish moving leftward (X decreasing)
+                let current_x = currentCounting.x
+                let last_x = lastCounting.x
                 
-                // Increment count: Check for threshold crossing from right to left (using flipped coordinates)
+                // Increment count: Check for crossing from right to left of threshold
                 if !alreadyCounted {
                     for threshold in thresholds {
-                        if flipped_last_x < threshold && flipped_center_x >= threshold {
+                        if last_x > threshold && current_x <= threshold {
                             countObject(trackId: trackId)
                             break // Count only once per threshold crossing event
                         }
@@ -864,7 +887,7 @@ class TrackingDetector: ObjectDetector {
                 
                 // Decrement count: Check for reverse crossing (only first threshold)
                 if let firstThreshold = thresholds.first,
-                   flipped_last_x > firstThreshold && flipped_center_x <= firstThreshold && alreadyCounted {
+                   last_x < firstThreshold && current_x >= firstThreshold && alreadyCounted {
                     totalCount = max(0, totalCount - 1)
                     countedTracks[trackId] = false
                     if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {

@@ -1091,40 +1091,30 @@ extension GoProSource: @preconcurrency ResultsListener, @preconcurrency Inferenc
 extension GoProSource {
     @MainActor
     func transformDetectionToScreenCoordinates(rect: CGRect, viewBounds: CGRect, orientation: UIDeviceOrientation) -> CGRect {
-        guard let containerView = containerView,
-              containerView.bounds.width > 0, containerView.bounds.height > 0,
-              lastFrameSize.width > 0, lastFrameSize.height > 0 else {
-            return VNImageRectForNormalizedRect(rect, Int(viewBounds.width), Int(viewBounds.height))
-        }
+        // Convert to unified coordinate system first
+        let unifiedRect = toUnifiedCoordinates(rect)
         
-        let videoAspectRatio = lastFrameSize.width / lastFrameSize.height
-        let viewAspectRatio = containerView.bounds.width / containerView.bounds.height
-        let isPortrait = orientation.isPortrait || containerView.bounds.height > containerView.bounds.width
+        // Convert from unified to screen coordinates
+        return UnifiedCoordinateSystem.toScreen(unifiedRect, screenBounds: viewBounds)
+    }
+    
+    /// Converts GoPro detection coordinates to unified coordinate system
+    /// - Parameter rect: Detection rectangle from GoPro (normalized Vision coordinates)
+    /// - Returns: Rectangle in unified coordinate system
+    @MainActor
+    func toUnifiedCoordinates(_ rect: CGRect) -> UnifiedCoordinateSystem.UnifiedRect {
+        // GoPro detections come from Vision framework, so convert from Vision coordinates
+        let visionRect = rect
         
-        var adjustedBox = rect
+        // Convert from Vision (bottom-left origin) to unified (top-left origin)
+        let unifiedFromVision = UnifiedCoordinateSystem.fromVision(visionRect)
         
-        if isPortrait {
-            if videoAspectRatio > viewAspectRatio {
-                let scaledHeight = containerView.bounds.width / videoAspectRatio
-                let verticalOffset = (containerView.bounds.height - scaledHeight) / 2
-                let yScale = scaledHeight / containerView.bounds.height
-                let normalizedOffset = verticalOffset / containerView.bounds.height
-                
-                adjustedBox.origin.y = (rect.origin.y * yScale) + normalizedOffset
-                adjustedBox.size.height = rect.size.height * yScale
-            } else if videoAspectRatio < viewAspectRatio {
-                let scaledWidth = containerView.bounds.height * videoAspectRatio
-                let horizontalOffset = (containerView.bounds.width - scaledWidth) / 2
-                let xScale = scaledWidth / containerView.bounds.width
-                let normalizedOffset = horizontalOffset / containerView.bounds.width
-                
-                adjustedBox.origin.x = (rect.origin.x * xScale) + normalizedOffset
-                adjustedBox.size.width = rect.size.width * xScale
-            }
-        }
-        
-        adjustedBox.origin.y = 1.0 - adjustedBox.origin.y - adjustedBox.size.height
-        return VNImageRectForNormalizedRect(adjustedBox, Int(containerView.bounds.width), Int(containerView.bounds.height))
+        // Apply GoPro-specific adjustments for webcam stream
+        return UnifiedCoordinateSystem.fromGoPro(
+            unifiedFromVision.cgRect,
+            streamSize: lastFrameSize,
+            displayBounds: containerView?.bounds ?? CGRect.zero
+        )
     }
     
     @MainActor

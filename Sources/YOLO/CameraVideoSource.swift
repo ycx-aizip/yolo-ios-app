@@ -528,87 +528,38 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
     viewBounds: CGRect,
     orientation: UIDeviceOrientation
   ) -> CGRect {
-    let width = viewBounds.width
-    let height = viewBounds.height
+    // Convert to unified coordinate system first
+    let unifiedRect = toUnifiedCoordinates(rect)
     
-    // Start with the original normalized rect
-    var displayRect = rect
+    // Convert from unified to screen coordinates
+    return UnifiedCoordinateSystem.toScreen(unifiedRect, screenBounds: viewBounds)
+  }
+  
+  /// Converts camera detection coordinates to unified coordinate system
+  /// - Parameter rect: Detection rectangle from camera (normalized Vision coordinates)
+  /// - Returns: Rectangle in unified coordinate system
+  @MainActor
+  func toUnifiedCoordinates(_ rect: CGRect) -> UnifiedCoordinateSystem.UnifiedRect {
+    // Camera detections come from Vision framework, so convert from Vision coordinates
+    let visionRect = rect
     
-    // Handle orientation-specific transformations
-    switch orientation {
-    case .portraitUpsideDown:
-      displayRect = CGRect(
-        x: 1.0 - rect.origin.x - rect.width,
-        y: 1.0 - rect.origin.y - rect.height,
-        width: rect.width,
-        height: rect.height)
-    case .landscapeLeft, .landscapeRight:
-      // In landscape mode, no additional transformation needed here
-      break
-    case .unknown:
-      print("The device orientation is unknown, the predictions may be affected")
-      fallthrough
-    default:
-      break
-    }
+    // Convert from Vision (bottom-left origin) to unified (top-left origin)
+    let unifiedFromVision = UnifiedCoordinateSystem.fromVision(visionRect)
     
-    // For portrait orientation
-    if orientation == .portrait || orientation == .portraitUpsideDown || orientation == .unknown {
-      var ratio: CGFloat = 1.0
+    // For camera with resizeAspectFill, we need to account for cropping
+    if let previewLayer = self.previewLayer {
+      let cameraSize = CGSize(width: longSide, height: shortSide) // Actual camera frame size
+      let displayBounds = previewLayer.bounds
       
-      // Determine aspect ratio based on the session preset
-      switch captureSession.sessionPreset {
-      case .photo:
-        ratio = (height / width) / (4.0 / 3.0)  // 4:3 aspect ratio for photo preset
-      case .hd1280x720, .hd1920x1080:
-        ratio = (height / width) / (16.0 / 9.0)  // 16:9 aspect ratio for HD presets
-      default:
-        ratio = (height / width) / (16.0 / 9.0)  // Default to 16:9 for most video presets
-      }
-      
-      if ratio >= 1 {
-        let offset = (1 - ratio) * (0.5 - displayRect.minX)
-        let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: offset, y: -1)
-        displayRect = displayRect.applying(transform)
-        displayRect.size.width *= ratio
-      } else {
-        let offset = (ratio - 1) * (0.5 - displayRect.maxY)
-        let transform = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: 0, y: offset - 1)
-        displayRect = displayRect.applying(transform)
-        // Don't recalculate ratio - use the original calculated ratio
-        displayRect.size.height /= ratio
-      }
-      
-      // Convert normalized coordinates to screen coordinates
-      return VNImageRectForNormalizedRect(displayRect, Int(width), Int(height))
-    } else {
-      // Landscape mode
-      let frameAspectRatio = longSide / shortSide
-      let viewAspectRatio = width / height
-      var scaleX: CGFloat = 1.0
-      var scaleY: CGFloat = 1.0
-      var offsetX: CGFloat = 0.0
-      var offsetY: CGFloat = 0.0
-      
-      if frameAspectRatio > viewAspectRatio {
-        scaleY = height / shortSide
-        scaleX = scaleY
-        offsetX = (longSide * scaleX - width) / 2
-      } else {
-        scaleX = width / longSide
-        scaleY = scaleX
-        offsetY = (shortSide * scaleY - height) / 2
-      }
-      
-      // Transform rectangle to screen coordinates
-      let screenRect = CGRect(
-        x: displayRect.origin.x * longSide * scaleX - offsetX,
-        y: height - (displayRect.origin.y * shortSide * scaleY - offsetY + displayRect.size.height * shortSide * scaleY),
-        width: displayRect.size.width * longSide * scaleX,
-        height: displayRect.size.height * shortSide * scaleY
+      // Use specialized camera transformation that handles resizeAspectFill cropping
+      return UnifiedCoordinateSystem.fromCameraWithAspectFill(
+        unifiedFromVision.cgRect, 
+        cameraSize: cameraSize, 
+        displayBounds: displayBounds
       )
-      
-      return screenRect
+    } else {
+      // Fallback to basic camera transformation if preview layer not available
+      return UnifiedCoordinateSystem.fromCamera(unifiedFromVision.cgRect, sessionPreset: captureSession.sessionPreset)
     }
   }
 }

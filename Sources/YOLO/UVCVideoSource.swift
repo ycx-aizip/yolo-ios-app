@@ -1052,59 +1052,41 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     /// - Returns: A rectangle in screen coordinates
     @MainActor
     func transformDetectionToScreenCoordinates(rect: CGRect, viewBounds: CGRect, orientation: UIDeviceOrientation) -> CGRect {
-        let width = viewBounds.width
-        let height = viewBounds.height
+        // Convert to unified coordinate system first
+        let unifiedRect = toUnifiedCoordinates(rect)
         
-        let effectiveOrientation: UIDeviceOrientation
-        switch orientation {
-        case .faceUp, .faceDown, .unknown:
-            effectiveOrientation = lastKnownOrientation
-            if frameProcessingCount % 900 == 0 {
-                print("UVC: Coordinate transform using last known orientation \(lastKnownOrientation.rawValue) (device: \(orientation.rawValue))")
-            }
-        default:
-            effectiveOrientation = orientation
-        }
+        // Convert from unified to screen coordinates
+        return UnifiedCoordinateSystem.toScreen(unifiedRect, screenBounds: viewBounds)
+    }
+    
+    /// Converts UVC detection coordinates to unified coordinate system
+    /// - Parameter rect: Detection rectangle from UVC camera (normalized Vision coordinates)
+    /// - Returns: Rectangle in unified coordinate system
+    @MainActor
+    func toUnifiedCoordinates(_ rect: CGRect) -> UnifiedCoordinateSystem.UnifiedRect {
+        // UVC detections come from Vision framework, so convert from Vision coordinates
+        let visionRect = rect
         
-        if effectiveOrientation.isPortrait {
-            // Portrait mode with letterboxing (resizeAspect)
-            let frameAspectRatio: CGFloat = 16.0 / 9.0
-            let streamHeight = width / frameAspectRatio
-            let blackBarHeight = (height - streamHeight) / 2
+        // Convert from Vision (bottom-left origin) to unified (top-left origin)
+        let unifiedFromVision = UnifiedCoordinateSystem.fromVision(visionRect)
+        
+        // For UVC with resizeAspectFill, we need to account for cropping
+        if let previewLayer = self.previewLayer {
+            let cameraSize = CGSize(width: longSide, height: shortSide) // Actual UVC frame size
+            let displayBounds = previewLayer.bounds
             
-            let scaledY = rect.origin.y * streamHeight + blackBarHeight
-            let scaledHeight = rect.size.height * streamHeight
-            
-            return CGRect(
-                x: rect.origin.x * width,
-                y: height - scaledY - scaledHeight,
-                width: rect.size.width * width,
-                height: scaledHeight
+            // Use specialized camera transformation that handles resizeAspectFill cropping
+            return UnifiedCoordinateSystem.fromCameraWithAspectFill(
+                unifiedFromVision.cgRect, 
+                cameraSize: cameraSize, 
+                displayBounds: displayBounds
             )
         } else {
-            // Landscape mode
-            let frameAspectRatio = longSide / shortSide
-            let viewAspectRatio = width / height
-            var scaleX: CGFloat = 1.0
-            var scaleY: CGFloat = 1.0
-            var offsetX: CGFloat = 0.0
-            var offsetY: CGFloat = 0.0
-            
-            if frameAspectRatio > viewAspectRatio {
-                scaleY = height / shortSide
-                scaleX = scaleY
-                offsetX = (longSide * scaleX - width) / 2
-            } else {
-                scaleX = width / longSide
-                scaleY = scaleX
-                offsetY = (shortSide * scaleY - height) / 2
-            }
-            
-            return CGRect(
-                x: rect.origin.x * longSide * scaleX - offsetX,
-                y: height - (rect.origin.y * shortSide * scaleY - offsetY + rect.size.height * shortSide * scaleY),
-                width: rect.size.width * longSide * scaleX,
-                height: rect.size.height * shortSide * scaleY
+            // Fallback to UVC transformation if preview layer not available
+            return UnifiedCoordinateSystem.fromUVC(
+                unifiedFromVision.cgRect,
+                sourceSize: CGSize(width: longSide, height: shortSide),
+                displayBounds: CGRect.zero
             )
         }
     }
