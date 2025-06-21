@@ -303,10 +303,10 @@ class TrackingDetector: ObjectDetector {
                 targetCalibrationFrames = config.thresholdCalibrationFrames
                 print("AutoCalibration: Starting Phase 1 - Threshold Detection (\(config.thresholdCalibrationFrames) frames)")
             } else if config.isDirectionCalibrationEnabled {
-                calibrationPhase = .movementAnalysis
-                targetCalibrationFrames = config.movementAnalysisFrames
-                isMovementAnalysisPhase = true
-                print("AutoCalibration: Starting Phase 2 - Movement Analysis (\(config.movementAnalysisFrames) frames)")
+                // Even when Phase 1 is disabled, we start with threshold detection for bypass
+                calibrationPhase = .thresholdDetection
+                targetCalibrationFrames = 2  // Quick bypass for Phase 1
+                print("AutoCalibration: Phase 1 disabled - Quick bypass (2 frames) then Phase 2")
             } else {
                 print("AutoCalibration: ERROR - No phases configured")
                 isAutoCalibrationEnabled = false
@@ -369,6 +369,21 @@ class TrackingDetector: ObjectDetector {
         // Report unified progress via callback
         onCalibrationProgress?(currentTotalFrames, totalFrames)
         
+        // Check if threshold calibration is disabled - use bypass mode
+        if !config.isThresholdCalibrationEnabled {
+            // Bypass mode: Keep current thresholds and complete quickly (in 2 frames for UI consistency)
+            if calibrationFrameCount >= 2 {
+                // Sort current thresholds to ensure proper order
+                let sortedThresholds = thresholds.sorted()
+                self.thresholds = sortedThresholds
+                
+                print("AutoCalibration: Phase 1 bypassed - Using current thresholds: \(thresholds)")
+                completeThresholdCalibration()
+            }
+            return
+        }
+        
+        // Normal threshold calibration mode
         // Process frame with OpenCV directly for calibration
         let isVerticalDirection = countingDirection == .topToBottom || countingDirection == .bottomToTop
         

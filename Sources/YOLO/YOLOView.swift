@@ -3360,6 +3360,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     if summary.thresholdCalibrationEnabled {
       message += "✅ Phase 1: Threshold Detection\n"
       message += "Thresholds: \(String(format: "%.2f", summary.thresholds[0])), \(String(format: "%.2f", summary.thresholds[1]))\n\n"
+    } else {
+      message += "⏭️ Phase 1: Bypassed (using current thresholds)\n"
+      message += "Thresholds: \(String(format: "%.2f", summary.thresholds[0])), \(String(format: "%.2f", summary.thresholds[1]))\n\n"
     }
     
     // Phase 2 results  
@@ -3394,6 +3397,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
           message += "• \(warning)\n"
         }
       }
+    } else {
+      message += "⏭️ Phase 2: Disabled (keeping original direction)\n"
     }
     
     // Create and present alert
@@ -3404,6 +3409,13 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     )
     
     alert.addAction(UIAlertAction(title: "OK", style: .default, handler: nil))
+    
+    // Auto-dismiss after 5 seconds if user doesn't tap OK
+    DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak alert] in
+      if let alertController = alert, alertController.presentingViewController != nil {
+        alertController.dismiss(animated: true, completion: nil)
+      }
+    }
     
     viewController.present(alert, animated: true, completion: nil)
   }

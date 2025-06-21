@@ -27,7 +27,7 @@ public final class AutoCalibrationConfig: @unchecked Sendable {
     
     // MARK: - Phase Control
     /// Enable Phase 1: OpenCV edge detection for threshold calibration
-    public var isThresholdCalibrationEnabled: Bool = true
+    public var isThresholdCalibrationEnabled: Bool = false
     
     /// Enable Phase 2: YOLO movement analysis for direction detection
     public var isDirectionCalibrationEnabled: Bool = true
