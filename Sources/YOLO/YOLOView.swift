@@ -1851,7 +1851,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         currentUIThresholds, 
         countingDirection: countingDirection
       )
-      trackingDetector.setThresholds(currentCountingThresholds)
+      trackingDetector.setThresholds(currentCountingThresholds, originalDisplayValues: currentUIThresholds)
       
       print("AutoCalibration: Using current threshold values: UI=\(currentUIThresholds), Counting=\(currentCountingThresholds)")
       

@@ -147,6 +147,9 @@ class TrackingDetector: ObjectDetector {
     /// Flag to track if Phase 1 was actually executed (vs bypassed)
     private var wasPhase1Executed: Bool = false
     
+    /// Original display thresholds before calibration (for bypass mode)
+    private var originalDisplayThresholds: [CGFloat] = []
+    
     /// Current frame number in calibration sequence
     private var calibrationFrameCount: Int = 0
     
@@ -229,6 +232,20 @@ class TrackingDetector: ObjectDetector {
         self.thresholds = validThresholds
     }
     
+    /// Sets the thresholds with original display values (for bypass mode)
+    @MainActor
+    func setThresholds(_ countingValues: [CGFloat], originalDisplayValues: [CGFloat]) {
+        guard countingValues.count >= 1 && originalDisplayValues.count >= 1 else { return }
+        
+        // Store counting thresholds for internal use
+        let validCountingThresholds = countingValues.map { max(0.0, min(1.0, $0)) }
+        self.thresholds = validCountingThresholds
+        
+        // Store original display thresholds for bypass mode
+        let validDisplayThresholds = originalDisplayValues.map { max(0.0, min(1.0, $0)) }
+        self.originalDisplayThresholds = validDisplayThresholds
+    }
+    
     /// Gets the current count of objects that have crossed the threshold
     ///
     /// - Returns: The total count
@@ -300,6 +317,7 @@ class TrackingDetector: ObjectDetector {
             fishMovementData.removeAll(keepingCapacity: true)
             isMovementAnalysisPhase = false
             wasPhase1Executed = false  // Reset the Phase 1 execution flag
+            // Note: originalDisplayThresholds are already set by setThresholds() call
             
             // Determine starting phase based on configuration
             if config.isThresholdCalibrationEnabled {
@@ -606,8 +624,25 @@ class TrackingDetector: ObjectDetector {
         let config = AutoCalibrationConfig.shared
         let warnings = MovementAnalyzer.generateWarnings(from: analysis)
         
+        // For summary, we need to show display coordinates (same as sliders)
+        let displayThresholds: [CGFloat]
+        
+        if wasPhase1Executed {
+            // Phase 1 was executed - thresholds are in counting coordinates from OpenCV
+            // Convert them to display coordinates for the summary
+            displayThresholds = UnifiedCoordinateSystem.countingToDisplay(
+                thresholds, 
+                countingDirection: countingDirection
+            )
+        } else {
+            // Phase 1 was bypassed - use the original display thresholds that were stored
+            displayThresholds = originalDisplayThresholds.isEmpty ? 
+                UnifiedCoordinateSystem.countingToDisplay(thresholds, countingDirection: countingDirection) :
+                originalDisplayThresholds
+        }
+        
         return CalibrationSummary(
-            thresholds: thresholds,
+            thresholds: displayThresholds,
             detectedDirection: analysis.predominantDirection,
             originalDirection: originalCountingDirection,
             movementAnalysisSuccess: analysis.predominantDirection != nil,
