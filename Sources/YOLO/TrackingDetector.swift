@@ -826,6 +826,7 @@ class TrackingDetector: ObjectDetector {
                 }
                 
             case .leftToRight:
+                // For left-to-right movement, use original coordinates (no flipping needed)
                 // Increment count: Check for threshold crossing from left to right
                 if !alreadyCounted {
                     for threshold in thresholds {
@@ -847,10 +848,14 @@ class TrackingDetector: ObjectDetector {
                 }
                 
             case .rightToLeft:
-                // Increment count: Check for threshold crossing from right to left
+                // For horizontal movements, we need to account for coordinate system transformation
+                let flipped_center_x = 1.0 - center_x
+                let flipped_last_x = 1.0 - last_x
+                
+                // Increment count: Check for threshold crossing from right to left (using flipped coordinates)
                 if !alreadyCounted {
                     for threshold in thresholds {
-                        if last_x > threshold && center_x <= threshold {
+                        if flipped_last_x < threshold && flipped_center_x >= threshold {
                             countObject(trackId: trackId)
                             break // Count only once per threshold crossing event
                         }
@@ -859,7 +864,7 @@ class TrackingDetector: ObjectDetector {
                 
                 // Decrement count: Check for reverse crossing (only first threshold)
                 if let firstThreshold = thresholds.first,
-                   last_x < firstThreshold && center_x >= firstThreshold && alreadyCounted {
+                   flipped_last_x > firstThreshold && flipped_center_x <= firstThreshold && alreadyCounted {
                     totalCount = max(0, totalCount - 1)
                     countedTracks[trackId] = false
                     if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {

@@ -1577,12 +1577,12 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     case .topToBottom:
       // For top to bottom, normal order (0=top, 1=bottom)
       // User expects: position 0.3 → line 30% from top
-    let height = self.bounds.height
-    let yPosition = height * position
-    
-    // Draw a horizontal line across the width of the view
-    path.move(to: CGPoint(x: 0, y: yPosition))
-    path.addLine(to: CGPoint(x: self.bounds.width, y: yPosition))
+      let height = self.bounds.height
+      let yPosition = height * position
+      
+      // Draw a horizontal line across the width of the view
+      path.move(to: CGPoint(x: 0, y: yPosition))
+      path.addLine(to: CGPoint(x: self.bounds.width, y: yPosition))
       
     case .bottomToTop:
       // For bottom to top, flipped display (0=bottom, 1=top)
@@ -1630,7 +1630,14 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     // Update tracking detector thresholds
     if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
-      trackingDetector.setThresholds([threshold1, threshold2])
+      // For bottomToTop, flip threshold values to match the flipped display
+      let adjustedThresholds: [CGFloat]
+      if direction == .bottomToTop {
+        adjustedThresholds = [1.0 - threshold1, 1.0 - threshold2]
+      } else {
+        adjustedThresholds = [threshold1, threshold2]
+      }
+      trackingDetector.setThresholds(adjustedThresholds)
     }
   }
   
@@ -1646,7 +1653,14 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     // Update the thresholds in the tracking detector
     if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
-      trackingDetector.setThresholds([value, threshold2])
+      // For bottomToTop, flip threshold values to match the flipped display
+      let adjustedThresholds: [CGFloat]
+      if countingDirection == .bottomToTop {
+        adjustedThresholds = [1.0 - value, 1.0 - threshold2]
+      } else {
+        adjustedThresholds = [value, threshold2]
+      }
+      trackingDetector.setThresholds(adjustedThresholds)
     }
   }
   
@@ -1662,7 +1676,14 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     // Update the thresholds in the tracking detector
     if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
-      trackingDetector.setThresholds([threshold1, value])
+      // For bottomToTop, flip threshold values to match the flipped display
+      let adjustedThresholds: [CGFloat]
+      if countingDirection == .bottomToTop {
+        adjustedThresholds = [1.0 - threshold1, 1.0 - value]
+      } else {
+        adjustedThresholds = [threshold1, value]
+      }
+      trackingDetector.setThresholds(adjustedThresholds)
     }
   }
 
@@ -1763,20 +1784,33 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         DispatchQueue.main.async {
           // Update threshold sliders with new values
           if thresholds.count >= 2 {
-            self.threshold1Slider.value = Float(thresholds[0])
-            self.threshold2Slider.value = Float(thresholds[1])
+            // For bottomToTop, convert from counting coordinates back to UI coordinates
+            let uiThreshold1: CGFloat
+            let uiThreshold2: CGFloat
+            
+            if self.countingDirection == .bottomToTop {
+              // Convert from counting coordinates back to UI coordinates
+              uiThreshold1 = 1.0 - thresholds[0]
+              uiThreshold2 = 1.0 - thresholds[1]
+            } else {
+              uiThreshold1 = thresholds[0]
+              uiThreshold2 = thresholds[1]
+            }
+            
+            self.threshold1Slider.value = Float(uiThreshold1)
+            self.threshold2Slider.value = Float(uiThreshold2)
             
             // Update threshold labels
-            self.labelThreshold1.text = "Threshold 1: " + String(format: "%.2f", thresholds[0])
-            self.labelThreshold2.text = "Threshold 2: " + String(format: "%.2f", thresholds[1])
+            self.labelThreshold1.text = "Threshold 1: " + String(format: "%.2f", uiThreshold1)
+            self.labelThreshold2.text = "Threshold 2: " + String(format: "%.2f", uiThreshold2)
             
             // Update threshold lines
-            self.updateThresholdLayer(self.threshold1Layer, position: thresholds[0])
-            self.updateThresholdLayer(self.threshold2Layer, position: thresholds[1])
+            self.updateThresholdLayer(self.threshold1Layer, position: uiThreshold1)
+            self.updateThresholdLayer(self.threshold2Layer, position: uiThreshold2)
             
-            // Store the new threshold values
-            self.threshold1 = thresholds[0]
-            self.threshold2 = thresholds[1]
+            // Store the new threshold values (in UI coordinates)
+            self.threshold1 = uiThreshold1
+            self.threshold2 = uiThreshold2
           }
           
           // Restore inference for Phase 2 if needed
