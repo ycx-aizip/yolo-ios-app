@@ -1844,6 +1844,17 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         }
       }
       
+      // CRITICAL FIX: Set current threshold values before starting auto-calibration
+      // Convert current UI threshold values to counting coordinates
+      let currentUIThresholds = [threshold1, threshold2]
+      let currentCountingThresholds = UnifiedCoordinateSystem.displayToCounting(
+        currentUIThresholds, 
+        countingDirection: countingDirection
+      )
+      trackingDetector.setThresholds(currentCountingThresholds)
+      
+      print("AutoCalibration: Using current threshold values: UI=\(currentUIThresholds), Counting=\(currentCountingThresholds)")
+      
       // Start auto-calibration
       trackingDetector.setAutoCalibration(enabled: true)
       

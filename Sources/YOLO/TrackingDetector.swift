@@ -144,6 +144,9 @@ class TrackingDetector: ObjectDetector {
     
     private var calibrationPhase: CalibrationPhase = .thresholdDetection
     
+    /// Flag to track if Phase 1 was actually executed (vs bypassed)
+    private var wasPhase1Executed: Bool = false
+    
     /// Current frame number in calibration sequence
     private var calibrationFrameCount: Int = 0
     
@@ -296,6 +299,7 @@ class TrackingDetector: ObjectDetector {
             movementAnalysisFrameCount = 0
             fishMovementData.removeAll(keepingCapacity: true)
             isMovementAnalysisPhase = false
+            wasPhase1Executed = false  // Reset the Phase 1 execution flag
             
             // Determine starting phase based on configuration
             if config.isThresholdCalibrationEnabled {
@@ -373,9 +377,9 @@ class TrackingDetector: ObjectDetector {
         if !config.isThresholdCalibrationEnabled {
             // Bypass mode: Keep current thresholds and complete quickly (in 2 frames for UI consistency)
             if calibrationFrameCount >= 2 {
-                // Sort current thresholds to ensure proper order
-                let sortedThresholds = thresholds.sorted()
-                self.thresholds = sortedThresholds
+                // DO NOT SORT - keep current thresholds exactly as they are
+                // The user has manually set these values and we should preserve them
+                wasPhase1Executed = false  // Mark as bypassed
                 
                 print("AutoCalibration: Phase 1 bypassed - Using current thresholds: \(thresholds)")
                 completeThresholdCalibration()
@@ -384,6 +388,9 @@ class TrackingDetector: ObjectDetector {
         }
         
         // Normal threshold calibration mode
+        // Mark that Phase 1 is actually being executed
+        wasPhase1Executed = true
+        
         // Process frame with OpenCV directly for calibration
         let isVerticalDirection = countingDirection == .topToBottom || countingDirection == .bottomToTop
         
@@ -418,11 +425,16 @@ class TrackingDetector: ObjectDetector {
     private func completeThresholdCalibration() {
         let config = AutoCalibrationConfig.shared
         
-        // Sort thresholds to ensure proper order
-        let sortedThresholds = thresholds.sorted()
-        self.thresholds = sortedThresholds
-        
-        print("AutoCalibration: Phase 1 complete - Thresholds: \(thresholds)")
+        // Only sort thresholds if Phase 1 was actually executed (not bypassed)
+        if wasPhase1Executed {
+            // Sort thresholds to ensure proper order for OpenCV-detected values
+            let sortedThresholds = thresholds.sorted()
+            self.thresholds = sortedThresholds
+            print("AutoCalibration: Phase 1 complete (executed) - Thresholds sorted: \(thresholds)")
+        } else {
+            // Phase 1 was bypassed - keep current thresholds exactly as set by user
+            print("AutoCalibration: Phase 1 complete (bypassed) - Thresholds preserved: \(thresholds)")
+        }
         
         // Notify threshold completion
         onCalibrationComplete?(thresholds)
