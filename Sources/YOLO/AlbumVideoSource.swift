@@ -42,12 +42,6 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     /// The video output for extracting frames.
     private var videoOutput: AVPlayerItemVideoOutput?
     
-    /// The asset reader for more efficient frame extraction.
-    private var assetReader: AVAssetReader?
-    
-    /// The video track output from the asset reader.
-    private var trackOutput: AVAssetReaderTrackOutput?
-    
     /// Timer for controlling frame extraction rate.
     private var frameTimer: Timer?
     
@@ -202,18 +196,15 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
             shortSide = min(videoSize.width, videoSize.height)
             frameSizeCaptured = true
             
-            // Try to get frame rate
+            // Try to get frame rate - remove 30fps cap for maximum processing speed
             let frameRateValue = track.nominalFrameRate
             if frameRateValue > 0 {
-                frameRate = min(frameRateValue, 30.0) // Cap at 30fps
+                frameRate = min(frameRateValue, 60.0) // Allow up to 60fps for optimal performance
             }
             
             // Initial setup of content rect
             updateVideoContentRect()
         }
-        
-        // Try to setup asset reader for more efficient extraction
-        setupAssetReader(asset: asset)
         
         // CRITICAL: Calculate coordinate transformation immediately
         DispatchQueue.main.async {
@@ -295,7 +286,8 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     /// Start method that runs on the MainActor
     @MainActor
     private func startMainActorIsolated() {
-        player?.play()
+        // Start playback at normal speed for natural timing
+        player?.play()  // Use normal 1x speed
         startFrameExtraction()
     }
     
@@ -447,36 +439,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     /// Completion handler for content selection UI
     private var contentSelectionCompletion: ((Bool) -> Void)?
     
-    @MainActor
-    private func setupAssetReader(asset: AVAsset) {
-        do {
-            guard let videoTrack = asset.tracks(withMediaType: .video).first else { return }
-            
-            // Create asset reader
-            assetReader = try AVAssetReader(asset: asset)
-            
-            // Configure reader with video track
-            let outputSettings: [String: Any] = [
-                kCVPixelBufferPixelFormatTypeKey as String: FrameSourceSettings.videoSourcePixelFormat
-            ]
-            
-            trackOutput = AVAssetReaderTrackOutput(
-                track: videoTrack,
-                outputSettings: outputSettings
-            )
-            
-            if let trackOutput = trackOutput, assetReader?.canAdd(trackOutput) == true {
-                assetReader?.add(trackOutput)
-            }
-            
-            // Start reading
-            assetReader?.startReading()
-        } catch {
-            print("Failed to setup asset reader: \(error)")
-            assetReader = nil
-            trackOutput = nil
-        }
-    }
+    // Removed setupAssetReader - using unified synchronized approach
     
     @MainActor
     private func startFrameExtraction() {
@@ -491,12 +454,13 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     
     @MainActor
     private func startDisplayLinkBasedExtraction() {
-        // Create a display link for smooth frame extraction
+        // Create a display link synchronized with video playback for accuracy
         let displayLink = CADisplayLink(target: self, selector: #selector(extractFrameFromDisplayLink))
-        displayLink.preferredFramesPerSecond = Int(frameRate)
+        // Use maximum refresh rate but sync with video timing
+        displayLink.preferredFramesPerSecond = 0 // Maximum available, but sync with video
         displayLink.add(to: .main, forMode: .common)
         
-        // Store the display link (we'll need to add this property)
+        // Store the display link
         self.displayLink = displayLink
     }
     
@@ -517,13 +481,29 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
             frameProcessingTimestamps.removeFirst()
         }
         
-        // Get the current playback time
+        // SYNCHRONIZED APPROACH: Always use video player time to ensure sync
         let playerTime = player.currentTime()
         
-        // OPTIMIZED: Get pixel buffer directly without unnecessary conversions
+        // Check if video has reached the end
+        guard let duration = player.currentItem?.duration, 
+              playerTime < duration else {
+            stopMainActorIsolated()
+            NotificationCenter.default.post(name: .videoPlaybackDidEnd, object: self)
+            return
+        }
+        
+        // Get pixel buffer from video output at current playback time
         guard let pixelBuffer = videoOutput.copyPixelBuffer(forItemTime: playerTime, itemTimeForDisplay: nil) else {
             return
         }
+        
+        processPixelBuffer(pixelBuffer, pipelineStartTime: pipelineStartTime)
+    }
+    
+    /// Processes a pixel buffer for both high-speed and fallback modes
+    @MainActor
+    private func processPixelBuffer(_ pixelBuffer: CVPixelBuffer, pipelineStartTime: CFTimeInterval) {
+        guard let predictor = predictor else { return }
         
         let framePreparationStartTime = CACurrentMediaTime()
         
@@ -579,12 +559,6 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         // Log performance analysis every 300 frames
         if shouldLogPerformance(frameCount: frameProcessingCount) {
             logPipelineAnalysis(mode: "inference")
-        }
-        
-        // Check if video has reached the end
-        if player.currentTime() >= player.currentItem?.duration ?? CMTime.zero {
-            stopMainActorIsolated()
-            NotificationCenter.default.post(name: .videoPlaybackDidEnd, object: self)
         }
     }
     
@@ -675,11 +649,6 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         player = nil
         videoOutput = nil
         _previewLayer = nil
-        
-        // Clean up asset reader resources
-        assetReader?.cancelReading()
-        assetReader = nil
-        trackOutput = nil
         
         processingTimes.removeAll()
     }
