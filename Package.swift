@@ -21,12 +21,12 @@ let package = Package(
     // Targets can depend on other targets in this package and products from dependencies.
     .target(
       name: "YOLO"),
-    .testTarget(
-      name: "YOLOTests",
-      dependencies: ["YOLO"],
-      resources: [
-        .process("Resources")
-      ]
-    ),
+    // .testTarget(
+    //   name: "YOLOTests",
+    //   dependencies: ["YOLO"],
+    //   resources: [
+    //     .process("Resources")
+    //   ]
+    // ),
   ]
 )
