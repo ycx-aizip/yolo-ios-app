@@ -1,143 +1,126 @@
-<a href="https://www.ultralytics.com/"><img src="https://raw.githubusercontent.com/ultralytics/assets/main/logo/Ultralytics_Logotype_Original.svg" width="320" alt="Ultralytics logo"></a>
+# Fish Counting App for iOS
 
-# 🚀 Ultralytics YOLO for iOS: App and Swift Package
+A specialized iOS application developed by Aizip inc. and Softbank that uses computer vision and object tracking to count fish swimming through video frames in real-time.
 
-[![Ultralytics Actions](https://github.com/ultralytics/yolo-ios-app/actions/workflows/format.yml/badge.svg)](https://github.com/ultralytics/yolo-ios-app/actions/workflows/format.yml)
-[![Ultralytics Discord](https://img.shields.io/discord/1089800235347353640?logo=discord&logoColor=white&label=Discord&color=blue)](https://discord.com/invite/ultralytics)
-[![Ultralytics Forums](https://img.shields.io/discourse/users?server=https%3A%2F%2Fcommunity.ultralytics.com&logo=discourse&label=Forums&color=blue)](https://community.ultralytics.com/)
-[![Ultralytics Reddit](https://img.shields.io/reddit/subreddit-subscribers/ultralytics?style=flat&logo=reddit&logoColor=white&label=Reddit&color=blue)](https://reddit.com/r/ultralytics)
+## Project Architecture
 
-Welcome to the [Ultralytics YOLO](https://github.com/ultralytics/ultralytics) iOS App GitHub repository! 📖 This project leverages Ultralytics' state-of-the-art [YOLO11 models](https://docs.ultralytics.com/models/yolo11/) to transform your iOS device into a powerful [real-time inference](https://www.ultralytics.com/glossary/real-time-inference) tool for [object detection](https://www.ultralytics.com/glossary/object-detection). Download the app directly from the [App Store](https://apps.apple.com/us/app/idetection/id1452689527) or explore our guide to integrate YOLO capabilities into your own Swift applications.
+![Fish Counting App Logic](fish_count_overview.svg)
+*Figure. Overview of the fish countign iOS app*
 
-<div align="center">
-  <a href="https://apps.apple.com/us/app/idetection/id1452689527" target="_blank"><img width="90%" src="https://github.com/ultralytics/ultralytics/assets/26833433/fd3c8a92-fec0-4253-b4ac-ee94f5ced3fb" alt="Ultralytics YOLO iOS App previews"></a>
-  <br>
-  <a href="https://github.com/ultralytics"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-github.png" width="3%" alt="Ultralytics GitHub"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
-  <a href="https://www.linkedin.com/company/ultralytics/"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-linkedin.png" width="3%" alt="Ultralytics LinkedIn"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
-  <a href="https://twitter.com/ultralytics"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-twitter.png" width="3%" alt="Ultralytics Twitter"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
-  <a href="https://youtube.com/ultralytics?sub_confirmation=1"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-youtube.png" width="3%" alt="Ultralytics YouTube"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
-  <a href="https://www.tiktok.com/@ultralytics"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-tiktok.png" width="3%" alt="Ultralytics TikTok"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
-  <a href="https://ultralytics.com/bilibili"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-bilibili.png" width="3%" alt="Ultralytics BiliBili"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
-  <a href="https://discord.com/invite/ultralytics"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-discord.png" width="3%" alt="Ultralytics Discord"></a>
-  <br>
-  <br>
-  <a href="https://apps.apple.com/us/app/idetection/id1452689527" style="text-decoration:none;">
-    <img src="https://raw.githubusercontent.com/ultralytics/assets/main/app/app-store.svg" width="15%" alt="Apple App store"></a>
-</div>
+### 1. AI/Vision Core (`yolo-ios-app/Sources/YOLO/`)
 
-## 📂 Repository Content
+The YOLO Swift package is organized into functional subdirectories:
 
-This repository provides a comprehensive solution for running YOLO models on Apple platforms, enabling powerful [Edge AI](https://www.ultralytics.com/glossary/edge-ai) capabilities:
+**Core AI Logic** (`Predictors/`, `Tracking/`, `FishCounting/`):
+- `Predictors/TrackingDetector.swift` - Main fish counting coordinator
+- `Tracking/ByteTracker.swift` - Multi-object tracking implementation  
+- `Tracking/STrack.swift` - Individual track state management
+- `Tracking/KalmanFilter.swift` - Motion prediction algorithms
+- `Tracking/MatchingUtils.swift` - Track association and data association
+- `FishCounting/ThresholdCounter.swift` - Threshold-based counting logic
+- `FishCounting/CountingUtils.swift` - Counting configuration management
+- `FishCounting/OpenCVWrapper.swift` - Computer vision utilities for calibration
 
-### [**Ultralytics YOLO iOS App (Main App)**](https://github.com/ultralytics/yolo-ios-app/tree/main/YOLOiOSApp)
+**Model Infrastructure** (`Predictors/`):
+- `ObjectDetector.swift`, `Classifier.swift`, `Segmenter.swift` - Detection model interfaces
+- `BasePredictor.swift`, `Predictor.swift` - Model execution framework
 
-The primary iOS application allows easy real-time object detection using your device's camera or image library. You can easily test your custom [CoreML](https://developer.apple.com/documentation/coreml) models by simply dragging and dropping them into the app.
+**Video Processing** (`FrameSources/`):
+- `FrameSource.swift` - Abstract video source interface
+- `CameraVideoSource.swift` - Live camera capture
+- `AlbumVideoSource.swift` - Video file playback
+- `GoProSource.swift` - GoPro RTSP streaming
+- `UVCVideoSource.swift` - External USB camera support
 
-### [**Swift Package (YOLO Library)**](https://github.com/ultralytics/yolo-ios-app/tree/main/Sources/YOLO)
+**Visualization** (`Visualization/`):
+- `Visualization/YOLOView.swift` - Core fish counting UI component
+- `Visualization/BoundingBoxView.swift` - Detection visualization
+- `Visualization/Plot.swift` - Visualization utilities
 
-A lightweight [Swift](https://developer.apple.com/swift/) package designed for iOS, iPadOS, and macOS. It simplifies the integration and usage of YOLO-based models like YOLO11 within your own applications. Integrate YOLO models effortlessly with minimal code using [SwiftUI](https://developer.apple.com/xcode/swiftui/):
+**Utilities** (`Utilities/`):
+- `Utilities/UnifiedCoordinateSystem.swift` - Coordinate transformations
+- `Utilities/NonMaxSuppression.swift` - Post-processing algorithms
+- `Utilities/YOLOResult.swift`, `YOLOTask.swift` - Data structures
 
-```swift
-// Perform inference on a UIImage
-let result = model(uiImage)
-```
+### 2. UI Layer (`YOLOiOSApp/`, `Sources/YOLO/YOLOView.swift`, and `Sources/YOLO/BoundingBoxView.swift`)
 
-```swift
-// Use the built-in camera view for real-time detection
-var body: some View {
-    YOLOCamera(
-        modelPathOrName: "yolo11n-seg", // Specify model name or path
-        task: .segment,                // Define the task (detect, segment, classify, pose)
-        cameraPosition: .back          // Choose camera (back or front)
-    )
-    .ignoresSafeArea()
-}
-```
+**Main UI Files** (primary focus for external developers):
+- `YOLOiOSApp/ViewController.swift` - Main app controller and model selection
+- `YOLOiOSApp/Main.storyboard` - Interface Builder layout definitions
+- `YOLOiOSApp/LaunchScreen.storyboard` - App launch screen
+- `Sources/YOLO/YOLOView.swift` - Core fish counting UI component
+- `Sources/YOLO/BoundingBoxView.swift` - Detection visualization
 
-## 🛠️ Quickstart Guide
+**Supporting UI Files**:
+- `YOLOiOSApp/Assets.xcassets/` - App icons, images, and visual assets
+- `YOLOiOSApp/ModelDownloadManager.swift` - Model download and management
+- `YOLOiOSApp/RemoteModels.swift` - Remote model configuration
 
-New to YOLO on mobile or want to quickly test your custom model? Start with the main YOLOiOSApp.
+## Installation Guide
 
-- [**Ultralytics YOLO iOS App (Main App)**](https://github.com/ultralytics/yolo-ios-app/tree/main/YOLOiOSApp): The easiest way to experience YOLO detection on iOS.
+For testing, we normally provide *TestFlights*, for developers, see below.
 
-Ready to integrate YOLO into your own project? Explore the Swift Package and example applications.
+### Requirements
 
-- [**Swift Package (YOLO Library)**](https://github.com/ultralytics/yolo-ios-app/tree/main/Sources/YOLO): Integrate YOLO capabilities into your Swift app.
-- [**Example Apps**](https://github.com/ultralytics/yolo-ios-app/tree/main/ExampleApps): See practical implementations using the YOLO Swift Package.
+- **Development Environment**: macOS with Xcode 16.0+ (tested with Xcode 16.2)
+- **Target Platform**: iOS 17.0+ (tested with iOS 18+, iPadOS 18+)
+- **Hardware**: iPhone 14+ or iPad if using UVC external camera.
+- **Apple Developer Account**: Free account sufficient for development. To use GoPro, need developer account with `multi-casting network` entitlement.
 
-## ✨ Key Highlights
+### Setup Instructions
 
-- **Real-Time Inference**: Achieve high-speed, high-accuracy object detection on iPhones and iPads using optimized [CoreML models](https://docs.ultralytics.com/integrations/coreml/), potentially enhanced through techniques like [model quantization](https://www.ultralytics.com/glossary/model-quantization).
-- **Multi-OS Support**: The Swift Package is compatible with iOS, iPadOS, and macOS, enabling broad application deployment.
-- **Flexible Tasks**: Supports [object detection](https://docs.ultralytics.com/tasks/detect/), with [segmentation](https://docs.ultralytics.com/tasks/segment/), [classification](https://docs.ultralytics.com/tasks/classify/), [pose estimation](https://docs.ultralytics.com/tasks/pose/), and [oriented bounding box (OBB)](https://docs.ultralytics.com/tasks/obb/) detection planned for future updates.
+1. **Clone the Repository**:
+   ```bash
+   git clone [repository-url]
+   cd softbank_fishcount_iphone14
+   ```
 
-## 🧪 Testing Procedures
+2. **Download VLCKit (for GoPro, requirement may be removed in the future)**
+   - [MobileVLCKit-3.6.1b1-8e652244-ac310b4b.tar.xz](https://artifacts.videolan.org/VLCKit/MobileVLCKit/MobileVLCKit-3.6.1b1-8e652244-ac310b4b.tar.xz).
+   - Extract the package. Copy `MobileVLCKit.xcframe` folder to `YOLOiOSApp/Packages`
 
-This repository includes comprehensive [unit tests](https://en.wikipedia.org/wiki/Unit_testing) for both the YOLO Swift Package and the example applications, ensuring code reliability and stability.
+2. **Open in Xcode**:
+   - Launch Xcode
+   - Open `./YOLOiOSApp/YOLOiOSApp.xcodeproj`
 
-### Running Tests
+3. **Configure Developer Account**:
+   - Xcode → Preferences → Accounts
+   - Add your Apple ID
+   - Select development team in project settings
 
-Tests require CoreML model files (`.mlpackage`), which are not included in the repository due to their size. To run the tests with model validation:
+4. **Build and Deploy**:
+   - Build using XCode.
 
-1.  Set `SKIP_MODEL_TESTS = false` in the relevant test files (e.g., `YOLOv11Tests.swift`).
-2.  Download the required models from the [Ultralytics releases](https://github.com/ultralytics/ultralytics/releases) or train your own using tools like [Ultralytics HUB](https://www.ultralytics.com/hub).
-3.  Convert the models to CoreML format using the [Ultralytics Python library's export function](https://docs.ultralytics.com/modes/export/).
-4.  Add the exported `.mlpackage` files to your [Xcode](https://developer.apple.com/xcode/) project, ensuring they are included in the test targets.
-5.  Run the tests using Xcode's Test Navigator (Cmd+U).
+5. **Device Installation**:
+   - Connect iPad via USB
+   - Build and run from Xcode
+   - Trust developer certificate in iOS Settings → General → Device Management
 
-If you don't have the model files, you can still run tests by keeping `SKIP_MODEL_TESTS = true`. This will skip tests that require loading and running a model.
+## Usage Guide
 
-### Test Coverage
+### Basic Operation
 
-- **YOLO Swift Package**: Includes tests for core functionalities like model loading, preprocessing, inference, and postprocessing across different tasks.
-- **Example Apps**: Contains tests verifying UI components, model integration, and real-time inference performance within the sample applications.
+1. **Launch App**: Fish counting mode loads automatically with optimized model
+2. **Camera Setup**: Grant camera permissions, point at fish in clear water
+3. **Threshold Configuration**: 
+   - Red line: First counting threshold
+   - Yellow line: Second counting threshold
+   - Adjust via sliders for optimal detection zone
+4. **Direction Settings**: Configure counting direction (Bottom-to-Top default)
+5. **Monitoring**: Watch real-time count and color-coded fish tracking
+   - *Dark Blue*: Newly detected fish (not yet tracked)
+   - *Light Blue*: Established tracked fish (crossing thresholds)
+   - *Green*: Successfully counted fish (crossed threshold in correct direction)
+6. **Reset Functionality**: Clear count and restart session
+7. **Manual Calibration**: Fine-tune thresholds and direction for specific conditions
 
-### Test Documentation
+### Advanced Features
 
-Each test directory (e.g., `Tests/YOLOTests`) may include a `README.md` with specific instructions for testing that component, covering:
+- **Multiple Video Sources**: Camera, album videos, external cameras
+- **Model Selection**: Switch between different fish detection models  
+- **Auto-Calibration (Optional)**: Tap "AUTO" for intelligent threshold detection
 
-- Required model files and where to obtain them.
-- Steps for model conversion and setup.
-- Overview of the testing strategy.
-- Explanation of key test cases.
+### Technical Support
 
-## 💡 Contribute
-
-We warmly welcome contributions to our open-source projects! Your support helps us push the boundaries of [Artificial Intelligence (AI)](https://www.ultralytics.com/glossary/artificial-intelligence-ai). Get involved by reviewing our [Contributing Guide](https://docs.ultralytics.com/help/contributing/) and sharing your feedback through our [Survey](https://www.ultralytics.com/survey?utm_source=github&utm_medium=social&utm_campaign=Survey). Thank you 🙏 to all our contributors!
-
-[![Ultralytics open-source contributors](https://raw.githubusercontent.com/ultralytics/assets/main/im/image-contributors.png)](https://github.com/ultralytics/ultralytics/graphs/contributors)
-
-## 📄 License
-
-Ultralytics provides two licensing options to accommodate diverse use cases:
-
-- **AGPL-3.0 License**: An [OSI-approved](https://opensource.org/license/agpl-v3) open-source license ideal for academic research, personal projects, and experimentation. It promotes open collaboration and knowledge sharing. See the [LICENSE](https://github.com/ultralytics/yolo-ios-app/blob/main/LICENSE) file and the full [AGPL-3.0 license text](https://www.gnu.org/licenses/agpl-3.0.en.html) for details.
-- **Enterprise License**: Tailored for commercial applications, this license allows the integration of Ultralytics software and AI models into commercial products and services without the open-source requirements of AGPL-3.0. If your scenario involves commercial use, please contact us via [Ultralytics Licensing](https://www.ultralytics.com/license).
-
-## 🤝 Contact
-
-- For bug reports and feature requests related to this iOS project, please use [GitHub Issues](https://github.com/ultralytics/yolo-ios-app/issues).
-- For questions, discussions, and support regarding Ultralytics technologies, join our active [Discord](https://discord.com/invite/ultralytics) community!
-
-<br>
-<div align="center">
-  <a href="https://github.com/ultralytics"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-github.png" width="3%" alt="Ultralytics GitHub"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
-  <a href="https://www.linkedin.com/company/ultralytics/"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-linkedin.png" width="3%" alt="Ultralytics LinkedIn"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
-  <a href="https://twitter.com/ultralytics"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-twitter.png" width="3%" alt="Ultralytics Twitter"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
-  <a href="https://youtube.com/ultralytics?sub_confirmation=1"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-youtube.png" width="3%" alt="Ultralytics YouTube"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
-  <a href="https://www.tiktok.com/@ultralytics"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-tiktok.png" width="3%" alt="Ultralytics TikTok"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
-  <a href="https://ultralytics.com/bilibili"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-bilibili.png" width="3%" alt="Ultralytics BiliBili"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
-  <a href="https://discord.com/invite/ultralytics"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-discord.png" width="3%" alt="Ultralytics Discord"></a>
-</div>
+For development assistance or questions about the app logic:
+- Email: [yenchi@aizip.ai] or [yuchen@aizip.ai]  
