@@ -711,21 +711,4 @@ extension ViewController: UITableViewDataSource, UITableViewDelegate {
       selectedBGView.frame = insetRect
     }
   }
-  
-  // MARK: - Orientation Support
-  
-  /// Lock to landscape right orientation only
-  override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-    return .landscapeRight
-  }
-  
-  /// Disable auto-rotation completely
-  override var shouldAutorotate: Bool {
-    return false
-  }
-  
-  /// Prefer landscape right as the initial orientation
-  override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation {
-    return .landscapeRight
-  }
 }
