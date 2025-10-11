@@ -95,37 +95,19 @@ public class TrackingDetectorConfig {
  */
 class TrackingDetector: ObjectDetector {
     
-    /// The ByteTracker instance used for tracking objects
-    @MainActor private lazy var byteTracker = ByteTracker()
+    /// The tracker instance (protocol-based for flexibility)
+    /// Using nonisolated(unsafe) to avoid Sendable issues with protocol types
+    nonisolated(unsafe) private var tracker: TrackerProtocol
     
-    /// Total count of objects that have crossed the threshold(s)
-    private var totalCount: Int = 0
-    
-    /// Thresholds used for counting (normalized coordinates, 0.0-1.0)
-    /// For vertical directions (topToBottom, bottomToTop), these are y-coordinates
-    /// For horizontal directions (leftToRight, rightToLeft), these are x-coordinates
-    private var thresholds: [CGFloat]
-    
-    /// Map of track IDs to counting status
-    private var countedTracks: [Int: Bool] = [:]
+    /// The counter instance (protocol-based for flexibility)
+    /// Using nonisolated(unsafe) to avoid Sendable issues with protocol types
+    nonisolated(unsafe) private var counter: CounterProtocol
     
     /// The current tracked objects
     private var trackedObjects: [STrack] = []
     
-    /// Current counting direction
+    /// Current counting direction (maintained for calibration)
     private var countingDirection: CountingDirection
-    
-    /// Direction of fish movement
-    private var crossingDirections: [Int: Direction] = [:]
-    
-    /// Previous positions for each track
-    private var previousPositions: [Int: (x: CGFloat, y: CGFloat)] = [:]
-    
-    /// Map of track positions from 5 frames ago for detecting fast movements
-    private var historyPositions: [Int: (x: CGFloat, y: CGFloat)] = [:]
-    
-    /// Frame counter for less frequent cleanup
-    private var frameCount: Int = 0
     
     // MARK: - Auto-calibration properties
     
@@ -159,6 +141,9 @@ class TrackingDetector: ObjectDetector {
     /// Reference to the current frame being processed
     private var currentPixelBuffer: CVPixelBuffer?
     
+    /// Temporary storage for calibration thresholds
+    private var calibrationThresholds: [CGFloat] = []
+    
     // MARK: - Phase 2: Movement Analysis Properties
     
     /// Movement analysis frame count (separate from threshold calibration)
@@ -189,15 +174,24 @@ class TrackingDetector: ObjectDetector {
     
     // MARK: - Initialization
     
-    /// Initialize TrackingDetector with default values
+    /// Initialize TrackingDetector with optional dependency injection
     /// Configuration will be applied after initialization via applySharedConfiguration()
-    required init() {
-        // Initialize with hardcoded defaults (will be overridden by shared config)
-        self.thresholds = [0.2, 0.4]
+    /// - Parameters:
+    ///   - tracker: Optional tracker implementation (defaults to ByteTracker)
+    ///   - counter: Optional counter implementation (defaults to ThresholdCounter)
+    required init(tracker: TrackerProtocol? = nil, counter: CounterProtocol? = nil) {
+        // Initialize with dependency injection (defaults to current implementations)
+        self.tracker = tracker ?? ByteTracker()
+        self.counter = counter ?? ThresholdCounter()
         self.countingDirection = .bottomToTop
         self.originalCountingDirection = .bottomToTop
         
         super.init()
+    }
+    
+    /// Required override for ObjectDetector compatibility
+    required convenience init() {
+        self.init(tracker: nil, counter: nil)
     }
     
     /// Apply the shared configuration to this instance
@@ -207,11 +201,13 @@ class TrackingDetector: ObjectDetector {
         let config = TrackingDetectorConfig.shared
         
         // Apply configuration values
-        self.thresholds = config.defaultThresholds
         self.countingDirection = config.defaultCountingDirection
         self.confidenceThreshold = Double(config.defaultConfidenceThreshold)
         self.iouThreshold = Double(config.defaultIoUThreshold)
         self.numItemsThreshold = config.defaultNumItemsThreshold
+        
+        // Configure the counter with default thresholds and direction
+        counter.configure(thresholds: config.defaultThresholds, direction: config.defaultCountingDirection)
         
         // Set the expected movement direction in STrack
         STrack.expectedMovementDirection = self.countingDirection
@@ -227,9 +223,8 @@ class TrackingDetector: ObjectDetector {
     func setThresholds(_ values: [CGFloat]) {
         guard values.count >= 1 else { return }
         
-        // Ensure thresholds are within valid range (0.0-1.0)
-        let validThresholds = values.map { max(0.0, min(1.0, $0)) }
-        self.thresholds = validThresholds
+        // Delegate to counter
+        counter.configure(thresholds: values, direction: countingDirection)
     }
     
     /// Sets the thresholds with original display values (for bypass mode)
@@ -237,11 +232,10 @@ class TrackingDetector: ObjectDetector {
     func setThresholds(_ countingValues: [CGFloat], originalDisplayValues: [CGFloat]) {
         guard countingValues.count >= 1 && originalDisplayValues.count >= 1 else { return }
         
-        // Store counting thresholds for internal use
-        let validCountingThresholds = countingValues.map { max(0.0, min(1.0, $0)) }
-        self.thresholds = validCountingThresholds
+        // Configure counter with counting thresholds
+        counter.configure(thresholds: countingValues, direction: countingDirection)
         
-        // Store original display thresholds for bypass mode
+        // Store original display thresholds for bypass mode (for calibration)
         let validDisplayThresholds = originalDisplayValues.map { max(0.0, min(1.0, $0)) }
         self.originalDisplayThresholds = validDisplayThresholds
     }
@@ -249,28 +243,24 @@ class TrackingDetector: ObjectDetector {
     /// Gets the current count of objects that have crossed the threshold
     ///
     /// - Returns: The total count
+    @MainActor
     func getCount() -> Int {
-        return totalCount
+        return counter.getTotalCount()
     }
     
     /// Resets the counting state and clears all tracked objects
     @MainActor
     public func resetCount() {
-        totalCount = 0
+        // Delegate to counter
+        counter.resetCount()
         
         // Clean up any tracked objects to release memory
         for track in trackedObjects {
             track.cleanup()
         }
         
-        countedTracks.removeAll(keepingCapacity: true)
-        crossingDirections.removeAll(keepingCapacity: true)
-        previousPositions.removeAll(keepingCapacity: true)
-        historyPositions.removeAll(keepingCapacity: true)
-        frameCount = 0
-        
-        // Reset the ByteTracker to reset the track IDs
-        byteTracker.reset()
+        // Reset the tracker to reset the track IDs
+        tracker.reset()
         trackedObjects.removeAll(keepingCapacity: true)
     }
     
@@ -278,6 +268,9 @@ class TrackingDetector: ObjectDetector {
     @MainActor
     func setCountingDirection(_ direction: CountingDirection) {
         self.countingDirection = direction
+        
+        // Update counter configuration
+        counter.configure(thresholds: getThresholds(), direction: direction)
         
         // Update the expected movement direction in STrack
         STrack.expectedMovementDirection = direction
@@ -337,13 +330,12 @@ class TrackingDetector: ObjectDetector {
             
             // Clear all tracked objects to ensure clean start for calibration
             trackedObjects.removeAll(keepingCapacity: true)
-            countedTracks.removeAll(keepingCapacity: true)
-            crossingDirections.removeAll(keepingCapacity: true)
-            previousPositions.removeAll(keepingCapacity: true)
-            historyPositions.removeAll(keepingCapacity: true)
             
-            // Reset the ByteTracker to clear any existing tracks
-            byteTracker.reset()
+            // Reset counter state
+            counter.resetCount()
+            
+            // Reset the tracker to clear any existing tracks
+            tracker.reset()
             
             print("AutoCalibration: Started - Total frames needed: \(config.totalCalibrationFrames)")
         }
@@ -399,7 +391,7 @@ class TrackingDetector: ObjectDetector {
                 // The user has manually set these values and we should preserve them
                 wasPhase1Executed = false  // Mark as bypassed
                 
-                print("AutoCalibration: Phase 1 bypassed - Using current thresholds: \(thresholds)")
+                print("AutoCalibration: Phase 1 bypassed - Using current thresholds: \(getThresholds())")
                 completeThresholdCalibration()
             }
             return
@@ -421,14 +413,14 @@ class TrackingDetector: ObjectDetector {
             // Update our running thresholds
             if calibrationFrameCount == 1 {
                 // First frame - just use the values directly
-                self.thresholds = [threshold1, threshold2]
+                calibrationThresholds = [threshold1, threshold2]
             } else {
                 // Accumulate by blending with previous values using weighted average
                 // Give more weight to newer frames using a simple exponential moving average
                 let weight = 2.0 / Double(calibrationFrameCount + 1) 
-                let newThreshold1 = CGFloat(weight) * threshold1 + CGFloat(1 - weight) * self.thresholds[0]
-                let newThreshold2 = CGFloat(weight) * threshold2 + CGFloat(1 - weight) * self.thresholds[1]
-                self.thresholds = [newThreshold1, newThreshold2]
+                let newThreshold1 = CGFloat(weight) * threshold1 + CGFloat(1 - weight) * calibrationThresholds[0]
+                let newThreshold2 = CGFloat(weight) * threshold2 + CGFloat(1 - weight) * calibrationThresholds[1]
+                calibrationThresholds = [newThreshold1, newThreshold2]
             }
         }
         
@@ -443,19 +435,23 @@ class TrackingDetector: ObjectDetector {
     private func completeThresholdCalibration() {
         let config = AutoCalibrationConfig.shared
         
-        // Only sort thresholds if Phase 1 was actually executed (not bypassed)
+        // Determine final thresholds
+        let finalThresholds: [CGFloat]
         if wasPhase1Executed {
             // Sort thresholds to ensure proper order for OpenCV-detected values
-            let sortedThresholds = thresholds.sorted()
-            self.thresholds = sortedThresholds
-            print("AutoCalibration: Phase 1 complete (executed) - Thresholds sorted: \(thresholds)")
+            finalThresholds = calibrationThresholds.sorted()
+            print("AutoCalibration: Phase 1 complete (executed) - Thresholds sorted: \(finalThresholds)")
         } else {
             // Phase 1 was bypassed - keep current thresholds exactly as set by user
-            print("AutoCalibration: Phase 1 complete (bypassed) - Thresholds preserved: \(thresholds)")
+            finalThresholds = getThresholds()
+            print("AutoCalibration: Phase 1 complete (bypassed) - Thresholds preserved: \(finalThresholds)")
         }
         
+        // Update counter with final thresholds
+        counter.configure(thresholds: finalThresholds, direction: countingDirection)
+        
         // Notify threshold completion
-        onCalibrationComplete?(thresholds)
+        onCalibrationComplete?(finalThresholds)
         
         // Check what to do next
         if config.isDirectionCalibrationEnabled {
@@ -482,13 +478,12 @@ class TrackingDetector: ObjectDetector {
         // Step 2: Clear all tracking data synchronously
         fishMovementData.removeAll(keepingCapacity: true)
         trackedObjects.removeAll(keepingCapacity: true)
-        countedTracks.removeAll(keepingCapacity: true)
-        crossingDirections.removeAll(keepingCapacity: true)
-        previousPositions.removeAll(keepingCapacity: true)
-        historyPositions.removeAll(keepingCapacity: true)
+        
+        // Reset counter state
+        counter.resetCount()
         
         // Step 3: Reset tracker synchronously
-        byteTracker.reset()
+        tracker.reset()
         
         print("AutoCalibration: Phase 2 ready - Movement Analysis (\(config.movementAnalysisFrames) frames)")
     }
@@ -603,11 +598,8 @@ class TrackingDetector: ObjectDetector {
         isMovementAnalysisPhase = false
         calibrationPhase = .completed
         
-        // Clear any previous counting state to ensure new settings are used
-        countedTracks.removeAll(keepingCapacity: true)
-        crossingDirections.removeAll(keepingCapacity: true)
-        previousPositions.removeAll(keepingCapacity: true)
-        historyPositions.removeAll(keepingCapacity: true)
+        // Reset counter to ensure new settings are used
+        counter.resetCount()
         
         // Clear movement analysis data to free memory
         fishMovementData.removeAll(keepingCapacity: true)
@@ -631,13 +623,13 @@ class TrackingDetector: ObjectDetector {
             // Phase 1 was executed - thresholds are in counting coordinates from OpenCV
             // Convert them to display coordinates for the summary
             displayThresholds = UnifiedCoordinateSystem.countingToDisplay(
-                thresholds, 
+                getThresholds(), 
                 countingDirection: countingDirection
             )
         } else {
             // Phase 1 was bypassed - use the original display thresholds that were stored
             displayThresholds = originalDisplayThresholds.isEmpty ? 
-                UnifiedCoordinateSystem.countingToDisplay(thresholds, countingDirection: countingDirection) :
+                UnifiedCoordinateSystem.countingToDisplay(getThresholds(), countingDirection: countingDirection) :
                 originalDisplayThresholds
         }
         
@@ -703,20 +695,21 @@ class TrackingDetector: ObjectDetector {
                 }
             }
             
-            // Update tracks with new detections using enhanced ByteTracker
+            // Update tracks with new detections using tracker
             // Use async to prevent blocking, but ensure proper serialization
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 
                 // Thread-safe update of tracked objects
-                self.trackedObjects = self.byteTracker.update(detections: detectionBoxes, scores: scores, classes: labels)
+                self.trackedObjects = self.tracker.update(detections: detectionBoxes, scores: scores, classes: labels)
                 
                 // Handle movement analysis if we're in Phase 2
                 if self.isMovementAnalysisPhase && self.calibrationPhase == .movementAnalysis {
                     self.processMovementAnalysis()
                 } else if !self.isAutoCalibrationEnabled && !self.isMovementAnalysisPhase {
-                    // Normal counting - check for threshold crossings
-                    self.updateCounting()
+                    // Normal counting - process frame through counter
+                    let countingResult = self.counter.processFrame(tracks: self.trackedObjects)
+                    // Counter handles all counting logic internally
                 }
             }
             
@@ -768,222 +761,9 @@ class TrackingDetector: ObjectDetector {
         // which will call processObservations
     }
     
-    /**
-     * updateCounting
-     *
-     * Maps to Python Implementation:
-     * - Primary Correspondence: `check_threshold_crossing` and `check_reverse_threshold_crossing` in counting_demo2.py
-     * - Checks if objects have crossed threshold lines
-     * - Updates count when objects cross in the designated direction
-     * - Prevents double-counting through track state management
-     */
-    @MainActor
-    private func updateCounting() {
-        // Skip if in any calibration mode or movement analysis phase
-        if isAutoCalibrationEnabled || isMovementAnalysisPhase {
-            return
-        }
-        
-        // Get the expected direction of movement for the current counting direction
-        let expectedDirection = expectedMovementDirection(for: countingDirection)
-        
-        // Process all tracks each frame
-        for track in trackedObjects {
-            let trackId = track.trackId
-            let currentPos = track.position
-            
-            // Skip if no previous position
-            guard let lastPosition = previousPositions[trackId] else {
-                // If no previous position, just store current and continue
-                previousPositions[trackId] = currentPos
-                continue
-            }
-            
-            // Store current position for next frame
-            previousPositions[trackId] = currentPos
-            
-            // Calculate movement direction
-            let dx = currentPos.x - lastPosition.x
-            let dy = currentPos.y - lastPosition.y
-            
-            // Determine actual movement direction
-            let actualDirection: Direction
-            if abs(dx) > abs(dy) {
-                // Horizontal movement is dominant
-                actualDirection = dx > 0 ? .right : .left
-            } else {
-                // Vertical movement is dominant
-                actualDirection = dy > 0 ? .down : .up
-            }
-            
-            // Store the track's movement direction
-            crossingDirections[trackId] = actualDirection
-            
-            // Get previous and current coordinates
-            let center_y = currentPos.y
-            let last_y = lastPosition.y
-            let center_x = currentPos.x
-            let last_x = lastPosition.x
-            
-            // Get counted state for this track
-            let alreadyCounted = countedTracks[trackId, default: false]
-            
-            // Convert positions to unified coordinate system for consistent threshold checking
-            let currentUnified = UnifiedCoordinateSystem.UnifiedRect(
-                x: center_x, y: center_y, width: 0, height: 0
-            )
-            let lastUnified = UnifiedCoordinateSystem.UnifiedRect(
-                x: last_x, y: last_y, width: 0, height: 0
-            )
-            
-            // Convert to counting coordinates based on direction
-            let currentCounting = UnifiedCoordinateSystem.toCounting(currentUnified, countingDirection: countingDirection)
-            let lastCounting = UnifiedCoordinateSystem.toCounting(lastUnified, countingDirection: countingDirection)
-            
-            // Use direction-specific threshold crossing logic
-            switch countingDirection {
-            case .topToBottom:
-                // Top to bottom: fish moving downward (Y increasing)
-                let current_y = currentCounting.y
-                let last_y = lastCounting.y
-                
-                // Increment count: Check for crossing from above to below threshold
-                if !alreadyCounted {
-                    for threshold in thresholds {
-                        if last_y < threshold && current_y >= threshold {
-                            countObject(trackId: trackId)
-                            break // Count only once per threshold crossing event
-                        }
-                    }
-                }
-                
-                // Decrement count: Check for reverse crossing (only first threshold)
-                if let firstThreshold = thresholds.first,
-                   last_y > firstThreshold && current_y <= firstThreshold && alreadyCounted {
-                    totalCount = max(0, totalCount - 1)
-                    countedTracks[trackId] = false
-                    if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
-                        trackedObjects[trackIndex].counted = false
-                    }
-                }
-                
-            case .bottomToTop:
-                // Bottom to top: fish moving upward (Y decreasing)
-                let current_y = currentCounting.y
-                let last_y = lastCounting.y
-                
-                // Increment count: Check for crossing from below to above threshold
-                if !alreadyCounted {
-                    for threshold in thresholds {
-                        if last_y > threshold && current_y <= threshold {
-                            countObject(trackId: trackId)
-                            break // Count only once per threshold crossing event
-                        }
-                    }
-                }
-                
-                // Decrement count: Check for reverse crossing (only first threshold)
-                if let firstThreshold = thresholds.first,
-                   last_y < firstThreshold && current_y >= firstThreshold && alreadyCounted {
-                    totalCount = max(0, totalCount - 1)
-                    countedTracks[trackId] = false
-                    if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
-                        trackedObjects[trackIndex].counted = false
-                    }
-                }
-                
-            case .leftToRight:
-                // Left to right: fish moving rightward (X increasing)
-                let current_x = currentCounting.x
-                let last_x = lastCounting.x
-                
-                // Increment count: Check for crossing from left to right of threshold
-                if !alreadyCounted {
-                    for threshold in thresholds {
-                        if last_x < threshold && current_x >= threshold {
-                            countObject(trackId: trackId)
-                            break // Count only once per threshold crossing event
-                        }
-                    }
-                }
-                
-                // Decrement count: Check for reverse crossing (only first threshold)
-                if let firstThreshold = thresholds.first,
-                   last_x > firstThreshold && current_x <= firstThreshold && alreadyCounted {
-                    totalCount = max(0, totalCount - 1)
-                    countedTracks[trackId] = false
-                    if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
-                        trackedObjects[trackIndex].counted = false
-                    }
-                }
-                
-            case .rightToLeft:
-                // Right to left: fish moving leftward (X decreasing)
-                let current_x = currentCounting.x
-                let last_x = lastCounting.x
-                
-                // Increment count: Check for crossing from right to left of threshold
-                if !alreadyCounted {
-                    for threshold in thresholds {
-                        if last_x > threshold && current_x <= threshold {
-                            countObject(trackId: trackId)
-                            break // Count only once per threshold crossing event
-                        }
-                    }
-                }
-                
-                // Decrement count: Check for reverse crossing (only first threshold)
-                if let firstThreshold = thresholds.first,
-                   last_x < firstThreshold && current_x >= firstThreshold && alreadyCounted {
-                    totalCount = max(0, totalCount - 1)
-                    countedTracks[trackId] = false
-                    if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
-                        trackedObjects[trackIndex].counted = false
-                    }
-                }
-            }
-        }
-        
-        // Increment frame count for each update
-        frameCount += 1
-        
-        // Clean up old data periodically (every 30 frames)
-        if frameCount % 30 == 0 {
-            // Create a set once for efficient lookups
-            let currentIds = Set(trackedObjects.map { $0.trackId })
-            
-            // Remove keys for tracks that no longer exist
-            let keysToRemove = countedTracks.keys.filter { !currentIds.contains($0) }
-            for key in keysToRemove {
-                countedTracks.removeValue(forKey: key)
-                previousPositions.removeValue(forKey: key)
-                historyPositions.removeValue(forKey: key)
-                crossingDirections.removeValue(forKey: key)
-            }
-        }
-    }
-    
-    /**
-     * countObject
-     *
-     * Maps to Python Implementation:
-     * - In Python, this is part of the `check_threshold_crossing` function
-     * - Increments count and updates tracking state
-     * - Provides visualization feedback
-     */
-    @MainActor
-    private func countObject(trackId: Int) {
-        // Only count if not already counted
-        if countedTracks[trackId] != true {
-            totalCount += 1
-            countedTracks[trackId] = true
-            
-            // Mark the track as counted - only search if needed
-            if let trackIndex = trackedObjects.firstIndex(where: { $0.trackId == trackId }) {
-                trackedObjects[trackIndex].markCounted()
-            }
-        }
-    }
+    // NOTE: updateCounting() and countObject() methods have been removed.
+    // Counting logic is now handled by the CounterProtocol implementation (ThresholdCounter).
+    // This change enables pluggable counting strategies and cleaner separation of concerns.
     
     /// Gets the tracking information for a detection box
     ///
@@ -1011,8 +791,11 @@ class TrackingDetector: ObjectDetector {
         let centerX = (box.xywhn.minX + box.xywhn.maxX) / 2
         let centerY = (box.xywhn.minY + box.xywhn.maxY) / 2
         
+        // Get tracking info from counter
+        let trackingInfo = counter.getTrackingInfo()
+        
         // Find tracks that match this box
-        var bestMatch: STrack? = nil
+        var bestMatch: (trackId: Int, isCounted: Bool)? = nil
         var minDistance: CGFloat = TrackingParameters.minMatchDistance
         
         // First try to match by IOU (Intersection over Union)
@@ -1040,7 +823,9 @@ class TrackingDetector: ObjectDetector {
             
             // For high IoU, immediately select this track
             if iou > Float(TrackingParameters.iouMatchThreshold) {
-                return (trackId: track.trackId, isCounted: countedTracks[track.trackId] ?? false)
+                // Find counted status from counter's tracking info
+                let isCounted = trackingInfo.first(where: { $0.trackId == track.trackId })?.isCounted ?? false
+                return (trackId: track.trackId, isCounted: isCounted)
             }
             
             // Otherwise, continue with the distance-based approach
@@ -1050,16 +835,12 @@ class TrackingDetector: ObjectDetector {
             
             if distance < minDistance {
                 minDistance = distance
-                bestMatch = track
+                let isCounted = trackingInfo.first(where: { $0.trackId == track.trackId })?.isCounted ?? false
+                bestMatch = (trackId: track.trackId, isCounted: isCounted)
             }
         }
         
-        // If we found a good match by distance
-        if let track = bestMatch {
-            return (trackId: track.trackId, isCounted: countedTracks[track.trackId] ?? false)
-        }
-        
-        return nil
+        return bestMatch
     }
     
     /// Checks if a detection box is currently being tracked
@@ -1080,20 +861,6 @@ class TrackingDetector: ObjectDetector {
         return getTrackingStatus(for: box).isCounted
     }
     
-    /// Helper method to get the expected movement direction based on counting direction
-    private func expectedMovementDirection(for countingDirection: CountingDirection) -> Direction {
-        switch countingDirection {
-        case .topToBottom:
-            return .down
-        case .bottomToTop:
-            return .up
-        case .leftToRight:
-            return .right
-        case .rightToLeft:
-            return .left
-        }
-    }
-    
     // MARK: - Enhanced Threshold Management
     
     /// Gets the current threshold values
@@ -1101,7 +868,13 @@ class TrackingDetector: ObjectDetector {
     /// - Returns: Array of threshold values (usually 2 values)
     @MainActor
     func getThresholds() -> [CGFloat] {
-        return thresholds
+        // Get thresholds from counter's tracking info
+        // Since counter doesn't expose thresholds directly, we use calibrationThresholds if available
+        // Otherwise return default from config
+        if !calibrationThresholds.isEmpty {
+            return calibrationThresholds
+        }
+        return TrackingDetectorConfig.shared.defaultThresholds
     }
     
     /// Check if auto-calibration is currently enabled
@@ -1136,3 +909,4 @@ class TrackingDetector: ObjectDetector {
         targetCalibrationFrames = max(30, count) // Ensure at least 30 frames
     }
 }
+

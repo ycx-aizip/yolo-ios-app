@@ -68,7 +68,7 @@ public class ByteTracker {
     
     // MARK: - Initialization
     
-    public init() {
+    nonisolated public init() {
         // Empty initializer
     }
     
@@ -927,4 +927,14 @@ public class ByteTracker {
             }
         }
     }
-} 
+}
+
+// MARK: - TrackerProtocol Conformance
+
+extension ByteTracker: TrackerProtocol {
+    /// Get currently active tracks
+    /// - Returns: Array of active tracked objects
+    public func getActiveTracks() -> [STrack] {
+        return activeTracks
+    }
+}

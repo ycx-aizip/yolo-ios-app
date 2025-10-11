@@ -47,6 +47,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     return true
   }
+  
+  /// Lock the entire app to landscape right orientation only
+  func application(
+    _ application: UIApplication,
+    supportedInterfaceOrientationsFor window: UIWindow?
+  ) -> UIInterfaceOrientationMask {
+    return .landscapeRight
+  }
 }
 
 /// Extension to CALayer to add functionality for generating screenshots of any layer.
