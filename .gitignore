@@ -3,6 +3,7 @@
 .cursorrules
 .cursorignore
 .cursor/
+.claude/settings.local.json
 *.code-workspace
 
 # Repo-specific GitIgnore ----------------------------------------------------------------------------------------------
@@ -49,13 +50,13 @@ DerivedData/
 !targets*.mat
 
 # Neural Network weights -----------------------------------------------------------------------------------------------
-*.weights
-*.pt
-*.onnx
-*.mlmodel
-*.mlarchive
-*.mlprogram
-*.mlpackage
+# *.weights
+# *.pt
+# *.onnx
+# *.mlmodel
+# *.mlarchive
+# *.mlprogram
+# *.mlpackage
 
 # GitHub Python GitIgnore ----------------------------------------------------------------------------------------------
 # Byte-compiled / optimized / DLL files
