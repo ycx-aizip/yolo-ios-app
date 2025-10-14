@@ -166,14 +166,25 @@ public class ByteTracker {
         for (trackIdx, detIdx) in firstMatches {
             let track = predActiveTracks[trackIdx]
             let detection = remainedDetections[detIdx]
-            
+
+            // Update movement consistency (ByteTrack-specific)
+            ByteTrackHelpers.updateMovementConsistency(
+                for: track,
+                newPosition: detection.position,
+                expectedDirection: STrack.expectedMovementDirection,
+                isReactivation: false
+            )
+
             track.update(
-                newPosition: detection.position, 
+                newPosition: detection.position,
                 detection: detection.lastDetection,
                 newScore: detection.score,
                 frameId: frameId
             )
-            
+
+            // Set adaptive TTL based on movement consistency (ByteTrack-specific)
+            track.ttl = ByteTrackHelpers.calculateAdaptiveTTL(for: track, isReactivation: false)
+
             // Update track match history for future matching bias
             ByteTrackHelpers.updateMatchHistory(
                 trackId: track.trackId,
@@ -211,11 +222,22 @@ public class ByteTracker {
         for (trackIdx, detIdx) in secondMatches {
             let lostTrack = lostTracksCopy[trackIdx]
             let detection = remainedDetections[firstUnmatchedDetections[detIdx]]
-            
+
+            // Update movement consistency for reactivation (ByteTrack-specific)
+            ByteTrackHelpers.updateMovementConsistency(
+                for: lostTrack,
+                newPosition: detection.position,
+                expectedDirection: STrack.expectedMovementDirection,
+                isReactivation: true
+            )
+
             lostTrack.reactivate(
                 newTrack: detection,
                 frameId: frameId
             )
+
+            // Set adaptive TTL for reactivation (ByteTrack-specific)
+            lostTrack.ttl = ByteTrackHelpers.calculateAdaptiveTTL(for: lostTrack, isReactivation: true)
 
             // Update track match history for future matching bias
             ByteTrackHelpers.updateMatchHistory(

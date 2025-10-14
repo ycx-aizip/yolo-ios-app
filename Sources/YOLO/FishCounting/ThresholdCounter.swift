@@ -24,16 +24,25 @@ private enum Direction {
 /// Threshold-based counting implementation
 @MainActor
 public class ThresholdCounter: CounterProtocol {
-    
-    // MARK: - Properties
-    
-    /// Total count of objects that have crossed the threshold(s)
-    private var totalCount: Int = 0
-    
-    /// Thresholds used for counting (normalized coordinates, 0.0-1.0)
+
+    // MARK: - Class Configuration (Single Source of Truth for Counting)
+
+    /// Default thresholds for counting (normalized coordinates, 0.0-1.0)
     /// For vertical directions (topToBottom, bottomToTop), these are y-coordinates
     /// For horizontal directions (leftToRight, rightToLeft), these are x-coordinates
-    private var thresholds: [CGFloat] = [0.2, 0.4]
+    nonisolated(unsafe) public static var defaultThresholds: [CGFloat] = [0.4, 0.6]
+
+    /// Default counting direction (which way fish move through the scene)
+    /// Determines threshold interpretation and expected movement direction
+    nonisolated(unsafe) public static var defaultCountingDirection: CountingDirection = .bottomToTop
+
+    // MARK: - Instance Properties
+
+    /// Total count of objects that have crossed the threshold(s)
+    private var totalCount: Int = 0
+
+    /// Thresholds used for counting (initialized from defaultThresholds)
+    private var thresholds: [CGFloat]
     
     /// Map of track IDs to counting status
     private var countedTracks: [Int: Bool] = [:]
@@ -57,9 +66,10 @@ public class ThresholdCounter: CounterProtocol {
     private var cachedTracks: [STrack] = []
     
     // MARK: - Initialization
-    
+
     nonisolated public init() {
-        // Initialize with default values
+        // Initialize with class default thresholds
+        self.thresholds = ThresholdCounter.defaultThresholds
     }
     
     // MARK: - CounterProtocol Implementation

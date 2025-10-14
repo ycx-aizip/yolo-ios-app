@@ -549,4 +549,101 @@ public struct ByteTrackHelpers {
             collection = Array(collection.prefix(maxSize))
         }
     }
+
+    // MARK: - Movement Consistency Tracking (ByteTrack-Specific)
+
+    /**
+     * Update track's movement consistency after a successful match
+     *
+     * This is a ByteTrack-specific feature that tracks how consistently a fish
+     * moves in the expected direction, used for adaptive TTL assignment.
+     *
+     * - Parameters:
+     *   - track: Track to update
+     *   - newPosition: New position from detection
+     *   - expectedDirection: Expected movement direction
+     *   - isReactivation: Whether this is a reactivation (uses different rates)
+     */
+    public static func updateMovementConsistency(
+        for track: STrack,
+        newPosition: (x: CGFloat, y: CGFloat),
+        expectedDirection: CountingDirection?,
+        isReactivation: Bool
+    ) {
+        let dx = newPosition.x - track.position.x
+        let dy = newPosition.y - track.position.y
+
+        var isExpectedMovement = false
+
+        // Determine if movement matches the expected direction
+        switch expectedDirection {
+        case .topToBottom:
+            let isMovingDown = dy > 0
+            isExpectedMovement = isMovingDown && abs(dx) < TrackingParameters.maxHorizontalDeviation
+        case .bottomToTop:
+            let isMovingUp = dy < 0
+            isExpectedMovement = isMovingUp && abs(dx) < TrackingParameters.maxHorizontalDeviation
+        case .leftToRight:
+            let isMovingRight = dx > 0
+            isExpectedMovement = isMovingRight && abs(dy) < TrackingParameters.maxVerticalDeviation
+        case .rightToLeft:
+            let isMovingLeft = dx < 0
+            isExpectedMovement = isMovingLeft && abs(dy) < TrackingParameters.maxVerticalDeviation
+        case .none:
+            // No expected direction - treat all movement as valid
+            isExpectedMovement = true
+        }
+
+        // Select appropriate rates based on whether this is reactivation
+        let increaseRate = isReactivation ?
+            TrackingParameters.reactivationConsistencyIncreaseRate :
+            TrackingParameters.consistencyIncreaseRate
+        let decreaseRate = isReactivation ?
+            TrackingParameters.reactivationConsistencyDecreaseRate :
+            TrackingParameters.consistencyDecreaseRate
+
+        // Update consistency score
+        if isExpectedMovement {
+            track.framesWithExpectedMovement += 1
+            track.movementConsistency = min(1.0, track.movementConsistency + Float(increaseRate))
+        } else {
+            track.movementConsistency = max(0.0, track.movementConsistency - Float(decreaseRate))
+        }
+    }
+
+    /**
+     * Calculate adaptive TTL based on movement consistency
+     *
+     * ByteTrack uses movement consistency to assign higher TTL values to tracks
+     * that move predictably in the expected direction.
+     *
+     * - Parameters:
+     *   - track: Track to calculate TTL for
+     *   - isReactivation: Whether this is for a reactivated track (more conservative)
+     * - Returns: Recommended TTL value
+     */
+    public static func calculateAdaptiveTTL(
+        for track: STrack,
+        isReactivation: Bool
+    ) -> Int {
+        if isReactivation {
+            // More conservative TTL for reactivated tracks
+            if track.movementConsistency > 0.7 && track.framesWithExpectedMovement > 5 {
+                return TrackingParameters.reactivationHighTTL
+            } else if track.movementConsistency > 0.4 {
+                return TrackingParameters.reactivationMediumTTL
+            } else {
+                return TrackingParameters.reactivationLowTTL
+            }
+        } else {
+            // Regular TTL for ongoing tracks
+            if track.movementConsistency > 0.7 && track.framesWithExpectedMovement > 5 {
+                return TrackingParameters.highConsistencyTTL
+            } else if track.movementConsistency > 0.4 {
+                return TrackingParameters.mediumConsistencyTTL
+            } else {
+                return TrackingParameters.lowConsistencyTTL
+            }
+        }
+    }
 }

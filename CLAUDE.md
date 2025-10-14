@@ -37,14 +37,7 @@ yolo-ios-app/
 
 **iPad Pro M4 Simulator**:
 ```bash
-cd /Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/YOLOiOSApp && \
-xcodebuild -configuration Debug -scheme YOLOiOSApp \
--destination 'platform=iOS Simulator,id=496AC0E9-62B9-4335-B558-AD31BDD5F8D1' \
-FRAMEWORK_SEARCH_PATHS="Packages/ios-simulator Packages/MobileVLCKit.xcframework" \
-SWIFT_OBJC_BRIDGING_HEADER="YOLOiOSApp-Bridging-Header.h" \
-OTHER_LDFLAGS="-lc++ -ObjC" \
-OTHER_CPLUSPLUSFLAGS="-Wno-documentation" \
--quiet | grep -i "error"
+cd /Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/YOLOiOSApp && xcodebuild -configuration Debug -scheme YOLOiOSApp -destination 'platform=iOS Simulator,id=496AC0E9-62B9-4335-B558-AD31BDD5F8D1' FRAMEWORK_SEARCH_PATHS="/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/YOLOiOSApp/Packages/ios-simulator /Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/YOLOiOSApp/Packages/MobileVLCKit.xcframework" SWIFT_OBJC_BRIDGING_HEADER="/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/YOLOiOSApp/YOLOiOSApp-Bridging-Header.h" OTHER_LDFLAGS="-lc++ -ObjC" OTHER_CPLUSPLUSFLAGS="-Wno-documentation -Wno-documentation-deprecated-sync -Wno-documentation-unknown-command -Wno-quoted-include-in-framework-header" -quiet | grep -E "error:|warning:|BUILD|SUCCEEDED|FAILED" | head -50
 ```
 
 ## Python → Swift Translation

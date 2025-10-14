@@ -104,13 +104,30 @@ public class STrack {
     
     /// Kalman filter for this track
     private var kalmanFilter: KalmanFilter?
-    
-    /// Movement direction consistency score
+
+    /// Movement direction consistency score (ByteTrack-specific, managed externally)
+    /// This property is public for external trackers to read/write, but STrack doesn't modify it
     public var movementConsistency: Float = 0.0
-    
-    /// Frame count with expected movement
+
+    /// Frame count with expected movement (ByteTrack-specific, managed externally)
+    /// This property is public for external trackers to read/write, but STrack doesn't modify it
     public var framesWithExpectedMovement: Int = 0
-    
+
+    // MARK: - OC-SORT Observation History (for observation-centric recovery)
+
+    /// Historical observations indexed by age (frame number)
+    /// Format: [age: (x, y, w, h)] in normalized coordinates
+    /// Used by OC-SORT for observation-centric recovery when track is lost
+    private var observations: [Int: (x: Float, y: Float, w: Float, h: Float)] = [:]
+
+    /// Age of track (incremented each frame, used for observation indexing)
+    /// Corresponds to frame count since track creation
+    public private(set) var age: Int = 0
+
+    /// Last observation bbox (for OC-SORT's observation-centric recovery)
+    /// Stores the most recent detection box for fallback predictions
+    public private(set) var lastObservation: Box?
+
     // MARK: - Initialization
     
     /// Create a new track
@@ -183,68 +200,27 @@ public class STrack {
         guard let kalmanFilter = self.kalmanFilter, let mean = self.mean, let covariance = self.covariance else {
             return
         }
-        
-        // Calculate movement direction
-        let dx = newTrack.position.x - position.x
-        let dy = newTrack.position.y - position.y
-        
-        // Check if movement follows expected pattern based on direction
-        var isExpectedMovement = false
-        
-        // Determine if movement matches the expected direction
-        switch STrack.expectedMovementDirection {
-        case .topToBottom:
-            // Expect movement from top to bottom (downward)
-            let isMovingDown = dy > 0
-            isExpectedMovement = isMovingDown && abs(dx) < TrackingParameters.maxHorizontalDeviation
-        case .bottomToTop:
-            // Expect movement from bottom to top (upward)
-            let isMovingUp = dy < 0
-            isExpectedMovement = isMovingUp && abs(dx) < TrackingParameters.maxHorizontalDeviation
-        case .leftToRight:
-            // Expect movement from left to right
-            let isMovingRight = dx > 0
-            isExpectedMovement = isMovingRight && abs(dy) < TrackingParameters.maxVerticalDeviation
-        case .rightToLeft:
-            // Expect movement from right to left
-            let isMovingLeft = dx < 0
-            isExpectedMovement = isMovingLeft && abs(dy) < TrackingParameters.maxVerticalDeviation
-        }
-        
-        // Update movement consistency metrics
-        if isExpectedMovement {
-            framesWithExpectedMovement += 1
-            // Increase consistency (with damping)
-            movementConsistency = min(1.0, movementConsistency + Float(TrackingParameters.reactivationConsistencyIncreaseRate))
-        } else {
-            // Decrease consistency more aggressively for reactivation with unexpected movement
-            movementConsistency = max(0.0, movementConsistency - Float(TrackingParameters.reactivationConsistencyDecreaseRate))
-        }
-        
+
         // Update Kalman filter with new detection
         let newMeasurement = newTrack.convertToXYAH()
         (self.mean, self.covariance) = kalmanFilter.update(mean: mean, covariance: covariance, measurement: newMeasurement)
-        
+
         // Update track state
         self.state = .tracked
         self.isActivated = true
         self.trackletLen = 0
-        
+
         // Update metadata
         self.endFrame = frameId
         self.score = newTrack.score
         self.cls = newTrack.cls
         self.lastDetection = newTrack.lastDetection
         self.position = newTrack.position
-        
-        // Set adaptive TTL based on movement consistency for reactivated tracks
-        // More conservative TTL for reactivated tracks to prevent incorrect associations
-        if movementConsistency > 0.7 && framesWithExpectedMovement > 5 {
-            self.ttl = TrackingParameters.reactivationHighTTL
-        } else if movementConsistency > 0.4 {
-            self.ttl = TrackingParameters.reactivationMediumTTL
-        } else {
-            self.ttl = TrackingParameters.reactivationLowTTL
+
+        // TTL will be set by the tracker (e.g., ByteTrack) based on its specific logic
+        // Default to medium TTL for reactivation if not set externally
+        if self.ttl == 0 {
+            self.ttl = TrackingParameters.defaultTTL
         }
     }
     
@@ -261,71 +237,27 @@ public class STrack {
         guard let kalmanFilter = self.kalmanFilter, let mean = self.mean, let covariance = self.covariance else {
             return
         }
-        
-        // Calculate movement direction
-        let dx = newPosition.x - position.x
-        let dy = newPosition.y - position.y
-        
-        // Check if movement follows expected pattern based on direction
-        var isExpectedMovement = false
-        
-        // Determine if movement matches the expected direction
-        switch STrack.expectedMovementDirection {
-        case .topToBottom:
-            // Expect movement from top to bottom (downward)
-            let isMovingDown = dy > 0
-            isExpectedMovement = isMovingDown && abs(dx) < TrackingParameters.maxHorizontalDeviation
-        case .bottomToTop:
-            // Expect movement from bottom to top (upward)
-            let isMovingUp = dy < 0
-            isExpectedMovement = isMovingUp && abs(dx) < TrackingParameters.maxHorizontalDeviation
-        case .leftToRight:
-            // Expect movement from left to right
-            let isMovingRight = dx > 0
-            isExpectedMovement = isMovingRight && abs(dy) < TrackingParameters.maxVerticalDeviation
-        case .rightToLeft:
-            // Expect movement from right to left
-            let isMovingLeft = dx < 0
-            isExpectedMovement = isMovingLeft && abs(dy) < TrackingParameters.maxVerticalDeviation
-        }
-        
-        // Update movement consistency metrics
-        if isExpectedMovement {
-            framesWithExpectedMovement += 1
-            // Increase consistency (with damping to avoid immediate high values)
-            movementConsistency = min(1.0, movementConsistency + Float(TrackingParameters.consistencyIncreaseRate))
-        } else {
-            // Decrease consistency for unexpected movement
-            movementConsistency = max(0.0, movementConsistency - Float(TrackingParameters.consistencyDecreaseRate))
-        }
-        
+
         // Update position
         self.position = newPosition
         self.lastDetection = detection
         self.score = newScore
         self.cls = detection?.cls ?? self.cls
-        
+
         // Update Kalman filter with new detection
         let measurement = convertToXYAH()
         (self.mean, self.covariance) = kalmanFilter.update(mean: mean, covariance: covariance, measurement: measurement)
-        
+
         // Update track state
         self.state = .tracked
         self.isActivated = true
         self.trackletLen += 1
         self.endFrame = frameId
-        
-        // Set adaptive TTL based on movement consistency and track history
-        // Fish with consistent expected movement get higher TTL values
-        if movementConsistency > 0.7 && framesWithExpectedMovement > 5 {
-            // Fish with very consistent movements get highest TTL
-            self.ttl = TrackingParameters.highConsistencyTTL
-        } else if movementConsistency > 0.4 {
-            // Fish with moderately consistent movements get medium TTL
-            self.ttl = TrackingParameters.mediumConsistencyTTL
-        } else {
-            // Fish with erratic movements get lower TTL
-            self.ttl = TrackingParameters.lowConsistencyTTL
+
+        // TTL will be set by the tracker (e.g., ByteTrack) based on its specific logic
+        // Default to medium TTL if not set externally
+        if self.ttl == 0 {
+            self.ttl = TrackingParameters.defaultTTL
         }
     }
     
@@ -418,7 +350,91 @@ public class STrack {
     public func getMovementVector(from previousPosition: (x: CGFloat, y: CGFloat)) -> (dx: CGFloat, dy: CGFloat) {
         return (dx: position.x - previousPosition.x, dy: position.y - previousPosition.y)
     }
-    
+
+    // MARK: - OC-SORT Specific Methods
+
+    /**
+     * Record observation at current age (for OC-SORT)
+     *
+     * Maps to Python Implementation:
+     * - Corresponds to observation recording in OC-SORT's KalmanBoxTracker
+     * - Stores historical observations for observation-centric recovery
+     *
+     * - Parameter bbox: Detection bounding box to record
+     */
+    public func recordObservation(bbox: Box) {
+        // Use normalized coordinates
+        let normalizedBox = bbox.xywhn
+        let w = normalizedBox.maxX - normalizedBox.minX
+        let h = normalizedBox.maxY - normalizedBox.minY
+        let x = (normalizedBox.minX + normalizedBox.maxX) / 2
+        let y = (normalizedBox.minY + normalizedBox.maxY) / 2
+
+        observations[age] = (Float(x), Float(y), Float(w), Float(h))
+        lastObservation = bbox
+
+        // Limit observation history to prevent unbounded growth
+        // Keep only the most recent observations (e.g., last 30 frames)
+        let maxObservationHistory = 30
+        if observations.count > maxObservationHistory {
+            // Remove oldest observations
+            let sortedAges = observations.keys.sorted()
+            let agesToRemove = sortedAges.prefix(observations.count - maxObservationHistory)
+            for ageToRemove in agesToRemove {
+                observations.removeValue(forKey: ageToRemove)
+            }
+        }
+    }
+
+    /**
+     * Get observation from k frames ago (OC-SORT's k_previous_obs)
+     *
+     * Maps to Python Implementation:
+     * - Primary Correspondence: `k_previous_obs()` function in `ocsort.py`
+     * - Retrieves observation from delta_t frames ago for velocity estimation
+     *
+     * - Parameter deltaT: Number of frames to look back (typically 3)
+     * - Returns: Observation tuple (x, y, w, h) or nil if not available
+     */
+    public func getPreviousObservation(deltaT: Int) -> (x: Float, y: Float, w: Float, h: Float)? {
+        // Try to find observation deltaT frames ago
+        // If exact match not found, try nearby frames (OC-SORT behavior)
+        for i in 0..<deltaT {
+            let targetAge = age - (deltaT - i)
+            if let obs = observations[targetAge] {
+                return obs
+            }
+        }
+
+        // Fallback to most recent observation if delta_t observation not found
+        if let maxAge = observations.keys.max() {
+            return observations[maxAge]
+        }
+
+        return nil
+    }
+
+    /**
+     * Increment age (called each predict)
+     *
+     * Maps to Python Implementation:
+     * - Corresponds to age increment in OC-SORT's update loop
+     * - Used for indexing observations by frame
+     */
+    public func incrementAge() {
+        age += 1
+    }
+
+    /**
+     * Clear observation history (for memory management)
+     *
+     * Called when track is removed to free memory
+     */
+    public func clearObservations() {
+        observations.removeAll()
+        lastObservation = nil
+    }
+
     // MARK: - Class Methods
     
     /// Gets the next available track ID (always a new, higher ID - never reuses IDs)

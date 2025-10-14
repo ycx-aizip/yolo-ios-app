@@ -126,7 +126,278 @@ public class MatchingUtils {
         
         return costMatrix
     }
-    
+
+    // MARK: - Advanced IoU Variants (for OC-SORT)
+
+    /**
+     * Calculate GIoU (Generalized IoU) distance matrix
+     *
+     * Maps to Python Implementation:
+     * - Primary Correspondence: `giou_batch()` in `association.py`
+     * - Adds penalty for non-overlapping bounding boxes using enclosing box
+     * - Range: [-1, 1], normalized to [0, 1] for consistency
+     *
+     * Reference: https://arxiv.org/pdf/1902.09630.pdf
+     */
+    public static func giouDistance(tracks: [STrack], detections: [STrack]) -> [[Float]] {
+        let numTracks = tracks.count
+        let numDetections = detections.count
+
+        var giouMatrix = Array(repeating: Array(repeating: Float(0.0), count: numDetections), count: numTracks)
+
+        for i in 0..<numTracks {
+            guard let box1 = tracks[i].lastDetection else { continue }
+            let bbox1 = box1.xywhn
+
+            for j in 0..<numDetections {
+                guard let box2 = detections[j].lastDetection else { continue }
+                let bbox2 = box2.xywhn
+
+                // Intersection
+                let xx1 = max(bbox1.minX, bbox2.minX)
+                let yy1 = max(bbox1.minY, bbox2.minY)
+                let xx2 = min(bbox1.maxX, bbox2.maxX)
+                let yy2 = min(bbox1.maxY, bbox2.maxY)
+                let w = max(0, xx2 - xx1)
+                let h = max(0, yy2 - yy1)
+                let intersection = w * h
+
+                // Union
+                let box1Area = (bbox1.maxX - bbox1.minX) * (bbox1.maxY - bbox1.minY)
+                let box2Area = (bbox2.maxX - bbox2.minX) * (bbox2.maxY - bbox2.minY)
+                let union = box1Area + box2Area - intersection
+                let iou = Float(intersection / union)
+
+                // Enclosing box (smallest box containing both)
+                let xxc1 = min(bbox1.minX, bbox2.minX)
+                let yyc1 = min(bbox1.minY, bbox2.minY)
+                let xxc2 = max(bbox1.maxX, bbox2.maxX)
+                let yyc2 = max(bbox1.maxY, bbox2.maxY)
+                let enclosingArea = (xxc2 - xxc1) * (yyc2 - yyc1)
+
+                // GIoU formula: IoU - (enclosing_area - union) / enclosing_area
+                var giou = iou - Float((enclosingArea - union) / enclosingArea)
+
+                // Normalize to [0, 1] range (from [-1, 1])
+                giou = (giou + 1.0) / 2.0
+
+                // Convert to distance (1 - IoU)
+                giouMatrix[i][j] = 1.0 - giou
+            }
+        }
+
+        return giouMatrix
+    }
+
+    /**
+     * Calculate DIoU (Distance IoU) distance matrix
+     *
+     * Maps to Python Implementation:
+     * - Primary Correspondence: `diou_batch()` in `association.py`
+     * - Adds penalty based on center distance between boxes
+     * - Better for tracking where center displacement matters
+     *
+     * Reference: https://arxiv.org/pdf/1911.08287.pdf
+     */
+    public static func diouDistance(tracks: [STrack], detections: [STrack]) -> [[Float]] {
+        let numTracks = tracks.count
+        let numDetections = detections.count
+
+        var diouMatrix = Array(repeating: Array(repeating: Float(0.0), count: numDetections), count: numTracks)
+
+        for i in 0..<numTracks {
+            guard let box1 = tracks[i].lastDetection else { continue }
+            let bbox1 = box1.xywhn
+
+            for j in 0..<numDetections {
+                guard let box2 = detections[j].lastDetection else { continue }
+                let bbox2 = box2.xywhn
+
+                // Intersection
+                let xx1 = max(bbox1.minX, bbox2.minX)
+                let yy1 = max(bbox1.minY, bbox2.minY)
+                let xx2 = min(bbox1.maxX, bbox2.maxX)
+                let yy2 = min(bbox1.maxY, bbox2.maxY)
+                let w = max(0, xx2 - xx1)
+                let h = max(0, yy2 - yy1)
+                let intersection = w * h
+
+                // Union
+                let box1Area = (bbox1.maxX - bbox1.minX) * (bbox1.maxY - bbox1.minY)
+                let box2Area = (bbox2.maxX - bbox2.minX) * (bbox2.maxY - bbox2.minY)
+                let union = box1Area + box2Area - intersection
+                let iou = Float(intersection / union)
+
+                // Center points
+                let centerx1 = (bbox1.minX + bbox1.maxX) / 2.0
+                let centery1 = (bbox1.minY + bbox1.maxY) / 2.0
+                let centerx2 = (bbox2.minX + bbox2.maxX) / 2.0
+                let centery2 = (bbox2.minY + bbox2.maxY) / 2.0
+
+                // Inner diagonal (distance between centers squared)
+                let innerDiag = (centerx1 - centerx2) * (centerx1 - centerx2) + (centery1 - centery2) * (centery1 - centery2)
+
+                // Enclosing box diagonal
+                let xxc1 = min(bbox1.minX, bbox2.minX)
+                let yyc1 = min(bbox1.minY, bbox2.minY)
+                let xxc2 = max(bbox1.maxX, bbox2.maxX)
+                let yyc2 = max(bbox1.maxY, bbox2.maxY)
+                let outerDiag = (xxc2 - xxc1) * (xxc2 - xxc1) + (yyc2 - yyc1) * (yyc2 - yyc1)
+
+                // DIoU formula: IoU - (center_distance^2 / diagonal^2)
+                var diou = iou - Float(innerDiag / outerDiag)
+
+                // Normalize to [0, 1] range
+                diou = (diou + 1.0) / 2.0
+
+                // Convert to distance
+                diouMatrix[i][j] = 1.0 - diou
+            }
+        }
+
+        return diouMatrix
+    }
+
+    /**
+     * Calculate CIoU (Complete IoU) distance matrix
+     *
+     * Maps to Python Implementation:
+     * - Primary Correspondence: `ciou_batch()` in `association.py`
+     * - Adds aspect ratio penalty in addition to DIoU
+     * - Most comprehensive IoU variant
+     *
+     * Reference: https://arxiv.org/pdf/1911.08287.pdf
+     */
+    public static func ciouDistance(tracks: [STrack], detections: [STrack]) -> [[Float]] {
+        let numTracks = tracks.count
+        let numDetections = detections.count
+
+        var ciouMatrix = Array(repeating: Array(repeating: Float(0.0), count: numDetections), count: numTracks)
+
+        for i in 0..<numTracks {
+            guard let box1 = tracks[i].lastDetection else { continue }
+            let bbox1 = box1.xywhn
+
+            for j in 0..<numDetections {
+                guard let box2 = detections[j].lastDetection else { continue }
+                let bbox2 = box2.xywhn
+
+                // Intersection
+                let xx1 = max(bbox1.minX, bbox2.minX)
+                let yy1 = max(bbox1.minY, bbox2.minY)
+                let xx2 = min(bbox1.maxX, bbox2.maxX)
+                let yy2 = min(bbox1.maxY, bbox2.maxY)
+                let w = max(0, xx2 - xx1)
+                let h = max(0, yy2 - yy1)
+                let intersection = w * h
+
+                // Union
+                let box1Area = (bbox1.maxX - bbox1.minX) * (bbox1.maxY - bbox1.minY)
+                let box2Area = (bbox2.maxX - bbox2.minX) * (bbox2.maxY - bbox2.minY)
+                let union = box1Area + box2Area - intersection
+                let iou = Float(intersection / union)
+
+                // Center points
+                let centerx1 = (bbox1.minX + bbox1.maxX) / 2.0
+                let centery1 = (bbox1.minY + bbox1.maxY) / 2.0
+                let centerx2 = (bbox2.minX + bbox2.maxX) / 2.0
+                let centery2 = (bbox2.minY + bbox2.maxY) / 2.0
+
+                // Inner diagonal
+                let innerDiag = (centerx1 - centerx2) * (centerx1 - centerx2) + (centery1 - centery2) * (centery1 - centery2)
+
+                // Enclosing box diagonal
+                let xxc1 = min(bbox1.minX, bbox2.minX)
+                let yyc1 = min(bbox1.minY, bbox2.minY)
+                let xxc2 = max(bbox1.maxX, bbox2.maxX)
+                let yyc2 = max(bbox1.maxY, bbox2.maxY)
+                let outerDiag = (xxc2 - xxc1) * (xxc2 - xxc1) + (yyc2 - yyc1) * (yyc2 - yyc1)
+
+                // Aspect ratio consistency
+                var w1 = bbox1.maxX - bbox1.minX
+                var h1 = bbox1.maxY - bbox1.minY
+                var w2 = bbox2.maxX - bbox2.minX
+                var h2 = bbox2.maxY - bbox2.minY
+
+                // Prevent division by zero (add small epsilon)
+                h1 = h1 + 1e-6
+                h2 = h2 + 1e-6
+
+                let arctan = atan(CGFloat(w2) / CGFloat(h2)) - atan(CGFloat(w1) / CGFloat(h1))
+                let v = (4.0 / (CGFloat.pi * CGFloat.pi)) * arctan * arctan
+                let S = CGFloat(1.0 - iou)
+                let alpha = v / (S + v + 1e-6)
+
+                // CIoU formula
+                var ciou = iou - Float(innerDiag / outerDiag) - Float(alpha * v)
+
+                // Normalize to [0, 1] range
+                ciou = (ciou + 1.0) / 2.0
+
+                // Convert to distance
+                ciouMatrix[i][j] = 1.0 - ciou
+            }
+        }
+
+        return ciouMatrix
+    }
+
+    /**
+     * Calculate center distance matrix (for OC-SORT ct_dist)
+     *
+     * Maps to Python Implementation:
+     * - Primary Correspondence: `ct_dist()` in `association.py`
+     * - Simple center-to-center distance, normalized
+     * - Coarse metric, not recommended as primary association method
+     */
+    public static func centerDistance(tracks: [STrack], detections: [STrack]) -> [[Float]] {
+        let numTracks = tracks.count
+        let numDetections = detections.count
+
+        var distMatrix = Array(repeating: Array(repeating: Float(0.0), count: numDetections), count: numTracks)
+        var maxDist: Float = 0.0
+
+        // Calculate all distances first
+        for i in 0..<numTracks {
+            guard let box1 = tracks[i].lastDetection else { continue }
+            let bbox1 = box1.xywhn
+            let centerx1 = (bbox1.minX + bbox1.maxX) / 2.0
+            let centery1 = (bbox1.minY + bbox1.maxY) / 2.0
+
+            for j in 0..<numDetections {
+                guard let box2 = detections[j].lastDetection else { continue }
+                let bbox2 = box2.xywhn
+                let centerx2 = (bbox2.minX + bbox2.maxX) / 2.0
+                let centery2 = (bbox2.minY + bbox2.maxY) / 2.0
+
+                let dx = centerx1 - centerx2
+                let dy = centery1 - centery2
+                let dist = Float(sqrt(dx * dx + dy * dy))
+
+                distMatrix[i][j] = dist
+                maxDist = max(maxDist, dist)
+            }
+        }
+
+        // Normalize by max distance and invert (lower distance = better match)
+        if maxDist > 0 {
+            for i in 0..<numTracks {
+                for j in 0..<numDetections {
+                    distMatrix[i][j] = (maxDist - distMatrix[i][j]) / maxDist
+                }
+            }
+        }
+
+        // Convert to distance metric (1 - similarity)
+        for i in 0..<numTracks {
+            for j in 0..<numDetections {
+                distMatrix[i][j] = 1.0 - distMatrix[i][j]
+            }
+        }
+
+        return distMatrix
+    }
+
     // MARK: - Matching Operations
     
     /**

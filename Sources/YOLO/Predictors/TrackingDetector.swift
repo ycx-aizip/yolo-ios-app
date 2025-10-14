@@ -24,16 +24,11 @@ private enum Direction {
 
 /// Centralized configuration for all TrackingDetector instances
 /// This ensures consistent initial setup across all frame sources
+/// NOTE: Counting-related config (thresholds, direction) is now in ThresholdCounter
 @MainActor
 public class TrackingDetectorConfig {
     /// Shared singleton instance
     public static let shared = TrackingDetectorConfig()
-    
-    /// Default thresholds for counting (normalized coordinates, 0.0-1.0)
-    public var defaultThresholds: [CGFloat] = [0.2, 0.4]
-    
-    /// Default counting direction
-    public var defaultCountingDirection: CountingDirection = .bottomToTop
     
     /// Default confidence threshold for YOLO detection
     public var defaultConfidenceThreshold: Float = 0.60
@@ -48,20 +43,13 @@ public class TrackingDetectorConfig {
         // Private initializer to enforce singleton pattern
     }
     
-    /// Update all default values at once
+    /// Update detection-related default values
+    /// NOTE: For counting config, use ThresholdCounter.defaultThresholds and ThresholdCounter.defaultCountingDirection
     public func updateDefaults(
-        thresholds: [CGFloat]? = nil,
-        countingDirection: CountingDirection? = nil,
         confidenceThreshold: Float? = nil,
         iouThreshold: Float? = nil,
         numItemsThreshold: Int? = nil
     ) {
-        if let thresholds = thresholds {
-            self.defaultThresholds = thresholds
-        }
-        if let countingDirection = countingDirection {
-            self.defaultCountingDirection = countingDirection
-        }
         if let confidenceThreshold = confidenceThreshold {
             self.defaultConfidenceThreshold = confidenceThreshold
         }
@@ -71,8 +59,8 @@ public class TrackingDetectorConfig {
         if let numItemsThreshold = numItemsThreshold {
             self.defaultNumItemsThreshold = numItemsThreshold
         }
-        
-        print("TrackingDetector: Configuration updated")
+
+        print("TrackingDetector: Detection configuration updated")
     }
 }
 
@@ -199,15 +187,17 @@ class TrackingDetector: ObjectDetector {
     @MainActor
     func applySharedConfiguration() {
         let config = TrackingDetectorConfig.shared
-        
-        // Apply configuration values
-        self.countingDirection = config.defaultCountingDirection
+
+        // Apply detection configuration
         self.confidenceThreshold = Double(config.defaultConfidenceThreshold)
         self.iouThreshold = Double(config.defaultIoUThreshold)
         self.numItemsThreshold = config.defaultNumItemsThreshold
-        
-        // Configure the counter with default thresholds and direction
-        counter.configure(thresholds: config.defaultThresholds, direction: config.defaultCountingDirection)
+
+        // Apply counting configuration from ThresholdCounter
+        self.countingDirection = ThresholdCounter.defaultCountingDirection
+
+        // Configure the counter with counting defaults
+        counter.configure(thresholds: ThresholdCounter.defaultThresholds, direction: ThresholdCounter.defaultCountingDirection)
         
         // Set the expected movement direction in STrack
         STrack.expectedMovementDirection = self.countingDirection
@@ -870,11 +860,11 @@ class TrackingDetector: ObjectDetector {
     func getThresholds() -> [CGFloat] {
         // Get thresholds from counter's tracking info
         // Since counter doesn't expose thresholds directly, we use calibrationThresholds if available
-        // Otherwise return default from config
+        // Otherwise return default from ThresholdCounter
         if !calibrationThresholds.isEmpty {
             return calibrationThresholds
         }
-        return TrackingDetectorConfig.shared.defaultThresholds
+        return ThresholdCounter.defaultThresholds
     }
     
     /// Check if auto-calibration is currently enabled
