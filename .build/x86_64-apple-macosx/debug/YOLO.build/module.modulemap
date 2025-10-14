@@ -1,4 +1,0 @@
-module YOLO {
-    header "/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/.build/x86_64-apple-macosx/debug/YOLO.build/YOLO-Swift.h"
-    requires objc
-}

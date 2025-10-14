@@ -90,8 +90,20 @@ public class ByteTracker {
         // Clean up collections before processing new detections
         limitCollectionSizes()
         
-        // Estimate camera motion if we have previous frame data
-        estimateCameraMotion(from: detections)
+        // Estimate camera motion if we have previous frame data using helper
+        let currentCenters = detections.map { box in
+            let bbox = box.xywhn
+            return (x: (bbox.minX + bbox.maxX) / 2, y: (bbox.minY + bbox.maxY) / 2)
+        }
+        estimatedCameraMotion = ByteTrackHelpers.estimateCameraMotion(
+            currentCenters: currentCenters,
+            previousCenters: lastFrameDetectionCenters,
+            expectedDirection: STrack.expectedMovementDirection,
+            previousMotion: estimatedCameraMotion
+        )
+        if !detections.isEmpty {
+            lastFrameDetectionCenters = currentCenters
+        }
         
         // Removed tracks are no longer needed as they're never reactivated
         // We can just clear them instead of keeping them around
@@ -125,12 +137,7 @@ public class ByteTracker {
             
             detTrackArr.append(newTrack)
         }
-        
-        // Save current detection centers for next frame's motion estimation
-        if !detTrackArr.isEmpty {
-            lastFrameDetectionCenters = detTrackArr.map { $0.position }
-        }
-        
+
         // Filter high score detections
         let remainedDetections = detTrackArr
         
@@ -139,13 +146,20 @@ public class ByteTracker {
         STrack.multiPredict(tracks: predActiveTracks)
         
         // Apply motion compensation to track predictions if significant camera motion detected
-        applyMotionCompensation(to: predActiveTracks)
+        ByteTrackHelpers.applyMotionCompensation(
+            to: predActiveTracks,
+            motion: estimatedCameraMotion,
+            expectedDirection: STrack.expectedMovementDirection
+        )
         
         // Match with high score detections first - using the improved matching process
-        let (firstMatches, firstUnmatchedTracks, firstUnmatchedDetections) = 
-            improvedAssociateFirstStage(
+        let (firstMatches, firstUnmatchedTracks, firstUnmatchedDetections) =
+            ByteTrackHelpers.improvedAssociateFirstStage(
                 tracks: predActiveTracks,
-                detections: remainedDetections
+                detections: remainedDetections,
+                expectedDirection: STrack.expectedMovementDirection,
+                matchHistory: trackMatchHistory,
+                matchThreshold: TrackingParameters.highMatchThreshold
             )
         
         // Update matched tracks with detections
@@ -161,7 +175,11 @@ public class ByteTracker {
             )
             
             // Update track match history for future matching bias
-            updateMatchHistory(trackId: track.trackId, detectionId: detIdx)
+            ByteTrackHelpers.updateMatchHistory(
+                trackId: track.trackId,
+                detectionId: detIdx,
+                history: &trackMatchHistory
+            )
         }
         
         // Create array of unmatched tracks
@@ -174,13 +192,19 @@ public class ByteTracker {
         STrack.multiPredict(tracks: lostTracksCopy)
         
         // Apply motion compensation to lost tracks too
-        applyMotionCompensation(to: lostTracksCopy)
+        ByteTrackHelpers.applyMotionCompensation(
+            to: lostTracksCopy,
+            motion: estimatedCameraMotion,
+            expectedDirection: STrack.expectedMovementDirection
+        )
         
         // Match remaining detections with lost tracks - using improved second stage matching
-        let (secondMatches, secondUnmatchedDetections) = 
-            improvedAssociateSecondStage(
+        let (secondMatches, secondUnmatchedDetections) =
+            ByteTrackHelpers.improvedAssociateSecondStage(
                 tracks: lostTracksCopy,
-                detections: firstUnmatchedDetections.map { remainedDetections[$0] }
+                detections: firstUnmatchedDetections.map { remainedDetections[$0] },
+                expectedDirection: STrack.expectedMovementDirection,
+                matchThreshold: TrackingParameters.lowMatchThreshold
             )
         
         // Reactivate matched lost tracks
@@ -192,9 +216,13 @@ public class ByteTracker {
                 newTrack: detection,
                 frameId: frameId
             )
-            
+
             // Update track match history for future matching bias
-            updateMatchHistory(trackId: lostTrack.trackId, detectionId: firstUnmatchedDetections[detIdx])
+            ByteTrackHelpers.updateMatchHistory(
+                trackId: lostTrack.trackId,
+                detectionId: firstUnmatchedDetections[detIdx],
+                history: &trackMatchHistory
+            )
         }
         
         // Mark unmatched tracks as lost
@@ -398,41 +426,34 @@ public class ByteTracker {
     /// Limit sizes of all track collections to prevent memory growth
     private func limitCollectionSizes() {
         // Cap active tracks - priority is recent tracks with higher scores
-        if activeTracks.count > maxActiveTracks {
-            // Sort by recency and score
-            activeTracks.sort { (a, b) -> Bool in
-                if a.endFrame == b.endFrame {
-                    return a.score > b.score
-                }
-                return a.endFrame > b.endFrame
+        ByteTrackHelpers.limitCollectionSize(&activeTracks, maxSize: maxActiveTracks) { (a, b) -> Bool in
+            if a.endFrame == b.endFrame {
+                return a.score > b.score
             }
-            activeTracks = Array(activeTracks.prefix(maxActiveTracks))
+            return a.endFrame > b.endFrame
         }
-        
+
         // Cap lost tracks - priority is recent tracks
-        if lostTracks.count > maxLostTracks {
-            lostTracks.sort { $0.endFrame > $1.endFrame }
-            lostTracks = Array(lostTracks.prefix(maxLostTracks))
-        }
-        
+        ByteTrackHelpers.limitCollectionSize(&lostTracks, maxSize: maxLostTracks) { $0.endFrame > $1.endFrame }
+
         // We no longer maintain removedTracks since we never reactivate removed tracks
-        
+
         // Cap potential tracks - priority is tracks seen more times
         if potentialTracks.count > maxPotentialTracks {
             let sortedKeys = potentialTracks.keys.sorted {
                 let trackA = potentialTracks[$0]!
                 let trackB = potentialTracks[$1]!
-                
+
                 // Sort by frames observed, then by recency
                 if trackA.frames == trackB.frames {
                     return trackA.lastFrame > trackB.lastFrame
                 }
                 return trackA.frames > trackB.frames
             }
-            
+
             let keysToKeep = sortedKeys.prefix(maxPotentialTracks)
             let keysToRemove = Set(potentialTracks.keys).subtracting(keysToKeep)
-            
+
             for key in keysToRemove {
                 potentialTracks.removeValue(forKey: key)
             }
@@ -443,164 +464,6 @@ public class ByteTracker {
     /// - Returns: Array of current active tracks
     public func getTracks() -> [STrack] {
         return activeTracks
-    }
-    
-    // MARK: - Motion Compensation
-    
-    /// Estimate camera motion between frames based on detection centers
-    private func estimateCameraMotion(from currentDetections: [Box]) {
-        // Need at least a few detections in both frames to estimate motion
-        if lastFrameDetectionCenters.count < 3 || currentDetections.count < 3 {
-            estimatedCameraMotion = (0, 0)
-            return
-        }
-        
-        // Calculate centers of current detections
-        let currentCenters = currentDetections.map { box in
-            let bbox = box.xywhn
-            return (x: (bbox.minX + bbox.maxX) / 2, y: (bbox.minY + bbox.maxY) / 2)
-        }
-        
-        // Calculate average shift
-        var totalDx: CGFloat = 0
-        var totalDy: CGFloat = 0
-        var count: Int = 0
-        var matchingPairs: [(prev: (x: CGFloat, y: CGFloat), curr: (x: CGFloat, y: CGFloat))] = []
-        
-        // Simple approach: match closest centers between frames
-        for prevCenter in lastFrameDetectionCenters {
-            var closestDist: CGFloat = 0.4 // Increased from 1.0 to be more selective with matches
-            var closestCenter: (x: CGFloat, y: CGFloat)? = nil
-            
-            for currCenter in currentCenters {
-                let dx = prevCenter.x - currCenter.x
-                let dy = prevCenter.y - currCenter.y
-                let dist = sqrt(dx*dx + dy*dy)
-                
-                // Determine expected movement based on current counting direction
-                var isExpectedMovement = false
-                
-                switch STrack.expectedMovementDirection {
-                case .topToBottom:
-                    // For top to bottom, expect downward movement (dy > 0) with limited horizontal motion
-                    isExpectedMovement = dy > 0 && abs(dx) < 0.2
-                case .bottomToTop:
-                    // For bottom to top, expect upward movement (dy < 0) with limited horizontal motion  
-                    isExpectedMovement = dy < 0 && abs(dx) < 0.2
-                case .leftToRight:
-                    // For left to right, expect rightward movement (dx > 0) with limited vertical motion
-                    isExpectedMovement = dx > 0 && abs(dy) < 0.2
-                case .rightToLeft:
-                    // For right to left, expect leftward movement (dx < 0) with limited vertical motion
-                    isExpectedMovement = dx < 0 && abs(dy) < 0.2
-                }
-                
-                // Adjust the matching distance based on expected movement pattern
-                let adjustedDist = isExpectedMovement ? dist * 0.8 : dist
-                
-                if adjustedDist < closestDist {
-                    closestDist = adjustedDist
-                    closestCenter = currCenter
-                }
-            }
-            
-            // Only use matches that are reasonably close
-            // Lower threshold to 0.15 for more precise matching
-            if closestDist < 0.15, let closestCenter = closestCenter {
-                totalDx += prevCenter.x - closestCenter.x
-                totalDy += prevCenter.y - closestCenter.y
-                count += 1
-                matchingPairs.append((prev: prevCenter, curr: closestCenter))
-            }
-        }
-        
-        // If we have enough matches, compute the motion
-        if count >= 3 {
-            // Average motion with decay from previous estimate for smoothness
-            let avgDx = totalDx / CGFloat(count)
-            let avgDy = totalDy / CGFloat(count)
-            
-            // Apply smoothing with the previous estimate (exponential moving average)
-            // Use stronger smoothing factor to reduce jitter
-            estimatedCameraMotion.dx = avgDx * 0.6 + estimatedCameraMotion.dx * 0.4
-            estimatedCameraMotion.dy = avgDy * 0.6 + estimatedCameraMotion.dy * 0.4
-            
-            // Limit the maximum camera motion to prevent excessive compensation
-            // This helps when a single fish leaves the frame causing false motion estimate
-            let maxMotion: CGFloat = 0.05
-            estimatedCameraMotion.dx = max(-maxMotion, min(maxMotion, estimatedCameraMotion.dx))
-            estimatedCameraMotion.dy = max(-maxMotion, min(maxMotion, estimatedCameraMotion.dy))
-        } else {
-            // Gradually decay the motion estimate if no matches
-            estimatedCameraMotion.dx *= 0.7
-            estimatedCameraMotion.dy *= 0.7
-        }
-    }
-    
-    /// Apply estimated camera motion compensation to track predictions
-    private func applyMotionCompensation(to tracks: [STrack]) {
-        // Only apply if we have significant motion
-        if abs(estimatedCameraMotion.dx) < 0.005 && abs(estimatedCameraMotion.dy) < 0.005 {
-            return
-        }
-        
-        for track in tracks {
-            // Get expected movement direction from velocity if available
-            var expectedHorizontalMotion: CGFloat = 0
-            var expectedVerticalMotion: CGFloat = 0
-            if let mean = track.mean, mean.count >= 6 {
-                expectedHorizontalMotion = CGFloat(mean[4]) // Horizontal velocity component  
-                expectedVerticalMotion = CGFloat(mean[5]) // Vertical velocity component
-            }
-            
-            // Apply motion compensation based on the current counting direction
-            var newX: CGFloat
-            var newY: CGFloat
-            
-            switch STrack.expectedMovementDirection {
-            case .topToBottom:
-                // For top-to-bottom counting:
-                // Apply full compensation to horizontal movement (x-axis)
-                newX = track.position.x - estimatedCameraMotion.dx
-            
-                // For vertical position: if fish has downward velocity, apply less compensation
-            let verticalCompensationFactor: CGFloat = expectedVerticalMotion > 0 ? 0.7 : 1.0
-                newY = track.position.y - (estimatedCameraMotion.dy * verticalCompensationFactor)
-                
-            case .bottomToTop:
-                // For bottom-to-top counting:
-                // Apply full compensation to horizontal movement (x-axis)
-                newX = track.position.x - estimatedCameraMotion.dx
-                
-                // For vertical position: if fish has upward velocity, apply less compensation
-                let verticalCompensationFactor: CGFloat = expectedVerticalMotion < 0 ? 0.7 : 1.0
-                newY = track.position.y - (estimatedCameraMotion.dy * verticalCompensationFactor)
-                
-            case .leftToRight:
-                // For left-to-right counting:
-                // For horizontal position: if fish has rightward velocity, apply less compensation
-                let horizontalCompensationFactor: CGFloat = expectedHorizontalMotion > 0 ? 0.7 : 1.0
-                newX = track.position.x - (estimatedCameraMotion.dx * horizontalCompensationFactor)
-                
-                // Apply full compensation to vertical movement (y-axis)
-                newY = track.position.y - estimatedCameraMotion.dy
-                
-            case .rightToLeft:
-                // For right-to-left counting:
-                // For horizontal position: if fish has leftward velocity, apply less compensation
-                let horizontalCompensationFactor: CGFloat = expectedHorizontalMotion < 0 ? 0.7 : 1.0
-                newX = track.position.x - (estimatedCameraMotion.dx * horizontalCompensationFactor)
-                
-                // Apply full compensation to vertical movement (y-axis)
-                newY = track.position.y - estimatedCameraMotion.dy
-            }
-            
-            // Keep position within normalized bounds [0, 1]
-            track.position = (
-                x: max(0, min(1, newX)),
-                y: max(0, min(1, newY))
-            )
-        }
     }
     
     // MARK: - Debug Methods
@@ -686,247 +549,6 @@ public class ByteTracker {
     //     }
     // }
     
-    // MARK: - Improved Association Methods
-    
-    /// Enhanced first stage association that considers track history and adds bias for existing associations
-    private func improvedAssociateFirstStage(
-        tracks: [STrack],
-        detections: [STrack]
-    ) -> ([(Int, Int)], [Int], [Int]) {
-        if tracks.isEmpty || detections.isEmpty {
-            return ([], Array(0..<tracks.count), Array(0..<detections.count))
-        }
-        
-        // Calculate IoU distance matrix
-        var dists = MatchingUtils.iouDistance(tracks: tracks, detections: detections)
-        
-        // Fish-specific enhancements:
-        
-        // 1. Apply bias for track history - reduce distance for historical associations
-        for (i, track) in tracks.enumerated() {
-            if let history = trackMatchHistory[track.trackId] {
-                for j in 0..<detections.count {
-                    // If there was a previous match association, bias the cost lower
-                    if history.contains(j) && dists[i][j] > 0.1 {
-                        dists[i][j] = max(0.1, dists[i][j] - 0.25) // Stronger bias (0.25 vs 0.2)
-                    }
-                }
-            }
-        }
-        
-        // 2. Add directional bias for fish swimming in the expected direction
-        for i in 0..<tracks.count {
-            let track = tracks[i]
-            // If we have Kalman filter mean data with velocity components
-            if let mean = track.mean, mean.count >= 6 {
-                // Extract velocity components
-                let vx = CGFloat(mean[4])
-                let vy = CGFloat(mean[5])
-                
-                // For each detection
-                for j in 0..<detections.count {
-                    let detection = detections[j]
-                    
-                    // Calculate relative movement
-                    let dx = detection.position.x - track.position.x
-                    let dy = detection.position.y - track.position.y
-                    
-                    // Check if movement aligns with expected direction based on counting direction
-                    var isExpectedMovement = false
-                    
-                    switch STrack.expectedMovementDirection {
-                    case .topToBottom:
-                        // Expected movement is downward
-                        isExpectedMovement = dy > 0 && vy > 0
-                    case .bottomToTop:
-                        // Expected movement is upward
-                        isExpectedMovement = dy < 0 && vy < 0
-                    case .leftToRight:
-                        // Expected movement is rightward
-                        isExpectedMovement = dx > 0 && vx > 0
-                    case .rightToLeft:
-                        // Expected movement is leftward
-                        isExpectedMovement = dx < 0 && vx < 0
-                    }
-                    
-                    // If the fish is moving in the expected direction, bias matching
-                    if isExpectedMovement {
-                        // More aggressive bias for expected movement
-                        let distReduction: Float = 0.25
-                        dists[i][j] = max(0.05, dists[i][j] - distReduction)
-                    }
-                    
-                    // Also consider if movement direction aligns with velocity
-                    let velocityAlignment = (dx * vx + dy * vy) / 
-                        (sqrt(dx*dx + dy*dy) * sqrt(vx*vx + vy*vy) + 0.0001)
-                    
-                    if velocityAlignment > 0.5 { // Only favor strong alignment
-                        dists[i][j] = max(0.1, dists[i][j] - 0.15)
-                    }
-                }
-            }
-        }
-        
-        // 3. Add spatial proximity bias - if a detection is closer to one track than others,
-        // further bias the distance to prevent ID switches between nearby fish
-        for j in 0..<detections.count {
-            let detection = detections[j]
-            
-            // Find closest track by position
-            var closestTrackIdx = -1
-            var closestDist: CGFloat = 1.0
-            
-            for i in 0..<tracks.count {
-                let track = tracks[i]
-                let dx = detection.position.x - track.position.x
-                let dy = detection.position.y - track.position.y
-                let distSq = dx*dx + dy*dy
-                
-                if distSq < closestDist {
-                    closestDist = distSq
-                    closestTrackIdx = i
-                }
-            }
-            
-            // If we found a significantly closer track, bias the matching
-            if closestTrackIdx >= 0 && closestDist < 0.1 { // Threshold for "significantly closer"
-                dists[closestTrackIdx][j] = max(0.05, dists[closestTrackIdx][j] - 0.2)
-            }
-        }
-        
-        // Run linear assignment with the distance matrix
-        let (matchedTrackIndices, matchedDetIndices, unmatchedTrackIndices, unmatchedDetIndices) =
-            MatchingUtils.linearAssignment(costMatrix: dists, threshold: TrackingParameters.highMatchThreshold)
-        
-        // Convert to tuples of (track_idx, det_idx)
-        var matches: [(Int, Int)] = []
-        for i in 0..<matchedTrackIndices.count {
-            matches.append((matchedTrackIndices[i], matchedDetIndices[i]))
-        }
-        
-        return (matches, unmatchedTrackIndices, unmatchedDetIndices)
-    }
-    
-    /// Enhanced second stage association that considers directional movement and is more lenient
-    private func improvedAssociateSecondStage(
-        tracks: [STrack],
-        detections: [STrack]
-    ) -> ([(Int, Int)], [Int]) {
-        if tracks.isEmpty || detections.isEmpty {
-            return ([], Array(0..<detections.count))
-        }
-        
-        // Filter out tracks that are in 'removed' state - they should never be reactivated
-        let validTracks = tracks.enumerated().filter { $0.element.state != .removed }
-        
-        // If no valid tracks remain after filtering, return early
-        if validTracks.isEmpty {
-            return ([], Array(0..<detections.count))
-        }
-        
-        // Create mapping from new indices to original indices
-        let trackIndices = validTracks.map { $0.offset }
-        let filteredTracks = validTracks.map { $0.element }
-        
-        // Calculate position distance matrix
-        var dists = MatchingUtils.positionDistance(tracks: filteredTracks, detections: detections)
-        
-        // Add directional bias for movement in the expected direction
-        for i in 0..<filteredTracks.count {
-            let track = filteredTracks[i]
-            // If we have mean data from Kalman filter
-            if let mean = track.mean, mean.count >= 6 {
-                // Extract velocity components
-                let vx = CGFloat(mean[4])
-                let vy = CGFloat(mean[5])
-                
-                // For each detection
-                for j in 0..<detections.count {
-                    let detection = detections[j]
-                    
-                    // Calculate expected direction of movement
-                    let dx = detection.position.x - track.position.x
-                    let dy = detection.position.y - track.position.y
-                    
-                    // Check if movement aligns with expected direction based on counting direction
-                    var isExpectedMovement = false
-                    
-                    switch STrack.expectedMovementDirection {
-                    case .topToBottom:
-                        // Expected movement is downward
-                        isExpectedMovement = dy > 0 && vy > 0
-                    case .bottomToTop:
-                        // Expected movement is upward
-                        isExpectedMovement = dy < 0 && vy < 0
-                    case .leftToRight:
-                        // Expected movement is rightward
-                        isExpectedMovement = dx > 0 && vx > 0
-                    case .rightToLeft:
-                        // Expected movement is leftward
-                        isExpectedMovement = dx < 0 && vx < 0
-                    }
-                    
-                    // If movement aligns with velocity (especially in expected direction),
-                    // reduce the distance to make matching more likely
-                    let velocityAlignment = (dx * vx + dy * vy) / 
-                        (sqrt(dx*dx + dy*dy) * sqrt(vx*vx + vy*vy) + 0.0001)
-                    
-                    if velocityAlignment > 0 || isExpectedMovement {
-                        // Reduce distance based on alignment and expected movement
-                        let reductionFactor: Float = isExpectedMovement ? 0.4 : 0.2
-                        dists[i][j] = max(0.1, dists[i][j] - reductionFactor)
-                    }
-                }
-            }
-        }
-        
-        // Run linear assignment with the distance matrix
-        let (matchedTrackIndices, matchedDetIndices, _, unmatchedDetIndices) =
-            MatchingUtils.linearAssignment(costMatrix: dists, threshold: TrackingParameters.lowMatchThreshold)
-        
-        // Convert to tuples of (track_idx, det_idx), mapping back to original indices
-        var matches: [(Int, Int)] = []
-        for i in 0..<matchedTrackIndices.count {
-            let originalTrackIdx = trackIndices[matchedTrackIndices[i]]
-            matches.append((originalTrackIdx, matchedDetIndices[i]))
-        }
-        
-        return (matches, unmatchedDetIndices)
-    }
-    
-    /// Update track match history for biasing future associations
-    private func updateMatchHistory(trackId: Int, detectionId: Int) {
-        // Initialize if needed
-        if trackMatchHistory[trackId] == nil {
-            trackMatchHistory[trackId] = []
-        }
-        
-        // Add detection ID to history
-        trackMatchHistory[trackId]?.insert(detectionId)
-        
-        // Limit size to prevent unlimited growth
-        if trackMatchHistory[trackId]?.count ?? 0 > 10 {
-            // This is a simplified approach - in practice you might want to keep the most recent matches
-            // For now, we just limit the set size by removing a random element
-            if let randomElement = trackMatchHistory[trackId]?.randomElement() {
-                trackMatchHistory[trackId]?.remove(randomElement)
-            }
-        }
-        
-        // Clean up match history for tracks that no longer exist
-        if frameId % 60 == 0 {
-            // Create a set of active track IDs for efficient lookup
-            let activeTrackIds = Set(activeTracks.map { $0.trackId })
-            let lostTrackIds = Set(lostTracks.map { $0.trackId })
-            let allTrackIds = activeTrackIds.union(lostTrackIds)
-            
-            // Remove history for tracks that no longer exist
-            let historyKeysToRemove = trackMatchHistory.keys.filter { !allTrackIds.contains($0) }
-            for key in historyKeysToRemove {
-                trackMatchHistory.removeValue(forKey: key)
-            }
-        }
-    }
 }
 
 // MARK: - TrackerProtocol Conformance
