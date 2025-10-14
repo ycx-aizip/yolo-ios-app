@@ -59,16 +59,27 @@ public class OCSort: TrackerProtocol {
 
     // MARK: - Initialization
 
+    /// Initialize OC-SORT adapted for CoreML YOLO (iOS deployment)
+    ///
+    /// CRITICAL DIFFERENCE from Python:
+    /// - Python YOLO: Returns detections with varying confidence (conf param is soft filter)
+    /// - CoreML YOLO: Built-in NMS with HARD confidence filter at 0.25
+    /// - CoreML returns ONLY high-confidence dets (≥0.25) → NO low-conf dets for BYTE stage
+    ///
+    /// Solution: Set detThresh slightly BELOW CoreML threshold (0.2 < 0.25)
+    /// This ensures ALL CoreML detections are treated as "high confidence" consistently
+    /// Stage 1: All dets matched with predicted positions (VDC + IoU)
+    /// Stage 3: OCR recovery using last observations for unmatched tracks
     nonisolated public init(
-        detThresh: Float = 0.6,
-        maxAge: Int = 30,
-        minHits: Int = 3,
-        iouThreshold: Float = 0.3,
-        deltaT: Int = 3,
-        assoFunc: String = "iou",
-        inertia: Float = 0.2,
-        useByte: Bool = false,
-        vdcWeight: Float = 0.0
+        detThresh: Float = 0.2,       // ✅ Below CoreML 0.25 → all dets are "high conf", consistent splitting
+        maxAge: Int = 30,             // ✅ Python default
+        minHits: Int = 3,             // ✅ Python default
+        iouThreshold: Float = 0.3,    // ✅ Python default
+        deltaT: Int = 3,              // ✅ Python default
+        assoFunc: String = "iou",     // ✅ Python default
+        inertia: Float = 0.2,         // ✅ Python default
+        useByte: Bool = false,        // ✅ Python default (no low-conf dets with CoreML anyway)
+        vdcWeight: Float = 0.0        // VDC weight (0.0 = disabled, use IoU only)
     ) {
         self.detThresh = detThresh
         self.maxAge = maxAge
@@ -126,13 +137,18 @@ public class OCSort: TrackerProtocol {
             trks.remove(at: t)
         }
 
-        // Get velocities and previous observations for VDC
+        // Get velocities, previous observations for VDC, and last observations for OCR
         let velocities = trackers.map { trk -> [Double] in
             return trk.velocity ?? [0, 0]
         }
 
         let kObservations = trackers.map { trk -> [Double] in
             return trk.getKPreviousObs(k: deltaT)
+        }
+
+        // Extract last observations for Stage 3 OCR (OC-SORT innovation)
+        let lastObservations = trackers.map { trk -> [Double] in
+            return trk.lastObservation
         }
 
         // STAGE 1: Associate high confidence detections with trackers
@@ -179,20 +195,23 @@ public class OCSort: TrackerProtocol {
         }
 
         // STAGE 3: OCR (Observation-Centric Recovery)
+        // This is OC-SORT's innovation: match unmatched high-conf dets with LAST OBSERVATIONS
+        // instead of predicted positions. Handles occlusion and fast motion better.
         if !unmatchedDets.isEmpty && !unmatchedTrks2.isEmpty {
             let unmatchedDetsIndices = unmatchedDets
             let unmatchedTrksIndices = unmatchedTrks2
 
             let unmatchedDetections = unmatchedDetsIndices.map { detsHigh[$0] }
-            let unmatchedTrackers = unmatchedTrksIndices.map { trks[$0] }
+            // ✅ FIX: Use LAST OBSERVATIONS (not predicted positions) - this is OCR's key innovation!
+            let unmatchedLastObs = unmatchedTrksIndices.map { lastObservations[$0] }
 
             let unmatchedVelocities = unmatchedTrksIndices.map { velocities[$0] }
             let unmatchedKObs = unmatchedTrksIndices.map { kObservations[$0] }
 
             let (matchedOCR, unmatchedDetsOCR, unmatchedTrksOCR) = associate(
                 detections: unmatchedDetections,
-                trackers: unmatchedTrackers,
-                iouThreshold: 0.5,
+                trackers: unmatchedLastObs,  // ✅ Use last observations, not predictions!
+                iouThreshold: iouThreshold,  // ✅ Use same threshold as Stage 1 (0.3 default)
                 velocities: unmatchedVelocities,
                 previousObs: unmatchedKObs,
                 vdcWeight: vdcWeight

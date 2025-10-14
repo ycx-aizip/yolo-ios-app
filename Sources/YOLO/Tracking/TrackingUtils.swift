@@ -261,7 +261,7 @@ public struct TrackingParameters {
     /// Default OC-SORT configuration (from Python package defaults)
     @MainActor
     public static let defaultOCSortConfig = OCSortConfig(
-        detThresh: 0.05,              // Detection confidence threshold
+        detThresh: 0.05,              // Detection confidence threshold (PYTHON DEFAULT - low for tracking)
         maxAge: 30,                   // Max age without matching
         minHits: 3,                   // Min consecutive detections before activation
         iouThreshold: 0.3,            // IoU threshold for association
@@ -269,6 +269,26 @@ public struct TrackingParameters {
         assoFunc: "iou",              // Association function (iou, giou, ciou, diou)
         inertia: 0.2,                 // Velocity direction consistency weight
         useByte: false                // Use BYTE two-stage matching
+    )
+
+    /// CoreML-adapted OC-SORT configuration (iOS deployment)
+    ///
+    /// DIFFERENCE from Python:
+    /// - Python YOLO: Returns varying confidence dets → OC-SORT splits into high/low
+    /// - CoreML YOLO: Built-in NMS filters at 0.25 → only returns high-conf dets (≥0.25)
+    ///
+    /// Solution: Set detThresh=0.2 (below CoreML's 0.25) to ensure consistent classification
+    /// All CoreML dets → high confidence bucket → Stage 1 & 3 matching active
+    @MainActor
+    public static let coreMLOCSortConfig = OCSortConfig(
+        detThresh: 0.2,               // ✅ Below CoreML threshold (0.25) for consistent splitting
+        maxAge: 30,                   // ✅ Python default
+        minHits: 3,                   // ✅ Python default
+        iouThreshold: 0.3,            // ✅ Python default
+        deltaT: 3,                    // ✅ Python default
+        assoFunc: "iou",              // ✅ Python default
+        inertia: 0.2,                 // ✅ Python default
+        useByte: false                // ✅ Python default (no low-conf dets from CoreML)
     )
 
     // MARK: - Direction-Specific Configurations
