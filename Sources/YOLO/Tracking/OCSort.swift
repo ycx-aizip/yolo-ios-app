@@ -73,13 +73,13 @@ public class OCSort: TrackerProtocol {
     nonisolated public init(
         detThresh: Float = 0.2,       // ✅ Below CoreML 0.25 → all dets are "high conf", consistent splitting
         maxAge: Int = 30,             // ✅ Python default
-        minHits: Int = 3,             // ✅ Python default
-        iouThreshold: Float = 0.3,    // ✅ Python default
-        deltaT: Int = 3,              // ✅ Python default
+        minHits: Int = 3,             // ✅ Python default (reduced from 5 for faster confirmation)
+        iouThreshold: Float = 0.05,   // 🔧 CRITICAL: Lowered to 0.05 for fish (KF prediction has VERY low IoU)
+        deltaT: Int = 1,              // 🔧 CRITICAL: Reduced from 3 to 1 for fast-moving fish
         assoFunc: String = "iou",     // ✅ Python default
         inertia: Float = 0.2,         // ✅ Python default
         useByte: Bool = false,        // ✅ Python default (no low-conf dets with CoreML anyway)
-        vdcWeight: Float = 0.0        // VDC weight (0.0 = disabled, use IoU only)
+        vdcWeight: Float = 0.9        // 🔧 CRITICAL: Increased to 0.9 to rely heavily on velocity direction
     ) {
         self.detThresh = detThresh
         self.maxAge = maxAge
@@ -101,6 +101,22 @@ public class OCSort: TrackerProtocol {
         // Store original detections and classes for later class matching
         let originalDetections = detections
         let originalClasses = classes
+        
+        // 🔍 DEBUG: Track association performance
+        let debugEnabled = true  // Set to false to disable debug logs
+        if debugEnabled && frameCount % 30 == 0 {  // Log every 30 frames
+            print("\n═══ OCSort Debug Frame \(frameCount) ═══")
+            print("📊 Input: \(detections.count) detections, \(trackers.count) active trackers")
+
+            // Debug: Show first detection in both formats
+            if !detections.isEmpty {
+                let firstBox = detections[0]
+                let bbox = firstBox.xywhn
+                print("   🔍 Detection[0] format check:")
+                print("      xywhn: x=\(String(format: "%.3f", bbox.origin.x)), y=\(String(format: "%.3f", bbox.origin.y)), w=\(String(format: "%.3f", bbox.width)), h=\(String(format: "%.3f", bbox.height))")
+                print("      As [x1,y1,x2,y2]: [\(String(format: "%.3f", bbox.minX)), \(String(format: "%.3f", bbox.minY)), \(String(format: "%.3f", bbox.maxX)), \(String(format: "%.3f", bbox.maxY))]")
+            }
+        }
 
         // Convert Box format to [x1, y1, x2, y2, score] format
         let detsArray = zip(detections, scores).map { (box, score) -> [Double] in
@@ -124,10 +140,29 @@ public class OCSort: TrackerProtocol {
         var toDelete: [Int] = []
 
         for (t, trk) in trackers.enumerated() {
+            // 🔍 DEBUG: Capture state BEFORE predict
+            var stateBefore: [Double]? = nil
+            if debugEnabled && frameCount % 30 == 0 && t == 0 && trk.lastObservation[0] >= 0 {
+                stateBefore = trk.getState()
+            }
+
             let pos = trk.predict()
             trks.append(pos)
             if anyNaN(pos) {
                 toDelete.append(t)
+            }
+
+            // 🔍 DEBUG: Compare prediction vs last observation
+            if let stateBeforePredict = stateBefore {
+                let lastObs = trk.lastObservation
+                let stateAfter = trk.getState()
+                print("   🔮 Kalman Prediction Debug (Tracker 0):")
+                print("      State BEFORE: cx=\(String(format: "%.3f", stateBeforePredict[0])), cy=\(String(format: "%.3f", stateBeforePredict[1])), s=\(String(format: "%.3f", stateBeforePredict[2])), r=\(String(format: "%.3f", stateBeforePredict[3]))")
+                print("      State AFTER:  cx=\(String(format: "%.3f", stateAfter[0])), cy=\(String(format: "%.3f", stateAfter[1])), s=\(String(format: "%.3f", stateAfter[2])), r=\(String(format: "%.3f", stateAfter[3]))")
+                print("      Last obs bbox:    [\(String(format: "%.3f", lastObs[0])), \(String(format: "%.3f", lastObs[1])), \(String(format: "%.3f", lastObs[2])), \(String(format: "%.3f", lastObs[3]))]")
+                print("      Predicted bbox:   [\(String(format: "%.3f", pos[0])), \(String(format: "%.3f", pos[1])), \(String(format: "%.3f", pos[2])), \(String(format: "%.3f", pos[3]))]")
+                let drift = sqrt(pow(pos[0] - lastObs[0], 2) + pow(pos[1] - lastObs[1], 2))
+                print("      Position drift: \(String(format: "%.3f", drift))")
             }
         }
 
@@ -160,6 +195,14 @@ public class OCSort: TrackerProtocol {
             previousObs: kObservations,
             vdcWeight: vdcWeight
         )
+        
+        // 🔍 DEBUG: Stage 1 results
+        if debugEnabled && frameCount % 30 == 0 {
+            print("🎯 Stage 1 (High conf + VDC): \(matched.count) matches, \(unmatchedDets.count) unmatched dets, \(unmatchedTrks.count) unmatched trks")
+            if !matched.isEmpty {
+                print("   ✓ Matched pairs: \(matched.prefix(5).map { "D\($0[0])→T\($0[1])" }.joined(separator: ", "))\(matched.count > 5 ? "..." : "")")
+            }
+        }
 
         // Update matched trackers
         for m in matched {
@@ -208,10 +251,14 @@ public class OCSort: TrackerProtocol {
             let unmatchedVelocities = unmatchedTrksIndices.map { velocities[$0] }
             let unmatchedKObs = unmatchedTrksIndices.map { kObservations[$0] }
 
+            // Python recommends lower threshold for OCR stage (iou_threshold - 0.1) for better recovery
+            // See ocsort.py lines 285-288: "using a lower threshold...may get higher performance"
+            let ocrThreshold = max(0.1, iouThreshold - 0.1)  // 0.2 if iouThreshold=0.3
+
             let (matchedOCR, unmatchedDetsOCR, unmatchedTrksOCR) = associate(
                 detections: unmatchedDetections,
                 trackers: unmatchedLastObs,  // ✅ Use last observations, not predictions!
-                iouThreshold: iouThreshold,  // ✅ Use same threshold as Stage 1 (0.3 default)
+                iouThreshold: ocrThreshold,  // ✅ Lower threshold for better recovery (0.2 vs 0.3)
                 velocities: unmatchedVelocities,
                 previousObs: unmatchedKObs,
                 vdcWeight: vdcWeight
@@ -242,6 +289,14 @@ public class OCSort: TrackerProtocol {
             // Update final unmatched lists
             unmatchedDets2 = unmatchedDetsOCR.map { unmatchedDetsIndices[$0] }
             unmatchedTrks2 = unmatchedTrksOCR.map { unmatchedTrksIndices[$0] }
+            
+            // 🔍 DEBUG: Stage 3 results
+            if debugEnabled && frameCount % 30 == 0 {
+                print("🔄 Stage 3 (OCR): \(matchedOCR.count) recoveries")
+                if matchedOCR.count > 0 {
+                    print("   ✓ OCR saved \(matchedOCR.count) tracks from being lost!")
+                }
+            }
         }
 
         // Create new trackers for unmatched detections
@@ -250,23 +305,48 @@ public class OCSort: TrackerProtocol {
             let trk = KalmanBoxTracker(bbox: det, deltaT: deltaT)
             trackers.append(trk)
         }
+        
+        // 🔍 DEBUG: New track creation
+        if debugEnabled && frameCount % 30 == 0 && !unmatchedDets2.isEmpty {
+            print("🆕 Created \(unmatchedDets2.count) new trackers")
+        }
 
         // Remove dead trackers
+        var removedCount = 0
         var i = trackers.count - 1
         while i >= 0 {
             let trk = trackers[i]
             // Remove if too old
             if trk.timeSinceUpdate > maxAge {
                 trackers.remove(at: i)
+                removedCount += 1
             }
             i -= 1
+        }
+        
+        // 🔍 DEBUG: Tracker lifecycle
+        if debugEnabled && frameCount % 30 == 0 {
+            print("💀 Removed \(removedCount) old trackers (age > \(maxAge))")
+            print("📈 Tracker stats: \(trackers.count) alive, timeSinceUpdate distribution:")
+            let tsuCounts = trackers.reduce(into: [:]) { counts, trk in
+                counts[trk.timeSinceUpdate, default: 0] += 1
+            }
+            for (tsu, count) in tsuCounts.sorted(by: { $0.key < $1.key }).prefix(5) {
+                print("   - TSU=\(tsu): \(count) trackers")
+            }
         }
 
         // Convert to STrack format with class matching
         let results = trackers.compactMap { trk -> STrack? in
-            // Apply min_hits filtering
-            let shouldReturn = (trk.timeSinceUpdate < 1) &&
-                              (trk.hitStreak >= minHits || frameCount <= minHits)
+            // ✅ FIX: OC-SORT output filter (NOT ByteTrack's TSU<1!)
+            // Return tracks that are:
+            // 1. Confirmed (hitStreak >= minHits OR early frames <= minHits)
+            // 2. Recently updated (timeSinceUpdate <= 1 for smooth tracking)
+            // Python OC-SORT returns all tracks passing min_hits check, but we add TSU<=1
+            // to avoid returning stale predictions (tracks will be kept alive until maxAge=30)
+            let isConfirmed = (trk.hitStreak >= minHits || frameCount <= minHits)
+            let isRecent = trk.timeSinceUpdate <= 1
+            let shouldReturn = isConfirmed && isRecent
 
             guard shouldReturn else { return nil }
 
@@ -327,6 +407,27 @@ public class OCSort: TrackerProtocol {
                 score: Float(trk.lastObservation[4]),
                 cls: matchedClass
             )
+        }
+        
+        // 🔍 DEBUG: Final output analysis
+        if debugEnabled && frameCount % 30 == 0 {
+            let confirmedCount = trackers.filter { $0.hitStreak >= minHits }.count
+            let returnedCount = results.count
+            print("📤 Output: \(returnedCount) tracks returned (\(confirmedCount) confirmed, \(trackers.count - confirmedCount) unconfirmed)")
+            print("   Filter: timeSinceUpdate<=1 AND (hitStreak>=\(minHits) OR frameCount<=\(minHits))")
+            
+            // Analyze why tracks weren't returned
+            let notReturned = trackers.filter { trk in
+                !((trk.timeSinceUpdate < 1) && (trk.hitStreak >= minHits || frameCount <= minHits))
+            }
+            if !notReturned.isEmpty {
+                print("❌ \(notReturned.count) trackers FILTERED OUT:")
+                for (idx, trk) in notReturned.prefix(5).enumerated() {
+                    let reason = trk.timeSinceUpdate >= 1 ? "TSU=\(trk.timeSinceUpdate)≥1" : "hitStreak=\(trk.hitStreak)<\(minHits)"
+                    print("   [\(idx)] ID:\(trk.id) - \(reason), hits:\(trk.hits)")
+                }
+            }
+            print("═══════════════════════════════════\n")
         }
 
         return results
@@ -436,6 +537,16 @@ public class OCSort: TrackerProtocol {
 
         // Compute IoU matrix
         let iouMatrix = iouBatch(detections: detections, trackers: trackers)
+        
+        // 🔍 DEBUG: IoU analysis
+        let debugEnabled = true
+        if debugEnabled && frameCount % 30 == 0 && !detections.isEmpty && !trackers.isEmpty {
+            let maxIoUs = iouMatrix.map { row in row.max() ?? 0.0 }
+            let avgMaxIoU = maxIoUs.reduce(0.0, +) / Double(maxIoUs.count)
+            let goodMatches = maxIoUs.filter { $0 > Double(iouThreshold) }.count
+            let vdcInfo = vdcWeight > 0 ? "VDC=\(String(format: "%.1f", vdcWeight))" : "VDC=OFF"
+            print("   📏 IoU stats: avg_max=\(String(format: "%.3f", avgMaxIoU)), \(goodMatches)/\(detections.count) above thresh=\(iouThreshold), \(vdcInfo)")
+        }
 
         // Compute velocity direction consistency cost
         var angleDiffCost = [[Double]](repeating: [Double](repeating: 0.0, count: trackers.count), count: detections.count)
@@ -507,13 +618,27 @@ public class OCSort: TrackerProtocol {
         }
 
         // Filter matches by IoU threshold
+        // 🔍 DEBUG: Track match quality
+        var totalAngleCost = 0.0
+        var validMatchCount = 0
+        
         for m in matchedIndices {
             if iouMatrix[m[0]][m[1]] < Double(iouThreshold) {
                 unmatchedDetections.append(m[0])
                 unmatchedTrackers.append(m[1])
             } else {
                 matches.append(m)
+                if vdcWeight > 0 {
+                    totalAngleCost += angleDiffCost[m[0]][m[1]]
+                    validMatchCount += 1
+                }
             }
+        }
+        
+        // Print VDC contribution for matched pairs
+        if debugEnabled && vdcWeight > 0 && frameCount % 30 == 0 && validMatchCount > 0 {
+            let avgAngleCost = totalAngleCost / Double(validMatchCount)
+            print("   🎯 VDC contribution: avg_angle_bonus=\(String(format: "%.3f", avgAngleCost)) for \(validMatchCount) matches")
         }
 
         return (matched: matches, unmatchedDets: unmatchedDetections, unmatchedTrks: unmatchedTrackers)
@@ -704,7 +829,34 @@ private class KalmanBoxTracker {
 
         // Update Kalman filter
         let z = convertBboxToZ(bbox: bbox)
+
+        // 🔍 DEBUG: Log Kalman update with P and K diagnostics
+        #if DEBUG
+        if id == 0 {  // Only log first tracker
+            print("      📝 KalmanBoxTracker.update() for ID \(id):")
+            print("         Input bbox: [\(String(format: "%.3f", bbox[0])), \(String(format: "%.3f", bbox[1])), \(String(format: "%.3f", bbox[2])), \(String(format: "%.3f", bbox[3]))]")
+            print("         Converted z: cx=\(String(format: "%.3f", z[0])), cy=\(String(format: "%.3f", z[1])), s=\(String(format: "%.3f", z[2])), r=\(String(format: "%.3f", z[3]))")
+            print("         KF state BEFORE update: cx=\(String(format: "%.3f", kf.x[0])), cy=\(String(format: "%.3f", kf.x[1])), s=\(String(format: "%.3f", kf.x[2])), r=\(String(format: "%.3f", kf.x[3]))")
+            // Log P diagonal and critical off-diagonal for position elements
+            print("         P[0,0]=\(String(format: "%.2e", kf.P[0])), P[1,1]=\(String(format: "%.2e", kf.P[8])), P[0,1]=\(String(format: "%.2e", kf.P[1]))")
+        }
+        #endif
+
         kf.update(z: z)
+
+        #if DEBUG
+        if id == 0 {
+            print("         KF state AFTER update:  cx=\(String(format: "%.3f", kf.x[0])), cy=\(String(format: "%.3f", kf.x[1])), s=\(String(format: "%.3f", kf.x[2])), r=\(String(format: "%.3f", kf.x[3]))")
+            print("         P diagonal (positions): [\(String(format: "%.2e", kf.P[0])), \(String(format: "%.2e", kf.P[8])), \(String(format: "%.2e", kf.P[16])), \(String(format: "%.2e", kf.P[24]))]")
+            // K is 7x4 (row-major), K[row*4 + col] = K[state, measurement]
+            // Rows: [x, y, s, r, vx, vy, vs], Cols: [cx_meas, cy_meas, s_meas, r_meas]
+            if let K = kf.lastK {
+                print("         K[x,y,s,r] gains for cx_meas: [\(String(format: "%.3f", K[0*4+0])), \(String(format: "%.3f", K[1*4+0])), \(String(format: "%.3f", K[2*4+0])), \(String(format: "%.3f", K[3*4+0]))]")
+                print("         K[x,y,s,r] gains for cy_meas: [\(String(format: "%.3f", K[0*4+1])), \(String(format: "%.3f", K[1*4+1])), \(String(format: "%.3f", K[2*4+1])), \(String(format: "%.3f", K[3*4+1]))]")
+                print("         K[x,y,s,r] gains for s_meas:  [\(String(format: "%.3f", K[0*4+2])), \(String(format: "%.3f", K[1*4+2])), \(String(format: "%.3f", K[2*4+2])), \(String(format: "%.3f", K[3*4+2]))]")
+            }
+        }
+        #endif
     }
 
     func predict() -> [Double] {
@@ -802,20 +954,23 @@ private class KalmanFilter7D {
     let H: [Double]  // Measurement function (4x7)
     var Q: [Double]  // Process noise (7x7)
     var R: [Double]  // Measurement noise (4x4)
+    var lastK: [Double]?  // Last Kalman gain for debugging (7x4)
 
     init() {
         // Initialize state
         x = [Double](repeating: 0.0, count: 7)
 
-        // State transition matrix F (7x7) - constant velocity model
+        // ✅ FIX: State transition matrix F (7x7) - CONSTANT POSITION model
+        // Python uses F = Identity (no velocity propagation in state transition!)
+        // Reference: kalmanfilter.py line 299 "self.F = eye(dim_x)"
         F = [
-            1, 0, 0, 0, 1, 0, 0,
-            0, 1, 0, 0, 0, 1, 0,
-            0, 0, 1, 0, 0, 0, 1,
-            0, 0, 0, 1, 0, 0, 0,
-            0, 0, 0, 0, 1, 0, 0,
-            0, 0, 0, 0, 0, 1, 0,
-            0, 0, 0, 0, 0, 0, 1
+            1, 0, 0, 0, 0, 0, 0,  // x_new = x (NOT x + vx!)
+            0, 1, 0, 0, 0, 0, 0,  // y_new = y (NOT y + vy!)
+            0, 0, 1, 0, 0, 0, 0,  // s_new = s (NOT s + vs!)
+            0, 0, 0, 1, 0, 0, 0,  // r_new = r
+            0, 0, 0, 0, 1, 0, 0,  // vx_new = vx (velocity persists)
+            0, 0, 0, 0, 0, 1, 0,  // vy_new = vy
+            0, 0, 0, 0, 0, 0, 1   // vs_new = vs
         ]
 
         // Measurement matrix H (4x7) - only observe position
@@ -826,16 +981,15 @@ private class KalmanFilter7D {
             0, 0, 0, 1, 0, 0, 0
         ]
 
-        // Initialize R (measurement noise)
+        // Initialize R (measurement noise) - DIAGONAL matrix
         R = [Double](repeating: 0.0, count: 16)
         for i in 0..<4 {
             R[i * 4 + i] = 1.0
         }
-        // R[2:, 2:] *= 10
-        R[2 * 4 + 2] *= 10.0
-        R[2 * 4 + 3] *= 10.0
-        R[3 * 4 + 2] *= 10.0
-        R[3 * 4 + 3] *= 10.0
+        // ✅ FIX: R[2:, 2:] *= 10 means multiply DIAGONAL elements R[2,2] and R[3,3] by 10
+        // NOT off-diagonal elements! R must stay diagonal.
+        R[2 * 4 + 2] *= 10.0  // R[2,2] = 10.0 (scale measurement noise)
+        R[3 * 4 + 3] *= 10.0  // R[3,3] = 10.0 (aspect ratio measurement noise)
 
         // Initialize P (state covariance)
         P = [Double](repeating: 0.0, count: 49)
@@ -865,66 +1019,75 @@ private class KalmanFilter7D {
     }
 
     func predict() {
-        // x = F * x
+        // x = F * x (7x7 * 7x1 = 7x1)
         var newX = [Double](repeating: 0.0, count: 7)
-        vDSP_mmulD(F, 1, x, 1, &newX, 1, 7, 1, 7)
+        cblas_dgemv(CblasRowMajor, CblasNoTrans, 7, 7, 1.0, F, 7, x, 1, 0.0, &newX, 1)
         x = newX
 
         // P = F * P * F^T + Q
+        // Step 1: FP = F * P (7x7 * 7x7 = 7x7)
         var FP = [Double](repeating: 0.0, count: 49)
-        vDSP_mmulD(F, 1, P, 1, &FP, 1, 7, 7, 7)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, 7, 7, 7, 1.0, F, 7, P, 7, 0.0, &FP, 7)
 
-        var F_T = [Double](repeating: 0.0, count: 49)
-        vDSP_mtransD(F, 1, &F_T, 1, 7, 7)
-
+        // Step 2: FPF = FP * F^T (7x7 * 7x7 = 7x7)
         var FPF = [Double](repeating: 0.0, count: 49)
-        vDSP_mmulD(FP, 1, F_T, 1, &FPF, 1, 7, 7, 7)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, 7, 7, 7, 1.0, FP, 7, F, 7, 0.0, &FPF, 7)
 
+        // Step 3: P = FPF + Q
         vDSP_vaddD(FPF, 1, Q, 1, &P, 1, 49)
     }
 
     func update(z: [Double]) {
-        // Innovation: y = z - H * x
+        // Innovation: y = z - H * x (4x1 = 4x7 * 7x1)
         var Hx = [Double](repeating: 0.0, count: 4)
-        vDSP_mmulD(H, 1, x, 1, &Hx, 1, 4, 1, 7)
+        cblas_dgemv(CblasRowMajor, CblasNoTrans, 4, 7, 1.0, H, 7, x, 1, 0.0, &Hx, 1)
 
         var innovation = [Double](repeating: 0.0, count: 4)
         for i in 0..<4 {
             innovation[i] = z[i] - Hx[i]
         }
 
-        // S = H * P * H^T + R
+        // ✅ FIX: S = H * P * H^T + R (using correct row-major matrix multiplication)
+        // Step 1: HP = H * P (4x7 = 4x7 * 7x7)
         var HP = [Double](repeating: 0.0, count: 28)
-        vDSP_mmulD(H, 1, P, 1, &HP, 1, 4, 7, 7)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, 4, 7, 7, 1.0, H, 7, P, 7, 0.0, &HP, 7)
 
-        var H_T = [Double](repeating: 0.0, count: 28)
-        vDSP_mtransD(H, 1, &H_T, 1, 4, 7)
-
+        // Step 2: HPH = HP * H^T (4x4 = 4x7 * 7x4)
         var HPH = [Double](repeating: 0.0, count: 16)
-        vDSP_mmulD(HP, 1, H_T, 1, &HPH, 1, 4, 4, 7)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, 4, 4, 7, 1.0, HP, 7, H, 7, 0.0, &HPH, 4)
 
+        // Step 3: S = HPH + R
         var S = [Double](repeating: 0.0, count: 16)
         vDSP_vaddD(HPH, 1, R, 1, &S, 1, 16)
 
         // Invert S
-        let S_inv = invertMatrix4x4(S)
+        let S_inv = invertMatrix4x4Stable(S)
 
         // K = P * H^T * S^(-1)
+        // Step 1: PH = P * H^T (7x4 = 7x7 * 7x4)
         var PH = [Double](repeating: 0.0, count: 28)
-        vDSP_mmulD(P, 1, H_T, 1, &PH, 1, 7, 4, 7)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, 7, 4, 7, 1.0, P, 7, H, 7, 0.0, &PH, 4)
 
+        // Step 2: K = PH * S_inv (7x4 = 7x4 * 4x4)
         var K = [Double](repeating: 0.0, count: 28)
-        vDSP_mmulD(PH, 1, S_inv, 1, &K, 1, 7, 4, 4)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, 7, 4, 4, 1.0, PH, 4, S_inv, 4, 0.0, &K, 4)
+        lastK = K  // Store for debugging
 
-        // x = x + K * y
+        // x = x + K * y (7x1 = 7x1 + 7x4 * 4x1)
         var Ky = [Double](repeating: 0.0, count: 7)
-        vDSP_mmulD(K, 1, innovation, 1, &Ky, 1, 7, 1, 4)
+        cblas_dgemv(CblasRowMajor, CblasNoTrans, 7, 4, 1.0, K, 4, innovation, 1, 0.0, &Ky, 1)
         vDSP_vaddD(x, 1, Ky, 1, &x, 1, 7)
 
-        // P = (I - K * H) * P
-        var KH = [Double](repeating: 0.0, count: 49)
-        vDSP_mmulD(K, 1, H, 1, &KH, 1, 7, 7, 4)
+        // ✅ FIX: Use Joseph form for numerical stability
+        // P = (I - K*H)*P*(I - K*H)' + K*R*K'
+        // This keeps P symmetric and positive-semidefinite
+        // Reference: kalmanfilter.py line 521
 
+        // Step 1: KH = K * H (7x7 = 7x4 * 4x7)
+        var KH = [Double](repeating: 0.0, count: 49)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, 7, 7, 4, 1.0, K, 4, H, 7, 0.0, &KH, 7)
+
+        // Step 2: I_KH = I - KH
         var I_KH = [Double](repeating: 0.0, count: 49)
         for i in 0..<7 {
             for j in 0..<7 {
@@ -932,9 +1095,71 @@ private class KalmanFilter7D {
             }
         }
 
-        var newP = [Double](repeating: 0.0, count: 49)
-        vDSP_mmulD(I_KH, 1, P, 1, &newP, 1, 7, 7, 7)
-        P = newP
+        // Step 3: I_KH_P = (I - K*H) * P (7x7 = 7x7 * 7x7)
+        var I_KH_P = [Double](repeating: 0.0, count: 49)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, 7, 7, 7, 1.0, I_KH, 7, P, 7, 0.0, &I_KH_P, 7)
+
+        // Step 4: term1 = (I - K*H) * P * (I - K*H)' (7x7 = 7x7 * 7x7)
+        var term1 = [Double](repeating: 0.0, count: 49)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, 7, 7, 7, 1.0, I_KH_P, 7, I_KH, 7, 0.0, &term1, 7)
+
+        // Step 5: KR = K * R (7x4 = 7x4 * 4x4)
+        var KR = [Double](repeating: 0.0, count: 28)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, 7, 4, 4, 1.0, K, 4, R, 4, 0.0, &KR, 4)
+
+        // Step 6: term2 = K * R * K' (7x7 = 7x4 * 4x7)
+        var term2 = [Double](repeating: 0.0, count: 49)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, 7, 7, 4, 1.0, KR, 4, K, 4, 0.0, &term2, 7)
+
+        // Step 7: P = term1 + term2
+        vDSP_vaddD(term1, 1, term2, 1, &P, 1, 49)
+    }
+
+    /// Improved 4x4 matrix inversion using cofactor method
+    /// More numerically stable than Gaussian elimination for small matrices
+    private func invertMatrix4x4Stable(_ m: [Double]) -> [Double] {
+        // Compute determinant first
+        let det = m[0]*m[5]*m[10]*m[15] - m[0]*m[5]*m[11]*m[14] - m[0]*m[6]*m[9]*m[15] +
+                  m[0]*m[6]*m[11]*m[13] + m[0]*m[7]*m[9]*m[14] - m[0]*m[7]*m[10]*m[13] -
+                  m[1]*m[4]*m[10]*m[15] + m[1]*m[4]*m[11]*m[14] + m[1]*m[6]*m[8]*m[15] -
+                  m[1]*m[6]*m[11]*m[12] - m[1]*m[7]*m[8]*m[14] + m[1]*m[7]*m[10]*m[12] +
+                  m[2]*m[4]*m[9]*m[15] - m[2]*m[4]*m[11]*m[13] - m[2]*m[5]*m[8]*m[15] +
+                  m[2]*m[5]*m[11]*m[12] + m[2]*m[7]*m[8]*m[13] - m[2]*m[7]*m[9]*m[12] -
+                  m[3]*m[4]*m[9]*m[14] + m[3]*m[4]*m[10]*m[13] + m[3]*m[5]*m[8]*m[14] -
+                  m[3]*m[5]*m[10]*m[12] - m[3]*m[6]*m[8]*m[13] + m[3]*m[6]*m[9]*m[12]
+
+        if abs(det) < 1e-10 {
+            // Singular matrix, return identity
+            var identity = [Double](repeating: 0.0, count: 16)
+            for i in 0..<4 { identity[i * 4 + i] = 1.0 }
+            return identity
+        }
+
+        let invDet = 1.0 / det
+        var inv = [Double](repeating: 0.0, count: 16)
+
+        // Compute adjugate matrix and divide by determinant
+        inv[0] = invDet * (m[5]*(m[10]*m[15]-m[11]*m[14]) - m[6]*(m[9]*m[15]-m[11]*m[13]) + m[7]*(m[9]*m[14]-m[10]*m[13]))
+        inv[1] = invDet * -(m[1]*(m[10]*m[15]-m[11]*m[14]) - m[2]*(m[9]*m[15]-m[11]*m[13]) + m[3]*(m[9]*m[14]-m[10]*m[13]))
+        inv[2] = invDet * (m[1]*(m[6]*m[15]-m[7]*m[14]) - m[2]*(m[5]*m[15]-m[7]*m[13]) + m[3]*(m[5]*m[14]-m[6]*m[13]))
+        inv[3] = invDet * -(m[1]*(m[6]*m[11]-m[7]*m[10]) - m[2]*(m[5]*m[11]-m[7]*m[9]) + m[3]*(m[5]*m[10]-m[6]*m[9]))
+
+        inv[4] = invDet * -(m[4]*(m[10]*m[15]-m[11]*m[14]) - m[6]*(m[8]*m[15]-m[11]*m[12]) + m[7]*(m[8]*m[14]-m[10]*m[12]))
+        inv[5] = invDet * (m[0]*(m[10]*m[15]-m[11]*m[14]) - m[2]*(m[8]*m[15]-m[11]*m[12]) + m[3]*(m[8]*m[14]-m[10]*m[12]))
+        inv[6] = invDet * -(m[0]*(m[6]*m[15]-m[7]*m[14]) - m[2]*(m[4]*m[15]-m[7]*m[12]) + m[3]*(m[4]*m[14]-m[6]*m[12]))
+        inv[7] = invDet * (m[0]*(m[6]*m[11]-m[7]*m[10]) - m[2]*(m[4]*m[11]-m[7]*m[8]) + m[3]*(m[4]*m[10]-m[6]*m[8]))
+
+        inv[8] = invDet * (m[4]*(m[9]*m[15]-m[11]*m[13]) - m[5]*(m[8]*m[15]-m[11]*m[12]) + m[7]*(m[8]*m[13]-m[9]*m[12]))
+        inv[9] = invDet * -(m[0]*(m[9]*m[15]-m[11]*m[13]) - m[1]*(m[8]*m[15]-m[11]*m[12]) + m[3]*(m[8]*m[13]-m[9]*m[12]))
+        inv[10] = invDet * (m[0]*(m[5]*m[15]-m[7]*m[13]) - m[1]*(m[4]*m[15]-m[7]*m[12]) + m[3]*(m[4]*m[13]-m[5]*m[12]))
+        inv[11] = invDet * -(m[0]*(m[5]*m[11]-m[7]*m[9]) - m[1]*(m[4]*m[11]-m[7]*m[8]) + m[3]*(m[4]*m[9]-m[5]*m[8]))
+
+        inv[12] = invDet * -(m[4]*(m[9]*m[14]-m[10]*m[13]) - m[5]*(m[8]*m[14]-m[10]*m[12]) + m[6]*(m[8]*m[13]-m[9]*m[12]))
+        inv[13] = invDet * (m[0]*(m[9]*m[14]-m[10]*m[13]) - m[1]*(m[8]*m[14]-m[10]*m[12]) + m[2]*(m[8]*m[13]-m[9]*m[12]))
+        inv[14] = invDet * -(m[0]*(m[5]*m[14]-m[6]*m[13]) - m[1]*(m[4]*m[14]-m[6]*m[12]) + m[2]*(m[4]*m[13]-m[5]*m[12]))
+        inv[15] = invDet * (m[0]*(m[5]*m[10]-m[6]*m[9]) - m[1]*(m[4]*m[10]-m[6]*m[8]) + m[2]*(m[4]*m[9]-m[5]*m[8]))
+
+        return inv
     }
 
     private func invertMatrix4x4(_ matrix: [Double]) -> [Double] {

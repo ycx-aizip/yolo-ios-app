@@ -172,6 +172,7 @@ class TrackingDetector: ObjectDetector {
         // Developer can switch to ByteTracker by passing ByteTracker() explicitly
         // Or use old OCSort() for comparison
         self.tracker = tracker ?? OCSort()
+        // self.tracker = tracker ?? ByteTracker()
         self.counter = counter ?? ThresholdCounter()
         self.countingDirection = .bottomToTop
         self.originalCountingDirection = .bottomToTop

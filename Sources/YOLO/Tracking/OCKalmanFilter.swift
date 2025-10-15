@@ -63,17 +63,17 @@ public class OCKalmanFilter {
         // [x, y, s, r, vx=0, vy=0, vs=0]
         self.x = [bbox[0], bbox[1], bbox[2], bbox[3], 0.0, 0.0, 0.0]
 
-        // Initialize state transition matrix F (7x7)
-        // F models constant velocity: x_new = x_old + vx*dt
+        // ✅ FIX: Initialize state transition matrix F (7x7)
+        // Python uses F = Identity (constant position model, NOT constant velocity!)
+        // Reference: kalmanfilter.py line 299 "self.F = eye(dim_x)"
+        // Velocities are tracked but NOT used in state propagation
         self.F = [Double](repeating: 0.0, count: 49) // 7x7 = 49
-        // Identity for position and velocities
+        // Identity matrix only - no velocity terms
         for i in 0..<7 {
             self.F[i * 7 + i] = 1.0
         }
-        // Add velocity terms: x += vx*dt, y += vy*dt, s += vs*dt
-        self.F[0 * 7 + 4] = dt  // x += vx*dt
-        self.F[1 * 7 + 5] = dt  // y += vy*dt
-        self.F[2 * 7 + 6] = dt  // s += vs*dt
+        // NOTE: We do NOT add velocity terms! Position stays constant in prediction.
+        // Velocity is updated through measurements, not state propagation.
 
         // Initialize measurement matrix H (4x7)
         // H extracts position from state: [x, y, s, r] = H * [x, y, s, r, vx, vy, vs]
@@ -120,21 +120,20 @@ public class OCKalmanFilter {
     /// x = F * x
     /// P = F * P * F^T + Q
     public func predict() {
-        // x = F * x
+        // x = F * x (7x7 * 7x1 = 7x1)
+        // Use cblas_dgemv for matrix-vector multiplication (row-major)
         var newX = [Double](repeating: 0.0, count: 7)
-        vDSP_mmulD(F, 1, x, 1, &newX, 1, 7, 1, 7)
+        cblas_dgemv(CblasRowMajor, CblasNoTrans, 7, 7, 1.0, F, 7, x, 1, 0.0, &newX, 1)
         x = newX
 
         // P = F * P * F^T + Q
-        // Step 1: FP = F * P
+        // Step 1: FP = F * P (7x7 * 7x7 = 7x7)
         var FP = [Double](repeating: 0.0, count: 49)
-        vDSP_mmulD(F, 1, P, 1, &FP, 1, 7, 7, 7)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, 7, 7, 7, 1.0, F, 7, P, 7, 0.0, &FP, 7)
 
-        // Step 2: FPF = FP * F^T
+        // Step 2: FPF = FP * F^T (7x7 * 7x7 = 7x7)
         var FPF = [Double](repeating: 0.0, count: 49)
-        var F_T = [Double](repeating: 0.0, count: 49)
-        vDSP_mtransD(F, 1, &F_T, 1, 7, 7)
-        vDSP_mmulD(FP, 1, F_T, 1, &FPF, 1, 7, 7, 7)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, 7, 7, 7, 1.0, FP, 7, F, 7, 0.0, &FPF, 7)
 
         // Step 3: P = FPF + Q
         vDSP_vaddD(FPF, 1, Q, 1, &P, 1, 49)
@@ -145,69 +144,77 @@ public class OCKalmanFilter {
     /// Update state with measurement
     /// - Parameter bbox: Measurement [x, y, s, r]
     public func update(bbox: [Double]) {
-        // Innovation: y = z - H * x
+        // Innovation: y = z - H * x (4x1 = 4x7 * 7x1)
         var Hx = [Double](repeating: 0.0, count: 4)
-        vDSP_mmulD(H, 1, x, 1, &Hx, 1, 4, 1, 7)
+        cblas_dgemv(CblasRowMajor, CblasNoTrans, 4, 7, 1.0, H, 7, x, 1, 0.0, &Hx, 1)
 
         var innovation = [Double](repeating: 0.0, count: 4)
-        var negHx = Hx
-        vDSP_vnegD(Hx, 1, &negHx, 1, 4)
-        vDSP_vaddD(bbox, 1, negHx, 1, &innovation, 1, 4)
+        for i in 0..<4 {
+            innovation[i] = bbox[i] - Hx[i]
+        }
 
-        // S = H * P * H^T + R
-        // Step 1: HP = H * P
-        var HP = [Double](repeating: 0.0, count: 28) // 4x7
-        vDSP_mmulD(H, 1, P, 1, &HP, 1, 4, 7, 7)
+        // ✅ FIX: S = H * P * H^T + R
+        // Step 1: HP = H * P (4x7 = 4x7 * 7x7)
+        var HP = [Double](repeating: 0.0, count: 28)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, 4, 7, 7, 1.0, H, 7, P, 7, 0.0, &HP, 7)
 
-        // Step 2: HPH = HP * H^T
-        var H_T = [Double](repeating: 0.0, count: 28)
-        vDSP_mtransD(H, 1, &H_T, 1, 4, 7)
-        var HPH = [Double](repeating: 0.0, count: 16) // 4x4
-        vDSP_mmulD(HP, 1, H_T, 1, &HPH, 1, 4, 4, 7)
+        // Step 2: HPH = HP * H^T (4x4 = 4x7 * 7x4)
+        var HPH = [Double](repeating: 0.0, count: 16)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, 4, 4, 7, 1.0, HP, 7, H, 7, 0.0, &HPH, 4)
 
         // Step 3: S = HPH + R
         var S = [Double](repeating: 0.0, count: 16)
         vDSP_vaddD(HPH, 1, R, 1, &S, 1, 16)
 
         // Kalman gain: K = P * H^T * S^(-1)
-        // Step 1: Invert S using a custom approach
-        // For 4x4 matrix, we can use a simpler inversion or accept small numerical errors
+        // Step 1: Invert S
         var S_inv = invertMatrix4x4(S)
 
-        // Step 2: PH = P * H^T
-        var PH = [Double](repeating: 0.0, count: 28) // 7x4
-        vDSP_mmulD(P, 1, H_T, 1, &PH, 1, 7, 4, 7)
+        // Step 2: PH = P * H^T (7x4 = 7x7 * 7x4)
+        var PH = [Double](repeating: 0.0, count: 28)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, 7, 4, 7, 1.0, P, 7, H, 7, 0.0, &PH, 4)
 
-        // Step 3: K = PH * S_inv
-        var K = [Double](repeating: 0.0, count: 28) // 7x4
-        vDSP_mmulD(PH, 1, S_inv, 1, &K, 1, 7, 4, 4)
+        // Step 3: K = PH * S_inv (7x4 = 7x4 * 4x4)
+        var K = [Double](repeating: 0.0, count: 28)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, 7, 4, 4, 1.0, PH, 4, S_inv, 4, 0.0, &K, 4)
 
-        // Update state: x = x + K * innovation
+        // Update state: x = x + K * innovation (7x1 = 7x1 + 7x4 * 4x1)
         var Ky = [Double](repeating: 0.0, count: 7)
-        vDSP_mmulD(K, 1, innovation, 1, &Ky, 1, 7, 1, 4)
+        cblas_dgemv(CblasRowMajor, CblasNoTrans, 7, 4, 1.0, K, 4, innovation, 1, 0.0, &Ky, 1)
         vDSP_vaddD(x, 1, Ky, 1, &x, 1, 7)
 
-        // Update covariance: P = (I - K * H) * P
-        // Step 1: KH = K * H
-        var KH = [Double](repeating: 0.0, count: 49) // 7x7
-        vDSP_mmulD(K, 1, H, 1, &KH, 1, 7, 7, 4)
+        // ✅ FIX: Use Joseph form for numerical stability
+        // P = (I - K*H)*P*(I - K*H)' + K*R*K'
+        // Step 1: KH = K * H (7x7 = 7x4 * 4x7)
+        var KH = [Double](repeating: 0.0, count: 49)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, 7, 7, 4, 1.0, K, 4, H, 7, 0.0, &KH, 7)
 
-        // Step 2: I - KH
+        // Step 2: I_KH = I - KH
         var I_KH = [Double](repeating: 0.0, count: 49)
         for i in 0..<7 {
             for j in 0..<7 {
-                if i == j {
-                    I_KH[i * 7 + j] = 1.0 - KH[i * 7 + j]
-                } else {
-                    I_KH[i * 7 + j] = -KH[i * 7 + j]
-                }
+                I_KH[i * 7 + j] = (i == j ? 1.0 : 0.0) - KH[i * 7 + j]
             }
         }
 
-        // Step 3: P = (I - KH) * P
-        var newP = [Double](repeating: 0.0, count: 49)
-        vDSP_mmulD(I_KH, 1, P, 1, &newP, 1, 7, 7, 7)
-        P = newP
+        // Step 3: I_KH_P = (I - K*H) * P (7x7 = 7x7 * 7x7)
+        var I_KH_P = [Double](repeating: 0.0, count: 49)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, 7, 7, 7, 1.0, I_KH, 7, P, 7, 0.0, &I_KH_P, 7)
+
+        // Step 4: term1 = (I - K*H) * P * (I - K*H)' (7x7 = 7x7 * 7x7)
+        var term1 = [Double](repeating: 0.0, count: 49)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, 7, 7, 7, 1.0, I_KH_P, 7, I_KH, 7, 0.0, &term1, 7)
+
+        // Step 5: KR = K * R (7x4 = 7x4 * 4x4)
+        var KR = [Double](repeating: 0.0, count: 28)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, 7, 4, 4, 1.0, K, 4, R, 4, 0.0, &KR, 4)
+
+        // Step 6: term2 = K * R * K' (7x7 = 7x4 * 4x7)
+        var term2 = [Double](repeating: 0.0, count: 49)
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, 7, 7, 4, 1.0, KR, 4, K, 4, 0.0, &term2, 7)
+
+        // Step 7: P = term1 + term2
+        vDSP_vaddD(term1, 1, term2, 1, &P, 1, 49)
     }
 
     // MARK: - State Access
