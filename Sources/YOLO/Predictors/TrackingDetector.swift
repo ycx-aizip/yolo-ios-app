@@ -165,14 +165,13 @@ class TrackingDetector: ObjectDetector {
     /// Initialize TrackingDetector with optional dependency injection
     /// Configuration will be applied after initialization via applySharedConfiguration()
     /// - Parameters:
-    ///   - tracker: Optional tracker implementation (defaults to OCSort)
+    ///   - tracker: Optional tracker implementation (defaults to OCSort with coreMLOCSortConfig)
     ///   - counter: Optional counter implementation (defaults to ThresholdCounter)
     required init(tracker: TrackerProtocol? = nil, counter: CounterProtocol? = nil) {
-        // Initialize with dependency injection (defaults to OC-SORT v2 - corrected implementation)
-        // Developer can switch to ByteTracker by passing ByteTracker() explicitly
-        // Or use old OCSort() for comparison
-        self.tracker = tracker ?? OCSort()
-        // self.tracker = tracker ?? ByteTracker()
+        // Initialize with dependency injection
+        // Default: OCSort with CoreML-tuned configuration
+        // self.tracker = tracker ?? OCSort()
+        self.tracker = tracker ?? ByteTracker()
         self.counter = counter ?? ThresholdCounter()
         self.countingDirection = .bottomToTop
         self.originalCountingDirection = .bottomToTop

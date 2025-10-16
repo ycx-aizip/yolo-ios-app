@@ -56,38 +56,24 @@ public class OCSort: TrackerProtocol {
 
     // MARK: - Initialization
 
-    /// Initialize OC-SORT tracker
+    /// Initialize OC-SORT tracker with default CoreML configuration
+    nonisolated public convenience init() {
+        self.init(config: TrackingParameters.coreMLOCSortConfig)
+    }
+
+    /// Initialize OC-SORT tracker with custom configuration
     ///
-    /// - Parameters:
-    ///   - detThresh: Detection confidence threshold (0.2 for CoreML YOLO)
-    ///   - maxAge: Maximum frames to keep alive without detections
-    ///   - minHits: Minimum hits before track is confirmed
-    ///   - iouThreshold: IoU threshold for matching (0.05 for fish tracking)
-    ///   - deltaT: Frames to look back for velocity estimation
-    ///   - assoFunc: Association function type
-    ///   - inertia: Weight for IoU vs velocity in association
-    ///   - useByte: Enable BYTE-style low-confidence matching
-    ///   - vdcWeight: Velocity direction consistency weight (0-1)
-    nonisolated public init(
-        detThresh: Float = 0.2,
-        maxAge: Int = 30,
-        minHits: Int = 3,
-        iouThreshold: Float = 0.05,
-        deltaT: Int = 1,
-        assoFunc: String = "iou",
-        inertia: Float = 0.2,
-        useByte: Bool = false,
-        vdcWeight: Float = 0.9
-    ) {
-        self.detThresh = detThresh
-        self.maxAge = maxAge
-        self.minHits = minHits
-        self.iouThreshold = iouThreshold
-        self.deltaT = deltaT
-        self.assoFunc = assoFunc
-        self.inertia = inertia
-        self.useByte = useByte
-        self.vdcWeight = vdcWeight
+    /// - Parameter config: OCSortConfig from TrackingParameters
+    nonisolated public init(config: TrackingParameters.OCSortConfig) {
+        self.detThresh = config.detThresh
+        self.maxAge = config.maxAge
+        self.minHits = config.minHits
+        self.iouThreshold = config.iouThreshold
+        self.deltaT = config.deltaT
+        self.assoFunc = config.assoFunc
+        self.inertia = config.inertia
+        self.useByte = config.useByte
+        self.vdcWeight = config.vdcWeight
     }
 
     // MARK: - TrackerProtocol Implementation
@@ -99,22 +85,6 @@ public class OCSort: TrackerProtocol {
         // Store original detections and classes for later class matching
         let originalDetections = detections
         let originalClasses = classes
-
-        // Debug logging (set to true for troubleshooting)
-        let debugEnabled = false
-        if debugEnabled && frameCount % 30 == 0 {
-            print("\n═══ OCSort Debug Frame \(frameCount) ═══")
-            print("📊 Input: \(detections.count) detections, \(trackers.count) active trackers")
-
-            // Debug: Show first detection in both formats
-            if !detections.isEmpty {
-                let firstBox = detections[0]
-                let bbox = firstBox.xywhn
-                print("   🔍 Detection[0] format check:")
-                print("      xywhn: x=\(String(format: "%.3f", bbox.origin.x)), y=\(String(format: "%.3f", bbox.origin.y)), w=\(String(format: "%.3f", bbox.width)), h=\(String(format: "%.3f", bbox.height))")
-                print("      As [x1,y1,x2,y2]: [\(String(format: "%.3f", bbox.minX)), \(String(format: "%.3f", bbox.minY)), \(String(format: "%.3f", bbox.maxX)), \(String(format: "%.3f", bbox.maxY))]")
-            }
-        }
 
         // Convert Box format to [x1, y1, x2, y2, score] format
         let detsArray = zip(detections, scores).map { (box, score) -> [Double] in
@@ -138,29 +108,10 @@ public class OCSort: TrackerProtocol {
         var toDelete: [Int] = []
 
         for (t, trk) in trackers.enumerated() {
-            // 🔍 DEBUG: Capture state BEFORE predict
-            var stateBefore: [Double]? = nil
-            if debugEnabled && frameCount % 30 == 0 && t == 0 && trk.lastObservation[0] >= 0 {
-                stateBefore = trk.getState()
-            }
-
             let pos = trk.predict()
             trks.append(pos)
             if anyNaN(pos) {
                 toDelete.append(t)
-            }
-
-            // 🔍 DEBUG: Compare prediction vs last observation
-            if let stateBeforePredict = stateBefore {
-                let lastObs = trk.lastObservation
-                let stateAfter = trk.getState()
-                print("   🔮 Kalman Prediction Debug (Tracker 0):")
-                print("      State BEFORE: cx=\(String(format: "%.3f", stateBeforePredict[0])), cy=\(String(format: "%.3f", stateBeforePredict[1])), s=\(String(format: "%.3f", stateBeforePredict[2])), r=\(String(format: "%.3f", stateBeforePredict[3]))")
-                print("      State AFTER:  cx=\(String(format: "%.3f", stateAfter[0])), cy=\(String(format: "%.3f", stateAfter[1])), s=\(String(format: "%.3f", stateAfter[2])), r=\(String(format: "%.3f", stateAfter[3]))")
-                print("      Last obs bbox:    [\(String(format: "%.3f", lastObs[0])), \(String(format: "%.3f", lastObs[1])), \(String(format: "%.3f", lastObs[2])), \(String(format: "%.3f", lastObs[3]))]")
-                print("      Predicted bbox:   [\(String(format: "%.3f", pos[0])), \(String(format: "%.3f", pos[1])), \(String(format: "%.3f", pos[2])), \(String(format: "%.3f", pos[3]))]")
-                let drift = sqrt(pow(pos[0] - lastObs[0], 2) + pow(pos[1] - lastObs[1], 2))
-                print("      Position drift: \(String(format: "%.3f", drift))")
             }
         }
 
@@ -193,14 +144,6 @@ public class OCSort: TrackerProtocol {
             previousObs: kObservations,
             vdcWeight: vdcWeight
         )
-        
-        // 🔍 DEBUG: Stage 1 results
-        if debugEnabled && frameCount % 30 == 0 {
-            print("🎯 Stage 1 (High conf + VDC): \(matched.count) matches, \(unmatchedDets.count) unmatched dets, \(unmatchedTrks.count) unmatched trks")
-            if !matched.isEmpty {
-                print("   ✓ Matched pairs: \(matched.prefix(5).map { "D\($0[0])→T\($0[1])" }.joined(separator: ", "))\(matched.count > 5 ? "..." : "")")
-            }
-        }
 
         // Update matched trackers
         for m in matched {
@@ -243,7 +186,7 @@ public class OCSort: TrackerProtocol {
             let unmatchedTrksIndices = unmatchedTrks2
 
             let unmatchedDetections = unmatchedDetsIndices.map { detsHigh[$0] }
-            // ✅ FIX: Use LAST OBSERVATIONS (not predicted positions) - this is OCR's key innovation!
+            // Use last observations (not predicted positions) - OCR's key innovation
             let unmatchedLastObs = unmatchedTrksIndices.map { lastObservations[$0] }
 
             let unmatchedVelocities = unmatchedTrksIndices.map { velocities[$0] }
@@ -255,8 +198,8 @@ public class OCSort: TrackerProtocol {
 
             let (matchedOCR, unmatchedDetsOCR, unmatchedTrksOCR) = associate(
                 detections: unmatchedDetections,
-                trackers: unmatchedLastObs,  // ✅ Use last observations, not predictions!
-                iouThreshold: ocrThreshold,  // ✅ Lower threshold for better recovery (0.2 vs 0.3)
+                trackers: unmatchedLastObs,  // Use last observations, not predictions
+                iouThreshold: ocrThreshold,  // Lower threshold for better recovery
                 velocities: unmatchedVelocities,
                 previousObs: unmatchedKObs,
                 vdcWeight: vdcWeight
@@ -287,14 +230,6 @@ public class OCSort: TrackerProtocol {
             // Update final unmatched lists
             unmatchedDets2 = unmatchedDetsOCR.map { unmatchedDetsIndices[$0] }
             unmatchedTrks2 = unmatchedTrksOCR.map { unmatchedTrksIndices[$0] }
-            
-            // 🔍 DEBUG: Stage 3 results
-            if debugEnabled && frameCount % 30 == 0 {
-                print("🔄 Stage 3 (OCR): \(matchedOCR.count) recoveries")
-                if matchedOCR.count > 0 {
-                    print("   ✓ OCR saved \(matchedOCR.count) tracks from being lost!")
-                }
-            }
         }
 
         // Create new trackers for unmatched detections
@@ -303,40 +238,20 @@ public class OCSort: TrackerProtocol {
             let trk = KalmanBoxTracker(bbox: det, deltaT: deltaT)
             trackers.append(trk)
         }
-        
-        // 🔍 DEBUG: New track creation
-        if debugEnabled && frameCount % 30 == 0 && !unmatchedDets2.isEmpty {
-            print("🆕 Created \(unmatchedDets2.count) new trackers")
-        }
 
         // Remove dead trackers
-        var removedCount = 0
         var i = trackers.count - 1
         while i >= 0 {
             let trk = trackers[i]
-            // Remove if too old
             if trk.timeSinceUpdate > maxAge {
                 trackers.remove(at: i)
-                removedCount += 1
             }
             i -= 1
-        }
-        
-        // 🔍 DEBUG: Tracker lifecycle
-        if debugEnabled && frameCount % 30 == 0 {
-            print("💀 Removed \(removedCount) old trackers (age > \(maxAge))")
-            print("📈 Tracker stats: \(trackers.count) alive, timeSinceUpdate distribution:")
-            let tsuCounts = trackers.reduce(into: [:]) { counts, trk in
-                counts[trk.timeSinceUpdate, default: 0] += 1
-            }
-            for (tsu, count) in tsuCounts.sorted(by: { $0.key < $1.key }).prefix(5) {
-                print("   - TSU=\(tsu): \(count) trackers")
-            }
         }
 
         // Convert to STrack format with class matching
         let results = trackers.compactMap { trk -> STrack? in
-            // ✅ FIX: OC-SORT output filter (NOT ByteTrack's TSU<1!)
+            // OC-SORT output filter
             // Return tracks that are:
             // 1. Confirmed (hitStreak >= minHits OR early frames <= minHits)
             // 2. Recently updated (timeSinceUpdate <= 1 for smooth tracking)
@@ -405,27 +320,6 @@ public class OCSort: TrackerProtocol {
                 score: Float(trk.lastObservation[4]),
                 cls: matchedClass
             )
-        }
-        
-        // 🔍 DEBUG: Final output analysis
-        if debugEnabled && frameCount % 30 == 0 {
-            let confirmedCount = trackers.filter { $0.hitStreak >= minHits }.count
-            let returnedCount = results.count
-            print("📤 Output: \(returnedCount) tracks returned (\(confirmedCount) confirmed, \(trackers.count - confirmedCount) unconfirmed)")
-            print("   Filter: timeSinceUpdate<=1 AND (hitStreak>=\(minHits) OR frameCount<=\(minHits))")
-            
-            // Analyze why tracks weren't returned
-            let notReturned = trackers.filter { trk in
-                !((trk.timeSinceUpdate < 1) && (trk.hitStreak >= minHits || frameCount <= minHits))
-            }
-            if !notReturned.isEmpty {
-                print("❌ \(notReturned.count) trackers FILTERED OUT:")
-                for (idx, trk) in notReturned.prefix(5).enumerated() {
-                    let reason = trk.timeSinceUpdate >= 1 ? "TSU=\(trk.timeSinceUpdate)≥1" : "hitStreak=\(trk.hitStreak)<\(minHits)"
-                    print("   [\(idx)] ID:\(trk.id) - \(reason), hits:\(trk.hits)")
-                }
-            }
-            print("═══════════════════════════════════\n")
         }
 
         return results
@@ -535,16 +429,6 @@ public class OCSort: TrackerProtocol {
 
         // Compute IoU matrix
         let iouMatrix = iouBatch(detections: detections, trackers: trackers)
-        
-        // 🔍 DEBUG: IoU analysis
-        let debugEnabled = true
-        if debugEnabled && frameCount % 30 == 0 && !detections.isEmpty && !trackers.isEmpty {
-            let maxIoUs = iouMatrix.map { row in row.max() ?? 0.0 }
-            let avgMaxIoU = maxIoUs.reduce(0.0, +) / Double(maxIoUs.count)
-            let goodMatches = maxIoUs.filter { $0 > Double(iouThreshold) }.count
-            let vdcInfo = vdcWeight > 0 ? "VDC=\(String(format: "%.1f", vdcWeight))" : "VDC=OFF"
-            print("   📏 IoU stats: avg_max=\(String(format: "%.3f", avgMaxIoU)), \(goodMatches)/\(detections.count) above thresh=\(iouThreshold), \(vdcInfo)")
-        }
 
         // Compute velocity direction consistency cost
         var angleDiffCost = [[Double]](repeating: [Double](repeating: 0.0, count: trackers.count), count: detections.count)
@@ -616,27 +500,13 @@ public class OCSort: TrackerProtocol {
         }
 
         // Filter matches by IoU threshold
-        // 🔍 DEBUG: Track match quality
-        var totalAngleCost = 0.0
-        var validMatchCount = 0
-        
         for m in matchedIndices {
             if iouMatrix[m[0]][m[1]] < Double(iouThreshold) {
                 unmatchedDetections.append(m[0])
                 unmatchedTrackers.append(m[1])
             } else {
                 matches.append(m)
-                if vdcWeight > 0 {
-                    totalAngleCost += angleDiffCost[m[0]][m[1]]
-                    validMatchCount += 1
-                }
             }
-        }
-        
-        // Print VDC contribution for matched pairs
-        if debugEnabled && vdcWeight > 0 && frameCount % 30 == 0 && validMatchCount > 0 {
-            let avgAngleCost = totalAngleCost / Double(validMatchCount)
-            print("   🎯 VDC contribution: avg_angle_bonus=\(String(format: "%.3f", avgAngleCost)) for \(validMatchCount) matches")
         }
 
         return (matched: matches, unmatchedDets: unmatchedDetections, unmatchedTrks: unmatchedTrackers)
@@ -931,15 +801,15 @@ private class KalmanFilter7D {
         // Initialize state
         x = [Double](repeating: 0.0, count: 7)
 
-        // ✅ FIX: State transition matrix F (7x7) - CONSTANT POSITION model
-        // Python uses F = Identity (no velocity propagation in state transition!)
-        // Reference: kalmanfilter.py line 299 "self.F = eye(dim_x)"
+        // State transition matrix F (7x7) - constant position model
+        // F = Identity matrix (velocities persist, positions don't propagate)
+        // Reference: kalmanfilter.py "self.F = eye(dim_x)"
         F = [
-            1, 0, 0, 0, 0, 0, 0,  // x_new = x (NOT x + vx!)
-            0, 1, 0, 0, 0, 0, 0,  // y_new = y (NOT y + vy!)
-            0, 0, 1, 0, 0, 0, 0,  // s_new = s (NOT s + vs!)
+            1, 0, 0, 0, 0, 0, 0,  // x_new = x
+            0, 1, 0, 0, 0, 0, 0,  // y_new = y
+            0, 0, 1, 0, 0, 0, 0,  // s_new = s
             0, 0, 0, 1, 0, 0, 0,  // r_new = r
-            0, 0, 0, 0, 1, 0, 0,  // vx_new = vx (velocity persists)
+            0, 0, 0, 0, 1, 0, 0,  // vx_new = vx
             0, 0, 0, 0, 0, 1, 0,  // vy_new = vy
             0, 0, 0, 0, 0, 0, 1   // vs_new = vs
         ]
@@ -952,12 +822,12 @@ private class KalmanFilter7D {
             0, 0, 0, 1, 0, 0, 0
         ]
 
-        // Initialize R (measurement noise) - DIAGONAL matrix
+        // Initialize R (measurement noise) - diagonal matrix
         R = [Double](repeating: 0.0, count: 16)
         for i in 0..<4 {
             R[i * 4 + i] = 1.0
         }
-        // ✅ FIX: R[2:, 2:] *= 10 means multiply DIAGONAL elements R[2,2] and R[3,3] by 10
+        // R[2:, 2:] *= 10 means multiply diagonal elements R[2,2] and R[3,3] by 10
         // NOT off-diagonal elements! R must stay diagonal.
         R[2 * 4 + 2] *= 10.0  // R[2,2] = 10.0 (scale measurement noise)
         R[3 * 4 + 3] *= 10.0  // R[3,3] = 10.0 (aspect ratio measurement noise)
@@ -1018,7 +888,7 @@ private class KalmanFilter7D {
             innovation[i] = z[i] - Hx[i]
         }
 
-        // ✅ FIX: S = H * P * H^T + R (using correct row-major matrix multiplication)
+        // Compute innovation covariance S = H * P * H^T + R
         // Step 1: HP = H * P (4x7 = 4x7 * 7x7)
         var HP = [Double](repeating: 0.0, count: 28)
         cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, 4, 7, 7, 1.0, H, 7, P, 7, 0.0, &HP, 7)
@@ -1049,10 +919,9 @@ private class KalmanFilter7D {
         cblas_dgemv(CblasRowMajor, CblasNoTrans, 7, 4, 1.0, K, 4, innovation, 1, 0.0, &Ky, 1)
         vDSP_vaddD(x, 1, Ky, 1, &x, 1, 7)
 
-        // ✅ FIX: Use Joseph form for numerical stability
+        // Update covariance using Joseph form for numerical stability
         // P = (I - K*H)*P*(I - K*H)' + K*R*K'
-        // This keeps P symmetric and positive-semidefinite
-        // Reference: kalmanfilter.py line 521
+        // Keeps P symmetric and positive-semidefinite
 
         // Step 1: KH = K * H (7x7 = 7x4 * 4x7)
         var KH = [Double](repeating: 0.0, count: 49)

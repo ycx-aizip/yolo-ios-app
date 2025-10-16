@@ -67,9 +67,12 @@ public class ByteTracker {
     private let maxPotentialTracks: Int = 50
     
     // MARK: - Initialization
-    
+
+    /// Initialize ByteTracker
+    ///
+    /// - Note: ByteTracker accesses configuration dynamically via TrackingUtils static methods
     nonisolated public init() {
-        // Empty initializer
+        // Configuration accessed via TrackingUtils static methods during update() calls
     }
     
     // MARK: - Public Methods

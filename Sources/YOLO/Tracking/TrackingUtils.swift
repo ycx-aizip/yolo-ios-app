@@ -41,7 +41,6 @@ import UIKit
  */
 
 /// Centralized management of tracking parameters
-@MainActor
 public struct TrackingParameters {
 
     // MARK: - Shared Configuration (All Trackers)
@@ -209,6 +208,10 @@ public struct TrackingParameters {
         /// Whether to use BYTE-style two-stage matching
         /// Enables recovery of tracks using low-confidence detections
         let useByte: Bool
+
+        /// Velocity Direction Consistency weight (0-1)
+        /// Controls influence of velocity direction in association scoring
+        let vdcWeight: Float
     }
 
     // MARK: - Default Configurations
@@ -259,7 +262,6 @@ public struct TrackingParameters {
     )
 
     /// Default OC-SORT configuration (from Python package defaults)
-    @MainActor
     public static let defaultOCSortConfig = OCSortConfig(
         detThresh: 0.05,              // Detection confidence threshold (PYTHON DEFAULT - low for tracking)
         maxAge: 30,                   // Max age without matching
@@ -268,7 +270,8 @@ public struct TrackingParameters {
         deltaT: 3,                    // Frames apart for velocity estimation
         assoFunc: "iou",              // Association function (iou, giou, ciou, diou)
         inertia: 0.2,                 // Velocity direction consistency weight
-        useByte: false                // Use BYTE two-stage matching
+        useByte: false,               // Use BYTE two-stage matching
+        vdcWeight: 0.2                // VDC weight (Python default)
     )
 
     /// CoreML-adapted OC-SORT configuration (iOS deployment)
@@ -279,7 +282,6 @@ public struct TrackingParameters {
     ///
     /// Solution: Set detThresh=0.2 (below CoreML's 0.25) to ensure consistent classification
     /// All CoreML dets → high confidence bucket → Stage 1 & 3 matching active
-    @MainActor
     public static let coreMLOCSortConfig = OCSortConfig(
         detThresh: 0.2,               // ✅ Below CoreML threshold (0.25) for consistent splitting
         maxAge: 30,                   // ✅ Python default
@@ -288,7 +290,8 @@ public struct TrackingParameters {
         deltaT: 3,                    // ✅ Python default
         assoFunc: "iou",              // ✅ Python default
         inertia: 0.2,                 // ✅ Python default
-        useByte: false                // ✅ Python default (no low-conf dets from CoreML)
+        useByte: false,               // ✅ Python default (no low-conf dets from CoreML)
+        vdcWeight: 0.9                // ⚙️ Tuned for fish tracking (high VDC influence)
     )
 
     // MARK: - Direction-Specific Configurations
