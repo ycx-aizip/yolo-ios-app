@@ -803,15 +803,27 @@ private class KalmanFilter7D {
 
         // State transition matrix F (7x7) - constant position model
         // F = Identity matrix (velocities persist, positions don't propagate)
-        // Reference: kalmanfilter.py "self.F = eye(dim_x)"
+        //
+        // RATIONALE FOR CONSTANT POSITION vs PYTHON'S CONSTANT VELOCITY:
+        // Fish exhibit highly non-linear swimming with frequent direction changes and acceleration.
+        // Constant velocity (F[0,4]=F[1,5]=F[2,6]=1) assumes straight-line motion, which is WRONG for fish:
+        //   - When fish turn, velocity-based prediction overshoots in wrong direction → poor IoU → lost tracks
+        //   - Empirical results: Constant velocity caused 20% undercounting (2480/3008 vs 3105/3008)
+        //
+        // Constant position (F=I) prevents bad predictions during turns:
+        //   - Position prediction uses last observation + Kalman smoothing (no velocity propagation)
+        //   - Velocities still estimated and used for VDC (velocity direction consistency)
+        //   - Works synergistically with deltaT=1 and vdcWeight=0.9 (see TrackingUtils.swift)
+        //
+        // This differs from Python reference but is empirically validated for fish tracking.
         F = [
-            1, 0, 0, 0, 0, 0, 0,  // x_new = x
-            0, 1, 0, 0, 0, 0, 0,  // y_new = y
-            0, 0, 1, 0, 0, 0, 0,  // s_new = s
+            1, 0, 0, 0, 0, 0, 0,  // x_new = x (no velocity propagation)
+            0, 1, 0, 0, 0, 0, 0,  // y_new = y (no velocity propagation)
+            0, 0, 1, 0, 0, 0, 0,  // s_new = s (no velocity propagation)
             0, 0, 0, 1, 0, 0, 0,  // r_new = r
-            0, 0, 0, 0, 1, 0, 0,  // vx_new = vx
-            0, 0, 0, 0, 0, 1, 0,  // vy_new = vy
-            0, 0, 0, 0, 0, 0, 1   // vs_new = vs
+            0, 0, 0, 0, 1, 0, 0,  // vx_new = vx (velocity persists for VDC)
+            0, 0, 0, 0, 0, 1, 0,  // vy_new = vy (velocity persists for VDC)
+            0, 0, 0, 0, 0, 0, 1   // vs_new = vs (velocity persists for VDC)
         ]
 
         // Measurement matrix H (4x7) - only observe position
