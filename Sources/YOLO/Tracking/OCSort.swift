@@ -1,14 +1,11 @@
 // OCSort.swift
-// Corrected OC-SORT implementation with 1-to-1 Python correspondence
+// OC-SORT: Observation-Centric SORT for object tracking
 //
-// This is a complete rewrite addressing all critical issues:
-// 1. Proper 7D Kalman filter with correct initialization
-// 2. Velocity Direction Consistency (VDC) in association
-// 3. Two-threshold detection splitting (high/low conf)
-// 4. BYTE association stage
-// 5. Observation history with freeze/unfreeze
-// 6. Correct k_previous_obs logic
-// 7. Proper min_hits filtering
+// Implements the OC-SORT tracking algorithm with:
+// - 7D Kalman filter for state estimation
+// - Velocity Direction Consistency (VDC) for robust association
+// - Observation-Centric Recovery (OCR) for occlusion handling
+// - K-previous observation history for velocity estimation
 //
 // Reference: ocsort/ocsort.py and ocsort/association.py
 
@@ -59,27 +56,28 @@ public class OCSort: TrackerProtocol {
 
     // MARK: - Initialization
 
-    /// Initialize OC-SORT adapted for CoreML YOLO (iOS deployment)
+    /// Initialize OC-SORT tracker
     ///
-    /// CRITICAL DIFFERENCE from Python:
-    /// - Python YOLO: Returns detections with varying confidence (conf param is soft filter)
-    /// - CoreML YOLO: Built-in NMS with HARD confidence filter at 0.25
-    /// - CoreML returns ONLY high-confidence dets (≥0.25) → NO low-conf dets for BYTE stage
-    ///
-    /// Solution: Set detThresh slightly BELOW CoreML threshold (0.2 < 0.25)
-    /// This ensures ALL CoreML detections are treated as "high confidence" consistently
-    /// Stage 1: All dets matched with predicted positions (VDC + IoU)
-    /// Stage 3: OCR recovery using last observations for unmatched tracks
+    /// - Parameters:
+    ///   - detThresh: Detection confidence threshold (0.2 for CoreML YOLO)
+    ///   - maxAge: Maximum frames to keep alive without detections
+    ///   - minHits: Minimum hits before track is confirmed
+    ///   - iouThreshold: IoU threshold for matching (0.05 for fish tracking)
+    ///   - deltaT: Frames to look back for velocity estimation
+    ///   - assoFunc: Association function type
+    ///   - inertia: Weight for IoU vs velocity in association
+    ///   - useByte: Enable BYTE-style low-confidence matching
+    ///   - vdcWeight: Velocity direction consistency weight (0-1)
     nonisolated public init(
-        detThresh: Float = 0.2,       // ✅ Below CoreML 0.25 → all dets are "high conf", consistent splitting
-        maxAge: Int = 30,             // ✅ Python default
-        minHits: Int = 3,             // ✅ Python default (reduced from 5 for faster confirmation)
-        iouThreshold: Float = 0.05,   // 🔧 CRITICAL: Lowered to 0.05 for fish (KF prediction has VERY low IoU)
-        deltaT: Int = 1,              // 🔧 CRITICAL: Reduced from 3 to 1 for fast-moving fish
-        assoFunc: String = "iou",     // ✅ Python default
-        inertia: Float = 0.2,         // ✅ Python default
-        useByte: Bool = false,        // ✅ Python default (no low-conf dets with CoreML anyway)
-        vdcWeight: Float = 0.9        // 🔧 CRITICAL: Increased to 0.9 to rely heavily on velocity direction
+        detThresh: Float = 0.2,
+        maxAge: Int = 30,
+        minHits: Int = 3,
+        iouThreshold: Float = 0.05,
+        deltaT: Int = 1,
+        assoFunc: String = "iou",
+        inertia: Float = 0.2,
+        useByte: Bool = false,
+        vdcWeight: Float = 0.9
     ) {
         self.detThresh = detThresh
         self.maxAge = maxAge
@@ -101,10 +99,10 @@ public class OCSort: TrackerProtocol {
         // Store original detections and classes for later class matching
         let originalDetections = detections
         let originalClasses = classes
-        
-        // 🔍 DEBUG: Track association performance
-        let debugEnabled = true  // Set to false to disable debug logs
-        if debugEnabled && frameCount % 30 == 0 {  // Log every 30 frames
+
+        // Debug logging (set to true for troubleshooting)
+        let debugEnabled = false
+        if debugEnabled && frameCount % 30 == 0 {
             print("\n═══ OCSort Debug Frame \(frameCount) ═══")
             print("📊 Input: \(detections.count) detections, \(trackers.count) active trackers")
 
@@ -829,34 +827,7 @@ private class KalmanBoxTracker {
 
         // Update Kalman filter
         let z = convertBboxToZ(bbox: bbox)
-
-        // 🔍 DEBUG: Log Kalman update with P and K diagnostics
-        #if DEBUG
-        if id == 0 {  // Only log first tracker
-            print("      📝 KalmanBoxTracker.update() for ID \(id):")
-            print("         Input bbox: [\(String(format: "%.3f", bbox[0])), \(String(format: "%.3f", bbox[1])), \(String(format: "%.3f", bbox[2])), \(String(format: "%.3f", bbox[3]))]")
-            print("         Converted z: cx=\(String(format: "%.3f", z[0])), cy=\(String(format: "%.3f", z[1])), s=\(String(format: "%.3f", z[2])), r=\(String(format: "%.3f", z[3]))")
-            print("         KF state BEFORE update: cx=\(String(format: "%.3f", kf.x[0])), cy=\(String(format: "%.3f", kf.x[1])), s=\(String(format: "%.3f", kf.x[2])), r=\(String(format: "%.3f", kf.x[3]))")
-            // Log P diagonal and critical off-diagonal for position elements
-            print("         P[0,0]=\(String(format: "%.2e", kf.P[0])), P[1,1]=\(String(format: "%.2e", kf.P[8])), P[0,1]=\(String(format: "%.2e", kf.P[1]))")
-        }
-        #endif
-
         kf.update(z: z)
-
-        #if DEBUG
-        if id == 0 {
-            print("         KF state AFTER update:  cx=\(String(format: "%.3f", kf.x[0])), cy=\(String(format: "%.3f", kf.x[1])), s=\(String(format: "%.3f", kf.x[2])), r=\(String(format: "%.3f", kf.x[3]))")
-            print("         P diagonal (positions): [\(String(format: "%.2e", kf.P[0])), \(String(format: "%.2e", kf.P[8])), \(String(format: "%.2e", kf.P[16])), \(String(format: "%.2e", kf.P[24]))]")
-            // K is 7x4 (row-major), K[row*4 + col] = K[state, measurement]
-            // Rows: [x, y, s, r, vx, vy, vs], Cols: [cx_meas, cy_meas, s_meas, r_meas]
-            if let K = kf.lastK {
-                print("         K[x,y,s,r] gains for cx_meas: [\(String(format: "%.3f", K[0*4+0])), \(String(format: "%.3f", K[1*4+0])), \(String(format: "%.3f", K[2*4+0])), \(String(format: "%.3f", K[3*4+0]))]")
-                print("         K[x,y,s,r] gains for cy_meas: [\(String(format: "%.3f", K[0*4+1])), \(String(format: "%.3f", K[1*4+1])), \(String(format: "%.3f", K[2*4+1])), \(String(format: "%.3f", K[3*4+1]))]")
-                print("         K[x,y,s,r] gains for s_meas:  [\(String(format: "%.3f", K[0*4+2])), \(String(format: "%.3f", K[1*4+2])), \(String(format: "%.3f", K[2*4+2])), \(String(format: "%.3f", K[3*4+2]))]")
-            }
-        }
-        #endif
     }
 
     func predict() -> [Double] {
