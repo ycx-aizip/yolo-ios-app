@@ -31,10 +31,10 @@ public class TrackingDetectorConfig {
     public static let shared = TrackingDetectorConfig()
     
     /// Default confidence threshold for YOLO detection
-    public var defaultConfidenceThreshold: Float = 0.60
-    
+    public var defaultConfidenceThreshold: Float = 0.20
+
     /// Default IoU threshold for non-maximum suppression
-    public var defaultIoUThreshold: Float = 0.50
+    public var defaultIoUThreshold: Float = 0.80
     
     /// Default number of items threshold for detection display
     public var defaultNumItemsThreshold: Int = 100
@@ -170,8 +170,8 @@ class TrackingDetector: ObjectDetector {
     required init(tracker: TrackerProtocol? = nil, counter: CounterProtocol? = nil) {
         // Initialize with dependency injection
         // Default: OCSort with CoreML-tuned configuration
-        // self.tracker = tracker ?? OCSort()
-        self.tracker = tracker ?? ByteTracker()
+        self.tracker = tracker ?? OCSort()
+        // self.tracker = tracker ?? ByteTracker()
         self.counter = counter ?? ThresholdCounter()
         self.countingDirection = .bottomToTop
         self.originalCountingDirection = .bottomToTop

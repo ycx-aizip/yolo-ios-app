@@ -307,12 +307,12 @@ public struct TrackingParameters {
         detThresh: 0.2,               // ✅ Below CoreML threshold (0.25) for consistent splitting
         maxAge: 30,                   // ✅ Python default
         minHits: 3,                   // ✅ Python default
-        iouThreshold: 0.3,            // ✅ Python default
-        deltaT: 1,                    // ⚙️ TUNED: Instantaneous velocity for rapid direction changes
+        iouThreshold: 0.2,            // ✅ Python runtime default (smart default for OC-SORT)
+        deltaT: 3,                    // ✅ Python default (was 1, changed to match Python)
         assoFunc: "iou",              // ✅ Python default
         inertia: 0.2,                 // ✅ Python default
         useByte: false,               // ✅ Python default (no low-conf dets from CoreML)
-        vdcWeight: 0.9                // ⚙️ TUNED: High VDC weight for dense fish tracking
+        vdcWeight: 0.2                // ⚙️ TUNED: High VDC weight for dense fish tracking
     )
 
     // MARK: - Direction-Specific Configurations
