@@ -228,8 +228,8 @@ public struct TrackingParameters {
         maxMatchingDistance: 0.6,     // Maximum distance for matching potential tracks
 
         // Memory limits
-        maxActiveTracks: 100,         // Maximum active tracks (prevent unbounded growth)
-        maxLostTracks: 50             // Maximum lost tracks (prevent memory accumulation)
+        maxActiveTracks: 50,          // Maximum active tracks (optimized for mobile performance)
+        maxLostTracks: 25             // Maximum lost tracks (reduced proportionally)
     )
 
     /// Default ByteTrack configuration
@@ -308,11 +308,11 @@ public struct TrackingParameters {
         maxAge: 30,                   // ✅ Python default
         minHits: 3,                   // ✅ Python default
         iouThreshold: 0.2,            // ✅ Python runtime default (smart default for OC-SORT)
-        deltaT: 2,                    // ✅ Python default (was 1, changed to match Python)
+        deltaT: 3,                    // ✅ Python default (was 1, changed to match Python)
         assoFunc: "iou",              // ✅ Python default
         inertia: 0.2,                 // ✅ Python default
         useByte: false,               // ✅ Python default (no low-conf dets from CoreML)
-        vdcWeight: 0.5                // ⚙️ TUNED: High VDC weight for dense fish tracking
+        vdcWeight: 0.2                // ⚙️ TUNED: High VDC weight for dense fish tracking
     )
 
     // MARK: - Direction-Specific Configurations

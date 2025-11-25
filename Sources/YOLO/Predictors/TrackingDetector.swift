@@ -37,7 +37,7 @@ public class TrackingDetectorConfig {
     public var defaultIoUThreshold: Float = 0.80
     
     /// Default number of items threshold for detection display
-    public var defaultNumItemsThreshold: Int = 100
+    public var defaultNumItemsThreshold: Int = 50
     
     private init() {
         // Private initializer to enforce singleton pattern
