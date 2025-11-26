@@ -156,63 +156,73 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     @MainActor
     func setVideoURL(_ url: URL, completion: @escaping (Bool) -> Void) {
         cleanupResources()
-        
+
         self.videoURL = url
         let asset = AVAsset(url: url)
-        
-        // Setup player for preview
-        let playerItem = AVPlayerItem(asset: asset)
-        player = AVPlayer(playerItem: playerItem)
-        
-        _previewLayer = AVPlayerLayer(player: player)
-        _previewLayer?.videoGravity = .resizeAspect  // Use aspect to prevent distortion
-        
-        // Create a pixel buffer attributes dictionary
-        let pixelBufferAttributes: [String: Any] = [
-            kCVPixelBufferPixelFormatTypeKey as String: FrameSourceSettings.videoSourcePixelFormat
-        ]
-        
-        // Setup video output for frame extraction
-        videoOutput = AVPlayerItemVideoOutput(pixelBufferAttributes: pixelBufferAttributes)
-        playerItem.add(videoOutput!)
-        
-        // Get video size and set up frame dimensions
-        if let track = asset.tracks(withMediaType: .video).first {
-            // Get accurate video dimensions including the transform
-            let videoTransform = track.preferredTransform
-            let naturalSize = track.naturalSize
-            
-            // Apply transform to get the correct dimensions
-            var transformedSize = naturalSize
-            if !videoTransform.isIdentity {
-                transformedSize = naturalSize.applying(videoTransform)
+
+        // ⚡ OPTIMIZATION: Load tracks asynchronously to prevent main thread blocking
+        Task { @MainActor in
+            do {
+                // Load tracks asynchronously (non-blocking)
+                let tracks = try await asset.loadTracks(withMediaType: .video)
+
+                // Setup player for preview
+                let playerItem = AVPlayerItem(asset: asset)
+                self.player = AVPlayer(playerItem: playerItem)
+
+                self._previewLayer = AVPlayerLayer(player: self.player)
+                self._previewLayer?.videoGravity = .resizeAspect  // Use aspect to prevent distortion
+
+                // Create a pixel buffer attributes dictionary
+                let pixelBufferAttributes: [String: Any] = [
+                    kCVPixelBufferPixelFormatTypeKey as String: FrameSourceSettings.videoSourcePixelFormat
+                ]
+
+                // Setup video output for frame extraction
+                self.videoOutput = AVPlayerItemVideoOutput(pixelBufferAttributes: pixelBufferAttributes)
+                playerItem.add(self.videoOutput!)
+
+                // Get video size and set up frame dimensions
+                if let track = tracks.first {
+                    // Load track properties asynchronously (non-blocking)
+                    let videoTransform = try await track.load(.preferredTransform)
+                    let naturalSize = try await track.load(.naturalSize)
+                    let frameRateValue = try await track.load(.nominalFrameRate)
+
+                    // Apply transform to get the correct dimensions
+                    var transformedSize = naturalSize
+                    if !videoTransform.isIdentity {
+                        transformedSize = naturalSize.applying(videoTransform)
+                    }
+
+                    // Use absolute values as transform can make dimensions negative
+                    self.videoSize = CGSize(width: abs(transformedSize.width), height: abs(transformedSize.height))
+
+                    // Set longSide and shortSide for compatibility with camera frame handling
+                    self.longSide = max(self.videoSize.width, self.videoSize.height)
+                    self.shortSide = min(self.videoSize.width, self.videoSize.height)
+                    self.frameSizeCaptured = true
+
+                    // Try to get frame rate - remove 30fps cap for maximum processing speed
+                    if frameRateValue > 0 {
+                        self.frameRate = min(frameRateValue, 60.0) // Allow up to 60fps for optimal performance
+                    }
+
+                    // Initial setup of content rect
+                    self.updateVideoContentRect()
+                }
+
+                // CRITICAL: Calculate coordinate transformation immediately
+                self.updateVideoContentRect()
+                print("Album: Video setup completed - size: \(self.videoSize), framerate: \(self.frameRate)")
+
+                completion(true)
+
+            } catch {
+                print("Album: Error loading video: \(error)")
+                completion(false)
             }
-            
-            // Use absolute values as transform can make dimensions negative
-            videoSize = CGSize(width: abs(transformedSize.width), height: abs(transformedSize.height))
-            
-            // Set longSide and shortSide for compatibility with camera frame handling
-            longSide = max(videoSize.width, videoSize.height)
-            shortSide = min(videoSize.width, videoSize.height)
-            frameSizeCaptured = true
-            
-            // Try to get frame rate - remove 30fps cap for maximum processing speed
-            let frameRateValue = track.nominalFrameRate
-            if frameRateValue > 0 {
-                frameRate = min(frameRateValue, 60.0) // Allow up to 60fps for optimal performance
-            }
-            
-            // Initial setup of content rect
-            updateVideoContentRect()
         }
-        
-        // CRITICAL: Calculate coordinate transformation immediately
-        DispatchQueue.main.async {
-            self.updateVideoContentRect()
-            print("Album: Initial coordinate transformation calculated for video size: \(self.videoSize)")
-        }
-        
-        completion(true)
     }
     
     /// Updates the calculated video content rect and scaling factors based on current layout
@@ -914,24 +924,35 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
 // MARK: - UIImagePickerControllerDelegate
 extension AlbumVideoSource: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
     public func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
-        picker.dismiss(animated: true)
-        
         guard let mediaType = info[.mediaType] as? String,
               mediaType == "public.movie",
               let url = info[.mediaURL] as? URL else {
+            picker.dismiss(animated: true)
             contentSelectionCompletion?(false)
             contentSelectionCompletion = nil
             return
         }
-        
-        // Setup the video source with the selected URL
-        setVideoURL(url) { success in
-            self.contentSelectionCompletion?(success)
-            self.contentSelectionCompletion = nil
-            
-            if success {
-                // Start playback if setup was successful
-                self.start()
+
+        // ⚡ OPTIMIZATION: Load video BEFORE dismissing picker to prevent black screen freeze
+        // This way the picker stays visible while loading, preventing the freeze/black screen
+        print("Album: Starting video setup while picker is still visible...")
+
+        setVideoURL(url) { [weak self] success in
+            guard let self = self else { return }
+
+            // Now dismiss the picker after video is loaded
+            picker.dismiss(animated: true) {
+                // Call completion after dismiss animation completes
+                self.contentSelectionCompletion?(success)
+                self.contentSelectionCompletion = nil
+
+                if success {
+                    print("Album: Video loaded successfully, starting playback...")
+                    // Start playback if setup was successful
+                    self.start()
+                } else {
+                    print("Album: Video setup failed")
+                }
             }
         }
     }
