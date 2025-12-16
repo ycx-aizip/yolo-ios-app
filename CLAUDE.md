@@ -58,7 +58,7 @@ cd /Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/YOLOiOSApp 
 
 ## Memory Management
 
-- Clean up track state every 30 frames
+- Clean up track state at certain frame intervals, e.g. every 30 frames
 - Use weak references for delegates
 - Release CVPixelBuffers properly
 - Monitor with Xcode Instruments
