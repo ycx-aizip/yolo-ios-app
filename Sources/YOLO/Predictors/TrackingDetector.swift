@@ -31,7 +31,7 @@ public class TrackingDetectorConfig {
     public static let shared = TrackingDetectorConfig()
     
     /// Default confidence threshold for YOLO detection
-    public var defaultConfidenceThreshold: Float = 0.20
+    public var defaultConfidenceThreshold: Float = 0.25
 
     /// Default IoU threshold for non-maximum suppression
     public var defaultIoUThreshold: Float = 0.80

@@ -228,8 +228,8 @@ public struct TrackingParameters {
         maxMatchingDistance: 0.6,     // Maximum distance for matching potential tracks
 
         // Memory limits
-        maxActiveTracks: 50,          // Maximum active tracks (optimized for mobile performance)
-        maxLostTracks: 25             // Maximum lost tracks (reduced proportionally)
+        maxActiveTracks: 40,          // Maximum active tracks (optimized for mobile performance)
+        maxLostTracks: 20             // Maximum lost tracks (reduced proportionally)
     )
 
     /// Default ByteTrack configuration
@@ -307,7 +307,7 @@ public struct TrackingParameters {
         detThresh: 0.2,               // ✅ Below CoreML threshold (0.25) for consistent splitting
         maxAge: 30,                   // ✅ Python default
         minHits: 3,                   // ✅ Python default
-        iouThreshold: 0.3,            // ✅ Python runtime default (smart default for OC-SORT)
+        iouThreshold: 0.2,            // ✅ Python runtime default (smart default for OC-SORT)
         deltaT: 3,                    // ✅ Python default (was 1, changed to match Python)
         assoFunc: "iou",              // ✅ Python default
         inertia: 0.2,                 // ✅ Python default
@@ -329,8 +329,8 @@ public struct TrackingParameters {
             maxVerticalDeviation: 0.2,
             minMatchDistance: 0.35,    // Slightly more lenient
             maxMatchingDistance: 0.65, // Increased for horizontal
-            maxActiveTracks: 100,
-            maxLostTracks: 50
+            maxActiveTracks: 40,
+            maxLostTracks: 20
         ),
 
         "rightToLeft": SharedConfig(
@@ -338,8 +338,8 @@ public struct TrackingParameters {
             maxVerticalDeviation: 0.2,
             minMatchDistance: 0.35,    // Slightly more lenient
             maxMatchingDistance: 0.65, // Increased for horizontal
-            maxActiveTracks: 100,
-            maxLostTracks: 50
+            maxActiveTracks: 40,
+            maxLostTracks: 20
         )
     ]
 
