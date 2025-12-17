@@ -34,7 +34,7 @@ public class TrackingDetectorConfig {
     public var defaultConfidenceThreshold: Float = 0.20
 
     /// Default IoU threshold for non-maximum suppression
-    public var defaultIoUThreshold: Float = 0.80
+    public var defaultIoUThreshold: Float = 0.70
     
     /// Default number of items threshold for detection display
     public var defaultNumItemsThreshold: Int = 50

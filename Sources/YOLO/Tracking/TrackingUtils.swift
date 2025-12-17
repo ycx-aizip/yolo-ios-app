@@ -307,7 +307,7 @@ public struct TrackingParameters {
         detThresh: 0.2,               // ✅ Below CoreML threshold (0.25) for consistent splitting
         maxAge: 30,                   // ✅ Python default
         minHits: 3,                   // ✅ Python default
-        iouThreshold: 0.2,            // ✅ Python runtime default (smart default for OC-SORT)
+        iouThreshold: 0.3,            // ✅ Python runtime default (smart default for OC-SORT)
         deltaT: 3,                    // ✅ Python default (was 1, changed to match Python)
         assoFunc: "iou",              // ✅ Python default
         inertia: 0.2,                 // ✅ Python default
