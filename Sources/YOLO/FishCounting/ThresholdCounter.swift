@@ -251,9 +251,10 @@ public class ThresholdCounter: CounterProtocol {
         
         // Increment frame count for each update
         frameCount += 1
-        
-        // Clean up old data periodically (every 30 frames)
-        if frameCount % 30 == 0 {
+
+        // Clean up old data periodically (every 10 frames ~0.3-0.7 sec at 15-30 FPS)
+        // More frequent cleanup prevents dictionary bloat in dense, long recordings
+        if frameCount % 10 == 0 {
             cleanupOldTracks(currentTrackIds: Set(tracks.map { $0.trackId }))
         }
         

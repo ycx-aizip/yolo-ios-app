@@ -557,23 +557,19 @@ class TrackingDetector: ObjectDetector {
         if let detectedDirection = analysis.predominantDirection {
             print("AutoCalibration: Auto-detected direction: \(detectedDirection)")
             setCountingDirection(detectedDirection)
-            
-            // Execute callback safely on main thread
-            DispatchQueue.main.async { [weak self] in
-                self?.onDirectionDetected?(detectedDirection)
-            }
+
+            // Already on @MainActor, execute callback directly
+            onDirectionDetected?(detectedDirection)
         } else {
             print("AutoCalibration: No clear direction detected, keeping original: \(originalCountingDirection)")
         }
-        
+
         // Complete entire calibration process
         completeEntireCalibration()
-        
-        // Generate and send calibration summary safely
+
+        // Generate and send calibration summary directly (already on @MainActor)
         let summary = generateCalibrationSummary(analysis: analysis)
-        DispatchQueue.main.async { [weak self] in
-            self?.onCalibrationSummary?(summary)
-        }
+        onCalibrationSummary?(summary)
     }
     
     /// Complete the entire calibration process
@@ -686,15 +682,16 @@ class TrackingDetector: ObjectDetector {
                     labels.append(label)
                 }
             }
-            
+
+
             // Update tracks with new detections using tracker
-            // Use async to prevent blocking, but ensure proper serialization
-            DispatchQueue.main.async { [weak self] in
+            // Note: Must run on main actor to access tracker state
+            Task { @MainActor [weak self] in
                 guard let self = self else { return }
-                
-                // Thread-safe update of tracked objects
+
+                // Update tracked objects
                 self.trackedObjects = self.tracker.update(detections: detectionBoxes, scores: scores, classes: labels)
-                
+
                 // Handle movement analysis if we're in Phase 2
                 if self.isMovementAnalysisPhase && self.calibrationPhase == .movementAnalysis {
                     self.processMovementAnalysis()

@@ -738,7 +738,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
             String(resultCount) + " items (max " + String(Int(sliderNumItems.value)) + ")"
         
         for i in 0..<boundingBoxViews.count {
-            if i < resultCount && i < 50 {
+            // Limit to 30 boxes for better performance in dense scenes
+            if i < resultCount && i < 30 {
                 var rect = CGRect.zero
                 var label = ""
                 var boxColor: UIColor = .white

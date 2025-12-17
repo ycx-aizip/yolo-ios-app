@@ -249,6 +249,24 @@ public class OCSort: TrackerProtocol {
             i -= 1
         }
 
+        // Limit total number of active trackers to prevent performance degradation
+        // Keep the most recently updated tracks (sorted by timeSinceUpdate)
+        let maxTrackers = 80  // Limit to 80 active tracks (was unbounded)
+        if trackers.count > maxTrackers {
+            // Sort by most recently updated (timeSinceUpdate ascending)
+            trackers.sort { $0.timeSinceUpdate < $1.timeSinceUpdate }
+            // Keep only the most recent maxTrackers
+            trackers = Array(trackers.prefix(maxTrackers))
+        }
+
+        // Periodic cleanup: Every 90 frames (~1.5-3 seconds at 30-60 FPS)
+        // Ensures memory doesn't accumulate in long recordings
+        if frameCount % 90 == 0 {
+            for tracker in trackers {
+                tracker.cleanupOldObservations()
+            }
+        }
+
         // Convert to STrack format with class matching
         let results = trackers.compactMap { trk -> STrack? in
             // OC-SORT output filter
@@ -627,6 +645,12 @@ private class KalmanBoxTracker {
     var velocity: [Double]? = nil
     let deltaT: Int
 
+    /// Maximum observation history to keep (enough for fish to cross screen at 30-60 FPS)
+    /// At 30 FPS: 60 frames = 2 seconds
+    /// At 60 FPS: 60 frames = 1 second
+    /// Reduced from 150 to 60 for better performance
+    private let maxObservationHistory = 60
+
     private var kf: KalmanFilter7D
 
     init(bbox: [Double], deltaT: Int) {
@@ -670,6 +694,20 @@ private class KalmanBoxTracker {
         observations[age] = bbox
         historyObservations.append(bbox)
 
+        // Limit observation history to prevent unbounded growth
+        if observations.count > maxObservationHistory {
+            let sortedAges = observations.keys.sorted()
+            let agesToRemove = sortedAges.prefix(observations.count - maxObservationHistory)
+            for ageToRemove in agesToRemove {
+                observations.removeValue(forKey: ageToRemove)
+            }
+        }
+
+        // Limit array history to prevent unbounded growth
+        if historyObservations.count > maxObservationHistory {
+            historyObservations.removeFirst(historyObservations.count - maxObservationHistory)
+        }
+
         timeSinceUpdate = 0
         hits += 1
         hitStreak += 1
@@ -698,6 +736,24 @@ private class KalmanBoxTracker {
 
     func getState() -> [Double] {
         return kf.x
+    }
+
+    /// Clean up old observations beyond maxObservationHistory
+    /// Called periodically to prevent memory accumulation in long recordings
+    func cleanupOldObservations() {
+        // Clean observations dictionary
+        if observations.count > maxObservationHistory {
+            let sortedAges = observations.keys.sorted()
+            let agesToRemove = sortedAges.prefix(observations.count - maxObservationHistory)
+            for ageToRemove in agesToRemove {
+                observations.removeValue(forKey: ageToRemove)
+            }
+        }
+
+        // Clean array history
+        if historyObservations.count > maxObservationHistory {
+            historyObservations.removeFirst(historyObservations.count - maxObservationHistory)
+        }
     }
 
     /// Get k-previous observation with fallback
