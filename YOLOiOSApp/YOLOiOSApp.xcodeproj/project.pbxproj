@@ -13,7 +13,7 @@
 		636EFCB921E62E3900DE43BC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 636EFCB821E62E3900DE43BC /* Assets.xcassets */; };
 		63CF371F2514455300E2DEA1 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 6323C44D22186177008AE681 /* LaunchScreen.storyboard */; };
 		63CF37202514455300E2DEA1 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 6323C44F22186177008AE681 /* Main.storyboard */; };
-		73220ED32D373C2E00A94B92 /* YOLO in Frameworks */ = {isa = PBXBuildFile; productRef = 73220ED22D373C2E00A94B92 /* YOLO */; };
+		73220ED32D373C2E00A94B92 /* AizipFishCount in Frameworks */ = {isa = PBXBuildFile; productRef = 73220ED22D373C2E00A94B92 /* AizipFishCount */; };
 		73D95D162D45DA510050E640 /* ModelDownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73D95D152D45DA510050E640 /* ModelDownloadManager.swift */; };
 		73D95D192D45DAA50050E640 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 73D95D182D45DAA50050E640 /* ZIPFoundation */; };
 		73D95D1B2D45DB800050E640 /* RemoteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73D95D1A2D45DB800050E640 /* RemoteModels.swift */; };
@@ -116,7 +116,7 @@
 				E107A7972DF6BCEC00FA0672 /* opencv2.framework in Frameworks */,
 				E1F2475B2DE1C76B0014C4CC /* AudioToolbox.framework in Frameworks */,
 				E1F247742DE1C8040014C4CC /* VideoToolbox.framework in Frameworks */,
-				73220ED32D373C2E00A94B92 /* YOLO in Frameworks */,
+				73220ED32D373C2E00A94B92 /* AizipFishCount in Frameworks */,
 				73D95D192D45DAA50050E640 /* ZIPFoundation in Frameworks */,
 				E1F247672DE1C7B30014C4CC /* CoreVideo.framework in Frameworks */,
 			);
@@ -560,9 +560,9 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		73220ED22D373C2E00A94B92 /* YOLO */ = {
+		73220ED22D373C2E00A94B92 /* AizipFishCount */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = YOLO;
+			productName = AizipFishCount;
 		};
 		73D95D182D45DAA50050E640 /* ZIPFoundation */ = {
 			isa = XCSwiftPackageProductDependency;

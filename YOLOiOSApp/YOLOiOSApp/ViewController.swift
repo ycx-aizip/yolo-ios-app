@@ -17,7 +17,7 @@ import CoreML
 import CoreMedia
 import ReplayKit
 import UIKit
-import YOLO
+import AizipFishCount
 import MobileVLCKit
 
 /// The main view controller for the YOLO iOS application, handling model selection and visualization.
