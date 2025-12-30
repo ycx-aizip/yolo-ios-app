@@ -51,19 +51,9 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   /// Array of bounding box views for rendering detections
   var boundingBoxViews = [BoundingBoxView]()
   // MARK: - UI Control Properties
-  /// Slider for controlling maximum number of detections
-  public var sliderNumItems = UISlider()
-  /// Label for number of items slider
-  public var labelSliderNumItems = UILabel()
-  /// Slider for confidence threshold
-  public var sliderConf = UISlider()
-  /// Label for confidence slider
-  public var labelSliderConf = UILabel()
-  /// Slider for IoU threshold
-  public var sliderIoU = UISlider()
-  /// Label for IoU slider
-  public var labelSliderIoU = UILabel()
-  // MARK: - Fish Counting Properties
+  // Note: Detection sliders removed - not needed for fish counting UI
+  // Configuration is handled internally via TrackingDetectorConfig
+  // MARK: - Fish Counting Properties (*** BACKEND DEPENDENCIES ***)
   /// First threshold line layer for fish counting
   public var threshold1Layer: CAShapeLayer?
   /// Second threshold line layer for fish counting
@@ -129,9 +119,6 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   private let maximumZoom: CGFloat = 10.0
   /// Last zoom factor for gesture handling
   private var lastZoomFactor: CGFloat = 1.0
-  // MARK: - GoPro Properties
-  // /// Last known frame size from GoPro for coordinate transformation
-  // internal var goProLastFrameSize: CGSize = CGSize(width: 1920, height: 1080)
   // MARK: - Device Type Helpers
   /// Returns true if running on iPad
   private var isIPad: Bool {
@@ -239,7 +226,7 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   func frameSource(_ source: FrameSource, didUpdateWithSpeed speed: Double, fps: Double) {
     // Currently not used, but required by protocol
   }
-  // MARK: - Model Management
+  // MARK: - Model Management (*** BACKEND DEPENDENCIES ***)
   /**
    * Loads and configures a YOLO model for the specified task
    *
@@ -290,16 +277,8 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       self.videoCapture.predictor = predictor
       self.activityIndicator.stopAnimating()
       self.labelName.text = modelName
-      // Fish counting setup
-      if let detector = predictor as? ObjectDetector {
-        let conf = Double(round(100 * sliderConf.value)) / 100
-        let iou = Double(round(100 * sliderIoU.value)) / 100
-        detector.setConfidenceThreshold(confidence: conf)
-        detector.setIouThreshold(iou: iou)
-        detector.setNumItemsThreshold(numItems: Int(sliderNumItems.value))
-        print(
-          "Initial thresholds applied - Confidence: \(conf), IoU: \(iou), Max Items: \(Int(sliderNumItems.value))"
-        )
+      // Fish counting setup - thresholds configured via TrackingDetectorConfig
+      if predictor is ObjectDetector {
         // Always setup threshold layers for fish counting
         setupThresholdLayers()
         print(
@@ -442,10 +421,16 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     parentLayer.sublayers = nil
     parentLayer.contents = nil
   }
-  // MARK: - Detection Rendering
+  // MARK: - Detection Rendering (*** BACKEND DEPENDENCIES ***)
   /**
    * Renders detection results as bounding boxes on the overlay
    * Handles different task types and tracking states for fish counting
+   * 
+   * Backend Dependencies:
+   * - TrackingDetector.isObjectTracked() - check tracking status
+   * - TrackingDetector.isObjectCounted() - check counting status
+   * - TrackingDetector.getTrackInfo() - get track ID
+   * - TrackingDetector.getCount() - get current count
    */
   func showBoxes(predictions: YOLOResult) {
     let width = self.bounds.width
@@ -459,8 +444,6 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       return
     }
     let orientation = UIDevice.current.orientation
-    self.labelSliderNumItems.text =
-      String(resultCount) + " items (max " + String(Int(sliderNumItems.value)) + ")"
     for i in 0..<boundingBoxViews.count {
       // Limit to 30 boxes for better performance in dense scenes
       if i < resultCount && i < 30 {
@@ -562,52 +545,6 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     labelFPS.textColor = .black
     labelFPS.font = UIFont.systemFont(ofSize: 12)
     self.addSubview(labelFPS)
-    labelSliderNumItems.text = "0 items (max 30)"
-    labelSliderNumItems.textAlignment = .left
-    labelSliderNumItems.textColor = .black
-    labelSliderNumItems.font = UIFont.preferredFont(forTextStyle: .subheadline)
-    labelSliderNumItems.isHidden = true
-    self.addSubview(labelSliderNumItems)
-    sliderNumItems.minimumValue = 0
-    sliderNumItems.maximumValue = 100
-    sliderNumItems.value = 100
-    sliderNumItems.minimumTrackTintColor = .darkGray
-    sliderNumItems.maximumTrackTintColor = .systemGray.withAlphaComponent(0.7)
-    sliderNumItems.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
-    sliderNumItems.isHidden = true
-    self.addSubview(sliderNumItems)
-    labelSliderConf.text = "Conf: 0.5"
-    labelSliderConf.textAlignment = .left
-    labelSliderConf.textColor = .white
-    labelSliderConf.font = UIFont.systemFont(ofSize: 16, weight: .medium)
-    labelSliderConf.isHidden = true
-    self.addSubview(labelSliderConf)
-    sliderConf.minimumValue = 0
-    sliderConf.maximumValue = 1
-    sliderConf.value = TrackingDetectorConfig.shared.defaultConfidenceThreshold
-    sliderConf.minimumTrackTintColor = .white
-    sliderConf.maximumTrackTintColor = .lightGray
-    sliderConf.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
-    sliderConf.isHidden = true
-    self.addSubview(sliderConf)
-    labelSliderIoU.text = "IoU: \(TrackingDetectorConfig.shared.defaultIoUThreshold)"
-    labelSliderIoU.textAlignment = .right
-    labelSliderIoU.textColor = .white
-    labelSliderIoU.font = UIFont.systemFont(ofSize: 16, weight: .medium)
-    labelSliderIoU.isHidden = true
-    self.addSubview(labelSliderIoU)
-    sliderIoU.minimumValue = 0
-    sliderIoU.maximumValue = 1
-    sliderIoU.value = TrackingDetectorConfig.shared.defaultIoUThreshold
-    sliderIoU.minimumTrackTintColor = .white
-    sliderIoU.maximumTrackTintColor = .lightGray
-    sliderIoU.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
-    sliderIoU.isHidden = true
-    self.addSubview(sliderIoU)
-    self.labelSliderNumItems.text = "0 items (max " + String(Int(sliderNumItems.value)) + ")"
-    self.labelSliderConf.text =
-      "Conf: " + String(TrackingDetectorConfig.shared.defaultConfidenceThreshold)
-    self.labelSliderIoU.text = "IoU: " + String(TrackingDetectorConfig.shared.defaultIoUThreshold)
     let thresholds = ThresholdCounter.defaultThresholds
     let threshold1Value = String(format: "%.2f", thresholds.first ?? 0.2)
     labelThreshold1.text = "Threshold 1: " + threshold1Value
@@ -818,49 +755,8 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         width: sliderWidth,
         height: sliderHeight
       )
-      let thirdRowY = secondRowY + sliderLabelHeight + sliderHeight + height * 0.02
-      labelSliderConf.frame = CGRect(
-        x: -1000,
-        y: thirdRowY,
-        width: sliderWidth,
-        height: sliderLabelHeight
-      )
-      sliderConf.frame = CGRect(
-        x: -1000,
-        y: thirdRowY + sliderLabelHeight + 2,
-        width: sliderWidth,
-        height: sliderHeight
-      )
-      labelSliderIoU.frame = CGRect(
-        x: -1000,
-        y: thirdRowY,
-        width: sliderWidth,
-        height: sliderLabelHeight
-      )
-      labelSliderIoU.textAlignment = .right
-      sliderIoU.frame = CGRect(
-        x: -1000,
-        y: thirdRowY + sliderLabelHeight + 2,
-        width: sliderWidth,
-        height: sliderHeight
-      )
       updateThresholdLayer(threshold1Layer, position: CGFloat(threshold1Slider.value))
       updateThresholdLayer(threshold2Layer, position: CGFloat(threshold2Slider.value))
-      let numItemsSliderWidth: CGFloat = width * 0.25
-      let numItemsSliderHeight: CGFloat = height * 0.02
-      sliderNumItems.frame = CGRect(
-        x: (width - numItemsSliderWidth) / 2,
-        y: height * 0.3,
-        width: numItemsSliderWidth,
-        height: numItemsSliderHeight
-      )
-      labelSliderNumItems.frame = CGRect(
-        x: (width - numItemsSliderWidth) / 2,
-        y: height * 0.27,
-        width: numItemsSliderWidth,
-        height: height * 0.03
-      )
-      labelSliderNumItems.textAlignment = .center
       let zoomLabelWidth: CGFloat = width * 0.1
       labelZoom.frame = CGRect(
         x: width - zoomLabelWidth - 10,
@@ -908,31 +804,6 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       } else {
         bottomControlsY = height * 0.85
       }
-      labelSliderConf.frame = CGRect(
-        x: -1000,
-        y: bottomControlsY - sliderLabelHeight - 5,
-        width: sliderWidth * 0.5,
-        height: sliderLabelHeight
-      )
-      sliderConf.frame = CGRect(
-        x: -1000,
-        y: bottomControlsY,
-        width: sliderWidth,
-        height: sliderHeight
-      )
-      labelSliderIoU.frame = CGRect(
-        x: -1000,
-        y: bottomControlsY - sliderLabelHeight - 5,
-        width: sliderWidth,
-        height: sliderLabelHeight
-      )
-      labelSliderIoU.textAlignment = .right
-      sliderIoU.frame = CGRect(
-        x: -1000,
-        y: bottomControlsY,
-        width: sliderWidth,
-        height: sliderHeight
-      )
       let thresholdY = bottomControlsY
       let fishCountWidth = sliderWidth
       let fishCountHeight: CGFloat = 70
@@ -1000,20 +871,6 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       )
       updateThresholdLayer(threshold1Layer, position: CGFloat(threshold1Slider.value))
       updateThresholdLayer(threshold2Layer, position: CGFloat(threshold2Slider.value))
-      let numItemsSliderWidth: CGFloat = width * 0.46
-      let numItemsSliderHeight: CGFloat = height * 0.02
-      sliderNumItems.frame = CGRect(
-        x: width * 0.01,
-        y: center.y - numItemsSliderHeight - height * 0.24,
-        width: numItemsSliderWidth,
-        height: numItemsSliderHeight
-      )
-      labelSliderNumItems.frame = CGRect(
-        x: width * 0.01,
-        y: sliderNumItems.frame.minY - numItemsSliderHeight - 10,
-        width: numItemsSliderWidth,
-        height: numItemsSliderHeight
-      )
       let zoomLabelWidth: CGFloat = width * 0.2
       labelZoom.frame = CGRect(
         x: center.x - zoomLabelWidth / 2,
@@ -1079,28 +936,7 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     setupOverlayLayer()
   }
   // MARK: - User Interaction Handlers
-  /**
-   * Handles changes to detection threshold sliders
-   * Updates confidence, IoU, and max items thresholds
-   */
-  @objc func sliderChanged(_ sender: Any) {
-    if sender as? UISlider === sliderNumItems {
-      if let detector = videoCapture.predictor as? ObjectDetector {
-        let numItems = Int(sliderNumItems.value)
-        detector.setNumItemsThreshold(numItems: numItems)
-      }
-    }
-    let conf = Double(round(100 * sliderConf.value)) / 100
-    let iou = Double(round(100 * sliderIoU.value)) / 100
-    self.labelSliderConf.text = "Conf: " + String(conf)
-    self.labelSliderIoU.text = "IoU: " + String(iou)
-    TrackingDetectorConfig.shared.updateDefaults(
-      confidenceThreshold: Float(conf), iouThreshold: Float(iou))
-    if let detector = videoCapture.predictor as? ObjectDetector {
-      detector.setIouThreshold(iou: iou)
-      detector.setConfidenceThreshold(confidence: conf)
-    }
-  }
+  // Note: Detection slider handlers removed - configuration managed via TrackingDetectorConfig
   /**
    * Handles pinch gestures for camera zoom
    * Adjusts camera zoom factor within min/max bounds
@@ -1172,7 +1008,7 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     playButton.isEnabled = true
     pauseButton.isEnabled = false
   }
-  // MARK: - Fish Counting Features
+  // MARK: - Fish Counting Features (*** BACKEND DEPENDENCIES ***)
   /**
    * Sets up threshold line layers for fish counting visualization
    * Creates red and yellow dashed lines for counting zone boundaries
@@ -1208,6 +1044,8 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   /**
    * Updates a threshold line layer to the specified position
    * Converts threshold position to screen coordinates based on counting direction
+   * 
+   * Backend Dependency: UnifiedCoordinateSystem.thresholdsToScreen()
    */
   private func updateThresholdLayer(_ layer: CAShapeLayer?, position: CGFloat) {
     guard let layer = layer else { return }
@@ -1231,6 +1069,10 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   /**
    * Updates threshold lines when counting direction changes
    * Recalculates positions and updates tracking detector
+   * 
+   * Backend Dependencies:
+   * - UnifiedCoordinateSystem.displayToCounting() - coordinate conversion
+   * - TrackingDetector.setThresholds() - apply thresholds
    */
   private func updateThresholdLinesForDirection(_ direction: CountingDirection) {
     labelThreshold1.text = "Threshold 1: " + String(format: "%.2f", threshold1Slider.value)
@@ -1249,6 +1091,11 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   /**
    * Handles first threshold slider changes
    * Updates threshold position and tracking detector configuration
+   * 
+   * Backend Dependencies:
+   * - ThresholdCounter.defaultThresholds - update default values
+   * - UnifiedCoordinateSystem.displayToCounting() - coordinate conversion
+   * - TrackingDetector.setThresholds() - apply thresholds
    */
   @objc func threshold1Changed(_ sender: UISlider) {
     let value = CGFloat(sender.value)
@@ -1269,6 +1116,11 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   /**
    * Handles second threshold slider changes
    * Updates threshold position and tracking detector configuration
+   * 
+   * Backend Dependencies:
+   * - ThresholdCounter.defaultThresholds - update default values
+   * - UnifiedCoordinateSystem.displayToCounting() - coordinate conversion
+   * - TrackingDetector.setThresholds() - apply thresholds
    */
   @objc func threshold2Changed(_ sender: UISlider) {
     let value = CGFloat(sender.value)
@@ -1289,6 +1141,8 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   /**
    * Resets the fish count to zero
    * Clears tracking detector count and updates display
+   * 
+   * Backend Dependency: TrackingDetector.resetCount()
    */
   @objc func resetFishCount() {
     if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector
@@ -1300,6 +1154,16 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   /**
    * Toggles auto-calibration mode on/off
    * Handles the complete calibration workflow including progress tracking
+   * 
+   * Backend Dependencies:
+   * - TrackingDetector.getAutoCalibrationEnabled() - check calibration state
+   * - TrackingDetector.setAutoCalibration() - enable/disable calibration
+   * - TrackingDetector.setThresholds() - set initial thresholds
+   * - TrackingDetector.onCalibrationProgress - progress callback
+   * - TrackingDetector.onCalibrationComplete - completion callback
+   * - TrackingDetector.onDirectionDetected - direction detection callback
+   * - TrackingDetector.onCalibrationSummary - summary callback
+   * - UnifiedCoordinateSystem coordinate conversions
    */
   @objc func toggleAutoCalibration() {
     guard task == .fishCount,
@@ -1311,19 +1175,7 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     if isCurrentlyCalibrating {
       trackingDetector.setAutoCalibration(enabled: false)
       currentFrameSource.inferenceOK = true
-      isCalibrating = false
-      let autoAttributedText = NSMutableAttributedString()
-      let auAttributes: [NSAttributedString.Key: Any] = [
-        .foregroundColor: UIColor.red.withAlphaComponent(0.5),
-        .font: UIFont.systemFont(ofSize: 14, weight: .bold),
-      ]
-      let toAttributes: [NSAttributedString.Key: Any] = [
-        .foregroundColor: UIColor.yellow.withAlphaComponent(0.5),
-        .font: UIFont.systemFont(ofSize: 14, weight: .bold),
-      ]
-      autoAttributedText.append(NSAttributedString(string: "AU", attributes: auAttributes))
-      autoAttributedText.append(NSAttributedString(string: "TO", attributes: toAttributes))
-      autoCalibrationButton.setAttributedTitle(autoAttributedText, for: .normal)
+      resetCalibrationUI()
     } else {
       isCalibrating = true
       boundingBoxViews.forEach { box in
@@ -1390,19 +1242,7 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       trackingDetector.onCalibrationSummary = { [weak self] summary in
         guard let self = self else { return }
         DispatchQueue.main.async {
-          self.isCalibrating = false
-          let autoAttributedText = NSMutableAttributedString()
-          let auAttributes: [NSAttributedString.Key: Any] = [
-            .foregroundColor: UIColor.red.withAlphaComponent(0.5),
-            .font: UIFont.systemFont(ofSize: 14, weight: .bold),
-          ]
-          let toAttributes: [NSAttributedString.Key: Any] = [
-            .foregroundColor: UIColor.yellow.withAlphaComponent(0.5),
-            .font: UIFont.systemFont(ofSize: 14, weight: .bold),
-          ]
-          autoAttributedText.append(NSAttributedString(string: "AU", attributes: auAttributes))
-          autoAttributedText.append(NSAttributedString(string: "TO", attributes: toAttributes))
-          self.autoCalibrationButton.setAttributedTitle(autoAttributedText, for: .normal)
+          self.resetCalibrationUI()
           self.currentFrameSource.inferenceOK = true
           self.currentFrameSource.resetProcessingState()
           self.showCalibrationSummary(summary)
@@ -1422,20 +1262,8 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
       currentFrameSource.inferenceOK = false
       DispatchQueue.main.asyncAfter(deadline: .now() + 30.0) { [weak self] in
         guard let self = self, self.isCalibrating else { return }
-        self.isCalibrating = false
+        self.resetCalibrationUI()
         self.currentFrameSource.inferenceOK = true
-        let autoAttributedText = NSMutableAttributedString()
-        let auAttributes: [NSAttributedString.Key: Any] = [
-          .foregroundColor: UIColor.red.withAlphaComponent(0.5),
-          .font: UIFont.systemFont(ofSize: 14, weight: .bold),
-        ]
-        let toAttributes: [NSAttributedString.Key: Any] = [
-          .foregroundColor: UIColor.yellow.withAlphaComponent(0.5),
-          .font: UIFont.systemFont(ofSize: 14, weight: .bold),
-        ]
-        autoAttributedText.append(NSAttributedString(string: "AU", attributes: auAttributes))
-        autoAttributedText.append(NSAttributedString(string: "TO", attributes: toAttributes))
-        self.autoCalibrationButton.setAttributedTitle(autoAttributedText, for: .normal)
       }
     }
   }
@@ -1480,19 +1308,7 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     }
     resetLayers()
     if isCalibrating {
-      isCalibrating = false
-      let autoAttributedText = NSMutableAttributedString()
-      let auAttributes: [NSAttributedString.Key: Any] = [
-        .foregroundColor: UIColor.red.withAlphaComponent(0.5),
-        .font: UIFont.systemFont(ofSize: 14, weight: .bold),
-      ]
-      let toAttributes: [NSAttributedString.Key: Any] = [
-        .foregroundColor: UIColor.yellow.withAlphaComponent(0.5),
-        .font: UIFont.systemFont(ofSize: 14, weight: .bold),
-      ]
-      autoAttributedText.append(NSAttributedString(string: "AU", attributes: auAttributes))
-      autoAttributedText.append(NSAttributedString(string: "TO", attributes: toAttributes))
-      autoCalibrationButton.setAttributedTitle(autoAttributedText, for: .normal)
+      resetCalibrationUI()
     }
     switch sourceType {
     case .camera:
@@ -1580,19 +1396,7 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     }
     resetLayers()
     if isCalibrating {
-      isCalibrating = false
-      let autoAttributedText = NSMutableAttributedString()
-      let auAttributes: [NSAttributedString.Key: Any] = [
-        .foregroundColor: UIColor.red.withAlphaComponent(0.5),
-        .font: UIFont.systemFont(ofSize: 14, weight: .bold),
-      ]
-      let toAttributes: [NSAttributedString.Key: Any] = [
-        .foregroundColor: UIColor.yellow.withAlphaComponent(0.5),
-        .font: UIFont.systemFont(ofSize: 14, weight: .bold),
-      ]
-      autoAttributedText.append(NSAttributedString(string: "AU", attributes: auAttributes))
-      autoAttributedText.append(NSAttributedString(string: "TO", attributes: toAttributes))
-      autoCalibrationButton.setAttributedTitle(autoAttributedText, for: .normal)
+      resetCalibrationUI()
     }
     frameSourceType = sourceType
     print("FishCountView: Frame source switch to \(sourceType) completed")
@@ -1829,8 +1633,31 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   }
   // MARK: - Fish Counting Utility Methods
   /**
+   * Resets calibration UI to default "AUTO" state
+   * Consolidates duplicate calibration cleanup code
+   */
+  private func resetCalibrationUI() {
+    isCalibrating = false
+    let autoAttributedText = NSMutableAttributedString()
+    let auAttributes: [NSAttributedString.Key: Any] = [
+      .foregroundColor: UIColor.red.withAlphaComponent(0.5),
+      .font: UIFont.systemFont(ofSize: 14, weight: .bold),
+    ]
+    let toAttributes: [NSAttributedString.Key: Any] = [
+      .foregroundColor: UIColor.yellow.withAlphaComponent(0.5),
+      .font: UIFont.systemFont(ofSize: 14, weight: .bold),
+    ]
+    autoAttributedText.append(NSAttributedString(string: "AU", attributes: auAttributes))
+    autoAttributedText.append(NSAttributedString(string: "TO", attributes: toAttributes))
+    autoCalibrationButton.setAttributedTitle(autoAttributedText, for: .normal)
+  }
+  /**
    * Changes the fish counting direction and updates UI accordingly
    * Reconfigures threshold lines and tracking detector
+   * 
+   * Backend Dependencies:
+   * - ThresholdCounter.defaultCountingDirection - update default direction
+   * - TrackingDetector.setCountingDirection() - apply direction
    */
   private func switchCountingDirection(_ direction: CountingDirection) {
     countingDirection = direction
