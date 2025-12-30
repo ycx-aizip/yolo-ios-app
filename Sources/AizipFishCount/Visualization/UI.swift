@@ -66,7 +66,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     var boundingBoxViews = [BoundingBoxView]()
     
     // MARK: - UI Control Properties
-    
+
     /// Slider for controlling maximum number of detections
     public var sliderNumItems = UISlider()
     /// Label for number of items slider
@@ -79,7 +79,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     public var sliderIoU = UISlider()
     /// Label for IoU slider
     public var labelSliderIoU = UILabel()
-    
+
     // MARK: - Fish Counting Properties
     
     /// First threshold line layer for fish counting
@@ -143,17 +143,9 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     let selection = UISelectionFeedbackGenerator()
     
     // MARK: - Rendering Properties
-    
-    /// Main overlay layer for all detection visualizations
+
+    /// Main overlay layer for all detection visualizations (fish counting only)
     private var overlayLayer = CALayer()
-    /// Layer for segmentation masks
-    private var maskLayer: CALayer?
-    /// Layer for pose estimation keypoints
-    private var poseLayer: CALayer?
-    /// Layer for oriented bounding boxes
-    private var obbLayer: CALayer?
-    /// Renderer for oriented bounding boxes
-    let obbRenderer = OBBRenderer()
     
     // MARK: - Zoom Properties
     
@@ -259,51 +251,13 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
 
     /**
      * Called when YOLO prediction results are available
-     * Handles different task types and updates visualization accordingly
+     * For fish counting, displays bounding boxes with tracking information
      */
     func onPredict(result: YOLOResult) {
         if !isCalibrating {
             showBoxes(predictions: result)
             onDetection?(result)
-
-            if task == .segment {
-                DispatchQueue.main.async {
-                    if let maskImage = result.masks?.combinedMask {
-                        guard let maskLayer = self.maskLayer else { return }
-                        maskLayer.isHidden = false
-                        maskLayer.frame = self.overlayLayer.bounds
-                        maskLayer.contents = maskImage
-                        self.videoCapture.predictor.isUpdating = false
-                    } else {
-                        self.videoCapture.predictor.isUpdating = false
-                    }
-                }
-            } else if task == .classify {
-                self.overlayYOLOClassificationsCALayer(on: self, result: result)
-            } else if task == .pose {
-                self.removeAllSubLayers(parentLayer: poseLayer)
-                var keypointList = [[(x: Float, y: Float)]]()
-                var confsList = [[Float]]()
-
-                for keypoint in result.keypointsList {
-                    keypointList.append(keypoint.xyn)
-                    confsList.append(keypoint.conf)
-                }
-                guard let poseLayer = poseLayer else { return }
-                drawKeypoints(
-                    keypointsList: keypointList, confsList: confsList, boundingBoxes: result.boxes,
-                    on: poseLayer, imageViewSize: overlayLayer.frame.size, originalImageSize: result.orig_shape)
-            } else if task == .obb {
-                guard let obbLayer = self.obbLayer else { return }
-                let obbDetections = result.obb
-                self.obbRenderer.drawObbDetectionsWithReuse(
-                    obbDetections: obbDetections,
-                    on: obbLayer,
-                    imageViewSize: self.overlayLayer.frame.size,
-                    originalImageSize: result.orig_shape,
-                    lineWidth: 3
-                )
-            }
+            // Fish counting only - no additional task-specific rendering needed
         }
     }
     
@@ -351,7 +305,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         boundingBoxViews.forEach { box in
             box.hide()
         }
-        removeClassificationLayers()
+        // Classification layers removed - not needed for fish counting
 
         self.task = task
         setupSublayers()
@@ -389,23 +343,23 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
           self.videoCapture.predictor = predictor
           self.activityIndicator.stopAnimating()
           self.labelName.text = modelName
-          
+
+          // Fish counting setup
           if let detector = predictor as? ObjectDetector {
             let conf = Double(round(100 * sliderConf.value)) / 100
             let iou = Double(round(100 * sliderIoU.value)) / 100
-            
+
             detector.setConfidenceThreshold(confidence: conf)
             detector.setIouThreshold(iou: iou)
             detector.setNumItemsThreshold(numItems: Int(sliderNumItems.value))
-            
+
             print("Initial thresholds applied - Confidence: \(conf), IoU: \(iou), Max Items: \(Int(sliderNumItems.value))")
-            
-            if task == .fishCount {
-              setupThresholdLayers()
-              print("Fish counting thresholds set - Threshold 1: \(threshold1Slider.value), Threshold 2: \(threshold2Slider.value)")
-            }
+
+            // Always setup threshold layers for fish counting
+            setupThresholdLayers()
+            print("Fish counting thresholds set - Threshold 1: \(threshold1Slider.value), Threshold 2: \(threshold2Slider.value)")
           }
-          
+
           completion?(.success(()))
         }
 
@@ -415,83 +369,24 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
           completion?(.failure(error))
         }
 
-        switch task {
-        case .classify:
-          Classifier.create(unwrappedModelURL: unwrappedModelURL, isRealTime: true) {
-            [weak self] result in
-            switch result {
-            case .success(let predictor):
-              handleSuccess(predictor: predictor)
-            case .failure(let error):
-              handleFailure(error)
-            }
-          }
-
-        case .segment:
-          Segmenter.create(unwrappedModelURL: unwrappedModelURL, isRealTime: true) {
-            [weak self] result in
-            switch result {
-            case .success(let predictor):
-              handleSuccess(predictor: predictor)
-            case .failure(let error):
-              handleFailure(error)
-            }
-          }
-
-        case .pose:
-          PoseEstimater.create(unwrappedModelURL: unwrappedModelURL, isRealTime: true) {
-            [weak self] result in
-            switch result {
-            case .success(let predictor):
-              handleSuccess(predictor: predictor)
-            case .failure(let error):
-              handleFailure(error)
-            }
-          }
-
-        case .obb:
-          ObbDetector.create(unwrappedModelURL: unwrappedModelURL, isRealTime: true) {
-            [weak self] result in
-            switch result {
-            case .success(let predictor):
-              self?.obbLayer?.isHidden = false
-
-              handleSuccess(predictor: predictor)
-            case .failure(let error):
-              handleFailure(error)
-            }
-          }
-
-        case .fishCount:
-          TrackingDetector.create(unwrappedModelURL: unwrappedModelURL, isRealTime: true) {
-            [weak self] result in
-            switch result {
-            case .success(let predictor):
-              if let trackingDetector = predictor as? TrackingDetector,
-                 let slf = self {
-                Task { @MainActor in
-                  trackingDetector.applySharedConfiguration()
-                  trackingDetector.setThresholds([CGFloat(slf.threshold1Slider.value), 
-                                                CGFloat(slf.threshold2Slider.value)])
-                  trackingDetector.setCountingDirection(slf.countingDirection)
-                }
+        // Fish counting only - hardcoded to use TrackingDetector
+        TrackingDetector.create(unwrappedModelURL: unwrappedModelURL, isRealTime: true) {
+          [weak self] result in
+          switch result {
+          case .success(let predictor):
+            if let trackingDetector = predictor as? TrackingDetector,
+               let slf = self {
+              Task { @MainActor in
+                trackingDetector.applySharedConfiguration()
+                trackingDetector.setThresholds([CGFloat(slf.threshold1Slider.value),
+                                              CGFloat(slf.threshold2Slider.value)])
+                trackingDetector.setCountingDirection(slf.countingDirection)
               }
-              
-              handleSuccess(predictor: predictor)
-            case .failure(let error):
-              handleFailure(error)
             }
-          }
 
-        default:
-          ObjectDetector.create(unwrappedModelURL: unwrappedModelURL, isRealTime: true) {
-            [weak self] result in
-            switch result {
-            case .success(let predictor):
-              handleSuccess(predictor: predictor)
-            case .failure(let error):
-              handleFailure(error)
-            }
+            handleSuccess(predictor: predictor)
+          case .failure(let error):
+            handleFailure(error)
           }
         }
     }
@@ -591,75 +486,18 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
 
     
     /**
-     * Creates mask layer for segmentation visualization if needed
-     */
-    func setupMaskLayerIfNeeded() {
-        if maskLayer == nil {
-            let layer = CALayer()
-            layer.frame = self.overlayLayer.bounds
-            layer.opacity = 0.5
-            layer.name = "maskLayer"
-            self.overlayLayer.addSublayer(layer)
-            self.maskLayer = layer
-        }
-    }
-
-    /**
-     * Creates pose layer for pose estimation visualization if needed
-     */
-    func setupPoseLayerIfNeeded() {
-        if poseLayer == nil {
-            let layer = CALayer()
-            layer.frame = self.overlayLayer.bounds
-            layer.opacity = 0.5
-            self.overlayLayer.addSublayer(layer)
-            self.poseLayer = layer
-        }
-    }
-
-    /**
-     * Creates oriented bounding box layer if needed
-     */
-    func setupObbLayerIfNeeded() {
-        if obbLayer == nil {
-            let layer = CALayer()
-            layer.frame = self.overlayLayer.bounds
-            layer.opacity = 0.5
-            self.overlayLayer.addSublayer(layer)
-            self.obbLayer = layer
-        }
-    }
-
-    /**
-     * Resets all visualization layers and cleans up sublayers
+     * Resets all visualization layers (fish counting only needs overlay layer)
      */
     public func resetLayers() {
-        removeAllSubLayers(parentLayer: maskLayer)
-        removeAllSubLayers(parentLayer: poseLayer)
         removeAllSubLayers(parentLayer: overlayLayer)
-
-        maskLayer = nil
-        poseLayer = nil
-        obbLayer?.isHidden = true
     }
 
     /**
-     * Sets up task-specific sublayers based on current YOLO task
+     * Sets up sublayers for fish counting (no task-specific layers needed)
      */
     func setupSublayers() {
         resetLayers()
-
-        switch task {
-        case .segment:
-            setupMaskLayerIfNeeded()
-        case .pose:
-            setupPoseLayerIfNeeded()
-        case .obb:
-            setupObbLayerIfNeeded()
-            overlayLayer.addSublayer(obbLayer!)
-            obbLayer?.isHidden = false
-        default: break
-        }
+        // Fish counting only - no additional layers needed
     }
 
     /**
@@ -672,14 +510,6 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         }
         parentLayer.sublayers = nil
         parentLayer.contents = nil
-    }
-
-    /**
-     * Adds mask sublayers to the overlay layer
-     */
-    func addMaskSubLayers() {
-        guard let maskLayer = maskLayer else { return }
-        self.overlayLayer.addSublayer(maskLayer)
     }
 
     
@@ -799,67 +629,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     /**
      * Removes classification overlay layers from the view
      */
-    func removeClassificationLayers() {
-        if let sublayers = self.layer.sublayers {
-            for layer in sublayers where layer.name == "YOLOOverlayLayer" {
-                layer.removeFromSuperlayer()
-            }
-        }
-    }
-    
-    /**
-     * Overlays classification results on the view
-     * Creates text layers showing the top classification result with confidence
-     */
-    func overlayYOLOClassificationsCALayer(on view: UIView, result: YOLOResult) {
-        removeClassificationLayers()
-
-        let overlayLayer = CALayer()
-        overlayLayer.frame = view.bounds
-        overlayLayer.name = "YOLOOverlayLayer"
-
-        guard let top1 = result.probs?.top1,
-          let top1Conf = result.probs?.top1Conf
-        else {
-          return
-        }
-
-        var colorIndex = 0
-        if let index = result.names.firstIndex(of: top1) {
-          colorIndex = index % ultralyticsColors.count
-        }
-        let color = ultralyticsColors[colorIndex]
-
-        let confidencePercent = round(top1Conf * 1000) / 10
-        let labelText = " \(top1) \(confidencePercent)% "
-
-        let textLayer = CATextLayer()
-        textLayer.contentsScale = UIScreen.main.scale
-        textLayer.alignmentMode = .left
-        let fontSize = self.bounds.height * 0.02
-        textLayer.font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
-        textLayer.fontSize = fontSize
-        textLayer.foregroundColor = UIColor.white.cgColor
-        textLayer.backgroundColor = color.cgColor
-        textLayer.cornerRadius = 4
-        textLayer.masksToBounds = true
-
-        textLayer.string = labelText
-        let textAttributes: [NSAttributedString.Key: Any] = [
-          .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold)
-        ]
-        let textSize = (labelText as NSString).size(withAttributes: textAttributes)
-        let width: CGFloat = textSize.width + 10
-        let x: CGFloat = self.center.x - (width / 2)
-        let y: CGFloat = self.center.y - textSize.height
-        let height: CGFloat = textSize.height + 4
-
-        textLayer.frame = CGRect(x: x, y: y, width: width, height: height)
-
-        overlayLayer.addSublayer(textLayer)
-
-            view.layer.addSublayer(overlayLayer)
-  }
+    // Classification methods removed - not needed for fish counting
 
   
   // MARK: - UI Setup
