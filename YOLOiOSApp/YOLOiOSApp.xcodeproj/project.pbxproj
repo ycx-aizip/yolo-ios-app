@@ -18,8 +18,9 @@
 		73D95D192D45DAA50050E640 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 73D95D182D45DAA50050E640 /* ZIPFoundation */; };
 		73D95D1B2D45DB800050E640 /* RemoteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73D95D1A2D45DB800050E640 /* RemoteModels.swift */; };
 		E1374EDD2DA62A7400DD5959 /* softbanklogo.png in Resources */ = {isa = PBXBuildFile; fileRef = E1374EDC2DA62A7400DD5959 /* softbanklogo.png */; };
-		E167D1222F0358D0004A4C38 /* opencv2.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E167D1212F0358D0004A4C38 /* opencv2.framework */; };
 		E167D1272F0358EC004A4C38 /* OpenCVBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = E167D1262F0358EC004A4C38 /* OpenCVBridge.mm */; };
+		E167D12F2F04238A004A4C38 /* opencv2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E167D12E2F04238A004A4C38 /* opencv2.xcframework */; };
+		E167D1302F04238A004A4C38 /* opencv2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E167D12E2F04238A004A4C38 /* opencv2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E185A6212D9D260400E074A2 /* FishCountModels in Resources */ = {isa = PBXBuildFile; fileRef = E185A6202D9D25F600E074A2 /* FishCountModels */; };
 		E1F2475B2DE1C76B0014C4CC /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E11C27162DD33DA200EFD260 /* AudioToolbox.framework */; };
 		E1F2475C2DE1C7730014C4CC /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E11C27182DD33DAF00EFD260 /* AVFoundation.framework */; };
@@ -39,6 +40,20 @@
 		E1FF1D5C2DA3B45A0002F90D /* fish_counting_logo.png in Resources */ = {isa = PBXBuildFile; fileRef = E1FF1D5B2DA3B45A0002F90D /* fish_counting_logo.png */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		E167D12A2F0372D2004A4C38 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				E167D1302F04238A004A4C38 /* opencv2.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		6323C44D22186177008AE681 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		6323C44F22186177008AE681 /* Main.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = Main.storyboard; sourceTree = "<group>"; };
@@ -56,9 +71,9 @@
 		E11C271C2DD33DE700EFD260 /* VideoToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = VideoToolbox.framework; path = System/Library/Frameworks/VideoToolbox.framework; sourceTree = SDKROOT; };
 		E11C271E2DD3F58600EFD260 /* YOLOiOSApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = YOLOiOSApp.entitlements; sourceTree = "<group>"; };
 		E1374EDC2DA62A7400DD5959 /* softbanklogo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = softbanklogo.png; sourceTree = "<group>"; };
-		E167D1212F0358D0004A4C38 /* opencv2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = opencv2.framework; path = ../Packages/opencv2/ios/opencv2.framework; sourceTree = "<group>"; };
 		E167D1252F0358EC004A4C38 /* OpenCVBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = OpenCVBridge.h; path = ../Packages/opencv2/OpenCVBridge.h; sourceTree = SOURCE_ROOT; };
 		E167D1262F0358EC004A4C38 /* OpenCVBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = OpenCVBridge.mm; path = ../Packages/opencv2/OpenCVBridge.mm; sourceTree = SOURCE_ROOT; };
+		E167D12E2F04238A004A4C38 /* opencv2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = opencv2.xcframework; path = ../Packages/opencv2/opencv2.xcframework; sourceTree = "<group>"; };
 		E185A6202D9D25F600E074A2 /* FishCountModels */ = {isa = PBXFileReference; lastKnownFileType = folder; path = FishCountModels; sourceTree = "<group>"; };
 		E1E621DF2DD157400072DCB5 /* YOLOiOSApp-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "YOLOiOSApp-Bridging-Header.h"; sourceTree = "<group>"; };
 		E1F2475D2DE1C7820014C4CC /* CFNetwork.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CFNetwork.framework; path = System/Library/Frameworks/CFNetwork.framework; sourceTree = SDKROOT; };
@@ -84,13 +99,13 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E167D1222F0358D0004A4C38 /* opencv2.framework in Frameworks */,
 				E1F247762DE1C80E0014C4CC /* UIKit.framework in Frameworks */,
 				E1F2475E2DE1C7820014C4CC /* CFNetwork.framework in Frameworks */,
 				E1F247652DE1C7AC0014C4CC /* CoreText.framework in Frameworks */,
 				E1F247622DE1C7960014C4CC /* CoreGraphics.framework in Frameworks */,
 				E1F247712DE1C7F40014C4CC /* QuartzCore.framework in Frameworks */,
 				E1F247732DE1C7FB0014C4CC /* Security.framework in Frameworks */,
+				E167D12F2F04238A004A4C38 /* opencv2.xcframework in Frameworks */,
 				E1F247632DE1C7A00014C4CC /* CoreMedia.framework in Frameworks */,
 				E1F2475C2DE1C7730014C4CC /* AVFoundation.framework in Frameworks */,
 				E1F2476F2DE1C7EC0014C4CC /* OpenGLES.framework in Frameworks */,
@@ -151,7 +166,7 @@
 		E1FDF3BE2DCE7A3100DCD998 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				E167D1212F0358D0004A4C38 /* opencv2.framework */,
+				E167D12E2F04238A004A4C38 /* opencv2.xcframework */,
 				E1F247752DE1C80D0014C4CC /* UIKit.framework */,
 				E1F247722DE1C7FB0014C4CC /* Security.framework */,
 				E1F247702DE1C7F40014C4CC /* QuartzCore.framework */,
@@ -185,6 +200,7 @@
 				7BCB411321C3096100BFC4D0 /* Sources */,
 				7BCB411421C3096100BFC4D0 /* Frameworks */,
 				7BCB411521C3096100BFC4D0 /* Resources */,
+				E167D12A2F0372D2004A4C38 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -423,8 +439,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8JCJMZ3UJ5;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
-				FRAMEWORK_SEARCH_PATHS = "$(PROJECT_DIR)/../Packages/opencv2/ios/";
-				HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/../Packages/opencv2/ios/";
+				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
+				HEADER_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = YOLOiOSApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Fish Counting";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
@@ -464,8 +480,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8JCJMZ3UJ5;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
-				FRAMEWORK_SEARCH_PATHS = "$(PROJECT_DIR)/../Packages/opencv2/ios/";
-				HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/../Packages/opencv2/ios/";
+				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
+				HEADER_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = YOLOiOSApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Fish Counting";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";

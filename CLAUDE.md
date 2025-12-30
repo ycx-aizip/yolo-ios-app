@@ -12,8 +12,7 @@ yolo-ios-app/                    # Development repo
 │   └── Visualization/           # YOLOView
 ├── Packages/                    # Backend dependencies
 │   └── opencv2/
-│       ├── ios/opencv2.framework/
-│       ├── ios-simulator/opencv2.framework/
+│       ├── opencv2.xcframework/ # Universal OpenCV (device + simulator)
 │       ├── OpenCVBridge.h       # Obj-C++ bridge (added to Xcode project)
 │       └── OpenCVBridge.mm      # Obj-C++ bridge (added to Xcode project)
 ├── YOLOiOSApp/                  # Example frontend implementation
@@ -46,14 +45,24 @@ yolo-ios-app/                    # Development repo
 ## Build Command
 
 **iPad Pro M4 Simulator**:
-- XCode version: 26.2, iOS version: 26.2.
+- Xcode version: 16.2, iOS version: 18.2
 ```bash
-cd /Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/YOLOiOSApp && xcodebuild -configuration Debug -scheme YOLOiOSApp -destination 'platform=iOS Simulator,id=FCB1DD0F-9CBE-4344-B3A4-164660B57BBD' FRAMEWORK_SEARCH_PATHS="/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/Packages/opencv2/ios-simulator" HEADER_SEARCH_PATHS="/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/Packages/opencv2" SWIFT_OBJC_BRIDGING_HEADER="/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/YOLOiOSApp/YOLOiOSApp-Bridging-Header.h" OTHER_LDFLAGS="-lc++ -ObjC" OTHER_CPLUSPLUSFLAGS="-Wno-documentation -Wno-documentation-deprecated-sync -Wno-documentation-unknown-command -Wno-quoted-include-in-framework-header" -quiet | grep -E "error:|warning:|BUILD|SUCCEEDED|FAILED" | head -50
+cd /Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/YOLOiOSApp && \
+xcodebuild -configuration Debug \
+           -scheme YOLOiOSApp \
+           -destination 'platform=iOS Simulator,id=FCB1DD0F-9CBE-4344-B3A4-164660B57BBD' \
+           HEADER_SEARCH_PATHS="/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/Packages/opencv2" \
+           SWIFT_OBJC_BRIDGING_HEADER="/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/YOLOiOSApp/YOLOiOSApp-Bridging-Header.h" \
+           OTHER_LDFLAGS="-lc++ -ObjC" \
+           OTHER_CPLUSPLUSFLAGS="-Wno-documentation -Wno-documentation-deprecated-sync -Wno-documentation-unknown-command -Wno-quoted-include-in-framework-header" \
+           -quiet | grep -E "error:|warning:|BUILD|SUCCEEDED|FAILED" | head -50
 ```
 
-**Note**: Framework and header search paths are configured for on-device build in project.pbxproj:
-- `FRAMEWORK_SEARCH_PATHS = "$(PROJECT_DIR)/../Packages/opencv2/ios/"`  (device) or `ios-simulator/` (simulator)
-- `HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/../Packages/opencv2/ios/"`
+**OpenCV Framework**:
+- Using `opencv2.xcframework` (universal binary, embedded with "Embed & Sign")
+- XCFramework automatically selects correct architecture (device vs simulator)
+- `HEADER_SEARCH_PATHS` required for OpenCVBridge.h (Obj-C++ bridging header)
+- Framework search paths use `$(inherited)` (configured in project.pbxproj)
 
 ## Python → Swift Translation
 
