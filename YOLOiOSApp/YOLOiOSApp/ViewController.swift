@@ -18,7 +18,6 @@ import CoreMedia
 import ReplayKit
 import UIKit
 import AizipFishCount
-import MobileVLCKit
 
 /// The main view controller for the YOLO iOS application, handling model selection and visualization.
 class ViewController: UIViewController, YOLOViewActionDelegate {
@@ -111,13 +110,7 @@ class ViewController: UIViewController, YOLOViewActionDelegate {
     // let isWorking = OpenCVBridge.isOpenCVWorking()
     // print("OpenCV integration test: \(isWorking)")
     print("OpenCV version: \(OpenCVBridge.getOpenCVVersion() ?? "unknown")")
-  
-    // Test MobileVLCKit integration
-    // Note: Using shared() instead of sharedLibrary() per compiler error
-    let vlcInstance = VLCLibrary.shared()
-    print("VLCKit version: \(vlcInstance.version)")
-    // print("VLCKit instance created successfully: \(vlcInstance != nil)")
-      
+
     // Hide the segmented control as we'll use a toolbar button instead
     segmentedControl.isHidden = true
     

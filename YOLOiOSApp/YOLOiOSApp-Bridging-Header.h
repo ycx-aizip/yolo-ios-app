@@ -9,9 +9,8 @@
 #define YOLOiOSApp_Bridging_Header_h
 
 // Import the OpenCVBridge header to make it accessible to Swift
+// Note: OpenCVBridge.h and .mm are located in ../Packages/OpenCV/
+// Users must add these files to their Xcode project's build target
 #import "OpenCVBridge.h"
-
-// Import the MobileVLCKit header to make it accessible to Swift
-#import <MobileVLCKit/MobileVLCKit.h>
 
 #endif /* YOLOiOSApp_Bridging_Header_h */ 

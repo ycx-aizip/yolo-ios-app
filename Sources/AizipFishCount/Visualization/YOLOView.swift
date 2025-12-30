@@ -48,8 +48,6 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     private var currentFrameSource: FrameSource
     /// Type of current frame source
     private var frameSourceType: FrameSourceType = .camera
-    /// GoPro source for wireless camera streaming
-    private var goProSource: GoProSource?
     /// UVC video source for external USB cameras
     private var uvcVideoSource: UVCVideoSource?
     
@@ -168,8 +166,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     
     // MARK: - GoPro Properties
     
-    /// Last known frame size from GoPro for coordinate transformation
-    internal var goProLastFrameSize: CGSize = CGSize(width: 1920, height: 1080)
+    // /// Last known frame size from GoPro for coordinate transformation
+    // internal var goProLastFrameSize: CGSize = CGSize(width: 1920, height: 1080)
     
     // MARK: - Device Type Helpers
     
@@ -333,33 +331,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     func frameSource(_ source: FrameSource, didUpdateWithSpeed speed: Double, fps: Double) {
         // Currently not used, but required by protocol
     }
-    
-    // MARK: - GoPro Integration Methods
-    
-    /**
-     * Temporarily hides UI overlays during frame extraction
-     * This prevents UI elements from appearing in extracted frames for GoPro
-     */
-    // MARK: - UI Overlay Management for GoPro
-    
-    /**
-     * Temporarily hides UI overlays during GoPro frame extraction
-     * Improves performance during stream processing
-     */
-    func hideUIOverlaysForExtraction() {
-        // Implementation can be added if specific UI elements need hiding
-        // during frame extraction. Currently not needed as UI elements
-        // are properly layered above the video content.
-    }
-    
-    /**
-     * Restores UI overlays after frame extraction
-     * Counterpart to hideUIOverlaysForExtraction
-     */
-    func restoreUIOverlaysAfterExtraction() {
-        // Implementation can be added if specific UI elements were hidden
-        // during extraction. Currently not needed as UI layering handles this.
-    }
+
     
     // MARK: - Model Management
     
@@ -2078,109 +2050,32 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
      * Handles cleanup of current source and setup of new source
      */
     public func switchToFrameSource(_ sourceType: FrameSourceType) {
-        
-        if frameSourceType == sourceType {
-        switch sourceType {
-        case .camera:
-            
+        // Early return for camera source when already using camera
+        if frameSourceType == sourceType && sourceType == .camera {
             return
-          case .videoFile:
-            
-            break
-          case .imageSequence:
-            
-            break
-          case .goPro:
-            
-            
-            var topViewController = UIApplication.shared.windows.first?.rootViewController
-            while let presentedViewController = topViewController?.presentedViewController {
-              topViewController = presentedViewController
-            }
-            
-            guard let viewController = topViewController else {
-              print("Could not find a view controller to present GoPro alerts")
-              return
-            }
-            
-            
-            self.showGoProConnectionPrompt(viewController: viewController)
-            return
-          case .uvc:
-            
+        }
+
+        // Handle UVC source selection with iPad check and prompt
+        if sourceType == .uvc {
             guard isIPad else {
-              print("UVC source is only supported on iPad")
-              return
+                print("UVC source is only supported on iPad")
+                return
             }
-            
-            
+
             var topViewController = UIApplication.shared.windows.first?.rootViewController
             while let presentedViewController = topViewController?.presentedViewController {
-              topViewController = presentedViewController
+                topViewController = presentedViewController
             }
-            
+
             guard let viewController = topViewController else {
-              print("Could not find a view controller to present UVC alerts")
-              return
+                print("Could not find a view controller to present UVC alerts")
+                return
             }
-            
-            
+
             self.showUVCConnectionPrompt(viewController: viewController)
             return
-          }
         }
-        
-        
-        
-        if sourceType == .goPro || sourceType == .uvc {
-          
-          if sourceType == .goPro {
-            
-            var topViewController = UIApplication.shared.windows.first?.rootViewController
-            while let presentedViewController = topViewController?.presentedViewController {
-              topViewController = presentedViewController
-            }
-            
-            guard let viewController = topViewController else {
-              print("Could not find a view controller to present alerts")
-              return
-            }
-            
-            
-            self.showGoProConnectionPrompt(viewController: viewController)
-            return
-          }
-          
-          if sourceType == .uvc {
-            
-            guard isIPad else {
-              print("UVC source is only supported on iPad")
-              return
-            }
-            
-            
-        var topViewController = UIApplication.shared.windows.first?.rootViewController
-        while let presentedViewController = topViewController?.presentedViewController {
-          topViewController = presentedViewController
-        }
-        
-            guard let viewController = topViewController else {
-              print("Could not find a view controller to present UVC alerts")
-              return
-            }
-            
-            
-            self.showUVCConnectionPrompt(viewController: viewController)
-            return
-          }
-        }
-        
-        
-        
-        if frameSourceType == .goPro && sourceType != .goPro {
-          print("YOLOView: Clearing GoProSource reference when switching away from GoPro")
-          goProSource = nil
-        }
+
         
         
         if frameSourceType == .uvc && sourceType != .uvc {
@@ -2334,8 +2229,6 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         
         self.currentFrameSource.inferenceOK = true
       }
-      
-    
     
       
     default:
@@ -2348,12 +2241,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   
   private func performActualFrameSourceSwitch(to sourceType: FrameSourceType) {
     print("YOLOView: Performing actual frame source switch to \(sourceType)")
-    
-    
-    if frameSourceType == .goPro && sourceType != .goPro {
-      print("YOLOView: Clearing GoProSource reference when switching away from GoPro")
-      goProSource = nil
-    }
+
     
     
     if frameSourceType == .uvc && sourceType != .uvc {
@@ -2478,15 +2366,8 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     }
     alert.addAction(albumAction)
     
-    
-    let goProAction = UIAlertAction(title: "GoPro Hero", style: .default) { [weak self] _ in
-      guard let self = self, let viewController = topViewController else { return }
+          
       
-      
-      self.showGoProConnectionPrompt(viewController: viewController)
-    }
-    
-    alert.addAction(goProAction)
     
     
     if isIPad {
@@ -2522,243 +2403,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
      * Shows GoPro connection prompt to user
      * Handles different connection scenarios and options
      */
-    private func showGoProConnectionPrompt(viewController: UIViewController) {
-    
-    let connectionAlert = UIAlertController(
-        title: "GoPro Connection Required",
-        message: "Please connect to GoPro WiFi via GoPro Quik",
-        preferredStyle: .alert
-    )
-    
-    
-    connectionAlert.addAction(UIAlertAction(title: "Back", style: .cancel))
-    
-    
-    connectionAlert.addAction(UIAlertAction(title: "Next", style: .default) { [weak self] _ in
-        guard let self = self else { return }
-        
-        
-        let loadingAlert = UIAlertController(
-            title: "Checking Connection",
-            message: "Connecting to GoPro...",
-            preferredStyle: .alert
-        )
-        viewController.present(loadingAlert, animated: true)
-        
-        
-        if self.goProSource == nil {
-            self.goProSource = GoProSource()
-        }
-        let goProSource = self.goProSource!
-        
-        
-        let taskGroup = DispatchGroup()
-        taskGroup.enter()
-        
-        var connectionResult: Result<GoProWebcamVersion, Error>?
-        
-        
-        let timeoutTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
-            if connectionResult == nil {
-                
-                let timeoutError = NSError(
-                    domain: "GoProSource",
-                    code: NSURLErrorTimedOut,
-                    userInfo: [NSLocalizedDescriptionKey: "Connection timed out. Please verify you are connected to the GoPro WiFi network."]
-                )
-                connectionResult = .failure(timeoutError)
-                taskGroup.leave()
-            }
-        }
-        
-        
-        goProSource.checkConnection { result in
-            
-            if connectionResult == nil {
-                connectionResult = result
-                timeoutTimer.invalidate()
-                taskGroup.leave()
-            }
-        }
-        
-        
-        taskGroup.notify(queue: .main) {
-            
-            timeoutTimer.invalidate()
-            
-            loadingAlert.dismiss(animated: true) {
-                
-                guard let result = connectionResult else {
-                    
-                    self.showConnectionError(
-                        viewController: viewController,
-                        message: "An unexpected error occurred. Please try again."
-                    )
-                    return
-                }
-                
-                switch result {
-                case .success(_):
-                    print("GoPro: Showing connection success dialog")
-                    
-                    let successAlert = UIAlertController(
-                        title: "GoPro Connected",
-                        message: "Connection to GoPro was successful. Enable Webcam mode?",
-                        preferredStyle: .alert
-                    )
-                    
-                    
-                    successAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-                    
-                    
-                    successAlert.addAction(UIAlertAction(title: "Enable", style: .default) { [weak self] _ in
-                        guard let self = self else { return }
-                        
-                        
-                        let loadingAlert = UIAlertController(
-                            title: "Initializing Webcam",
-                            message: "Setting up GoPro webcam mode...",
-                            preferredStyle: .alert
-                        )
-                        viewController.present(loadingAlert, animated: true)
-                        
-                        
-                        let goProSource = self.goProSource!
-                        
-                        
-                        goProSource.enterWebcamPreview { result in
-                            switch result {
-                            case .success:
-                                
-                                goProSource.startWebcam { startResult in
-                                    
-                                    loadingAlert.dismiss(animated: true) {
-                                        switch startResult {
-                                        case .success:
-                                            
-                                            let startedAlert = UIAlertController(
-                                                title: "Webcam Started",
-                                                message: "GoPro webcam is ready. Start streaming?",
-                                                preferredStyle: .alert
-                                            )
-                                            
-                                            
-                                            startedAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
-                                                guard let self = self else { return }
-                                                
-                                                
-                                                let exitingAlert = UIAlertController(
-                                                    title: "Exiting Webcam",
-                                                    message: "Closing GoPro webcam mode...",
-                                                    preferredStyle: .alert
-                                                )
-                                                viewController.present(exitingAlert, animated: true)
-                                                
-                                                
-                                                goProSource.gracefulWebcamExit { result in
-                                                    
-                                                    exitingAlert.dismiss(animated: true) {
-                                                        switch result {
-                                                        case .success:
-                                                            
-                                                            self.goProSource = nil
-                                                            self.switchToFrameSource(.camera)
-                                                            
-                                                        case .failure(let error):
-                                                            
-                                                            let errorAlert = UIAlertController(
-                                                                title: "Exit Failed",
-                                                                message: "Failed to exit webcam mode: \(error.localizedDescription)\nRetry exit?",
-                                                                preferredStyle: .alert
-                                                            )
-                                                            
-                                                            
-                                                            errorAlert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
-                                                                guard let self = self else { return }
-                                                                
-                                                                viewController.present(exitingAlert, animated: true)
-                                                                goProSource.gracefulWebcamExit { retryResult in
-                                                                    exitingAlert.dismiss(animated: true) {
-                                                                        switch retryResult {
-                                                                        case .success:
-                                                                            
-                                                                            self.goProSource = nil
-                                                                            self.switchToFrameSource(.camera)
-                                                                        case .failure:
-                                                                            
-                                                                            print("GoPro: Exit retry failed, forcing camera switch")
-                                                                            self.goProSource = nil
-                                                                            self.switchToFrameSource(.camera)
-                                                                        }
-                                                                    }
-                                                                }
-                                                            })
-                                                            
-                                                            
-                                                            errorAlert.addAction(UIAlertAction(title: "Force Exit", style: .destructive) { [weak self] _ in
-                                                                guard let self = self else { return }
-                                                                
-                                                                print("GoPro: Forcing camera switch after exit failure")
-                                                                self.goProSource = nil
-                                                                self.switchToFrameSource(.camera)
-                                                            })
-                                                            
-                                                            viewController.present(errorAlert, animated: true)
-                                                        }
-                                                    }
-                                                }
-                                            })
-                                            
-                                            
-                                            startedAlert.addAction(UIAlertAction(title: "Stream", style: .default) { [weak self] _ in
-                                                guard let self = self else { return }
-                                                
-                                                self.initializeGoProFishCountingWithExisting(viewController: viewController, goProSource: goProSource)
-                                            })
-                                            
-                                            viewController.present(startedAlert, animated: true)
-                                            
-                                        case .failure(let error):
-                                            
-                                            self.showConnectionError(
-                                                viewController: viewController,
-                                                message: "Failed to start webcam: \(error.localizedDescription)"
-                                            )
-                                        }
-                                    }
-                                }
-                                
-                            case .failure(let error):
-                                
-                                loadingAlert.dismiss(animated: true) {
-                                    self.showConnectionError(
-                                        viewController: viewController,
-                                        message: "Failed to enter preview mode: \(error.localizedDescription)"
-                                    )
-                                }
-                            }
-                        }
-                    })
-                    
-                    viewController.present(successAlert, animated: true)
-                    
-                case .failure(let error):
-                    print("GoPro: Connection failed - \(error.localizedDescription)")
-                    
-                    
-                    self.showConnectionError(
-                        viewController: viewController,
-                        message: error.localizedDescription
-                    )
-                }
-            }
-        }
-    })
-    
-    viewController.present(connectionAlert, animated: true)
-  }
 
-  
   
       /**
      * Shows UVC camera connection prompt to user
@@ -2882,402 +2527,7 @@ public class YOLOView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   
   
   @MainActor
-  func optimizeForGoProSource(_ goProSource: GoProSource) {
-    
-    print("YOLOView: Optimizing for GoPro source")
-    
-    
-    if frameSourceType != .goPro {
-      print("YOLOView: Stopping previous source: \(frameSourceType)")
-      currentFrameSource.stop()
-      
-      
-      if let albumSource = albumVideoSource, let playerLayer = albumSource.playerLayer {
-        playerLayer.removeFromSuperlayer()
-      }
-      
-      
-      if let previewLayer = videoCapture.previewLayer {
-        previewLayer.isHidden = true
-      }
-    }
-    
-    
-    
-    
-    
-    frameSourceType = .goPro
-    currentFrameSource = goProSource
-    
-    
-    let previousPredictor = getCurrentPredictor()
-    
-    
-    self.goProSource = goProSource
-    
-    
-    if let existingPredictor = previousPredictor {
-      print("YOLOView: Shared predictor of type \(type(of: existingPredictor)) with GoPro source")
-      goProSource.predictor = existingPredictor
-    }
-    
-    
-    if task == .fishCount, let trackingDetector = goProSource.predictor as? TrackingDetector {
-      print("YOLOView: Configuring TrackingDetector for GoPro source")
-      
-      let minThreshold = CGFloat(threshold1Slider.value)
-      let maxThreshold = CGFloat(threshold2Slider.value)
-      trackingDetector.setThresholds([minThreshold, maxThreshold])
-      
-      
-      trackingDetector.setCountingDirection(countingDirection)
-      print("YOLOView: TrackingDetector configured with thresholds [\(minThreshold), \(maxThreshold)], direction: \(countingDirection)")
-    }
-    
-    
-    goProSource.integrateWithYOLOView(view: self)
-    
-    
-    print("YOLOView: Setting up bounding box views for GoPro source")
-    
-    
-    boundingBoxViews.forEach { box in
-      box.hide()
-    }
-    
-    
-    setupOverlayLayer()
-    
-    
-    if let goProPlayerView = goProSource.playerView {
-      boundingBoxViews.forEach { box in
-        box.addToLayer(goProPlayerView.layer)
-      }
-      
-      
-      goProPlayerView.layer.addSublayer(overlayLayer)
-    }
-    
-    
-    NotificationCenter.default.addObserver(
-      self,
-      selector: #selector(updateGoProFrameSize(_:)),
-      name: NSNotification.Name("GoProFrameSizeChanged"),
-      object: nil
-    )
-    
-    
-    goProSource.start()
-  }
-  
-  
-  @objc func updateGoProFrameSize(_ notification: Notification) {
-    if let frameSize = notification.userInfo?["frameSize"] as? CGSize {
-      print("YOLOView: Received GoPro frame size update: \(frameSize)")
-      self.goProLastFrameSize = frameSize
-      
-      
-      DispatchQueue.main.async {
-        self.setNeedsLayout()
-        self.layoutIfNeeded()
-        
-        
-        for box in self.boundingBoxViews where !box.shapeLayer.isHidden {
-          box.shapeLayer.setNeedsDisplay()
-        }
-      }
-    }
-  }
-  
-  
-  private func initializeGoProFishCounting(viewController: UIViewController) {
-    
-    let loadingAlert = UIAlertController(
-      title: "Starting GoPro Stream",
-      message: "Connecting to GoPro RTSP stream for fish counting...",
-      preferredStyle: .alert
-    )
-    
-    
-    loadingAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in
-      
-      let goProSource = GoProSource()
-      goProSource.stopRTSPStream()
-    })
-    
-    viewController.present(loadingAlert, animated: true)
-    
-    
-    let goProSource = GoProSource()
-    
-    
-    goProSource.predictor = videoCapture.predictor
-    goProSource.setUp { success in
-      if !success {
-        DispatchQueue.main.async {
-          loadingAlert.dismiss(animated: true) {
-            
-            let errorAlert = UIAlertController(
-              title: "Setup Failed",
-              message: "Failed to set up GoPro stream.",
-              preferredStyle: .alert
-            )
-            errorAlert.addAction(UIAlertAction(title: "OK", style: .default))
-            viewController.present(errorAlert, animated: true)
-          }
-        }
-        return
-      }
-      
-      
-      Task {
-        do {
-          
-          await MainActor.run {
-            self.optimizeForGoProSource(goProSource)
-          }
-          
-          
-          try await Task.sleep(nanoseconds: 500_000_000) 
-          
-          
-          let streamResult = await self.startRTSPStreamWithRetry(goProSource: goProSource, maxRetries: 3)
-          
-          
-          await MainActor.run {
-            switch streamResult {
-            case .success:
-              
-              loadingAlert.dismiss(animated: true) {
-                
-                let successAlert = UIAlertController(
-                  title: "GoPro Stream Active",
-                  message: "GoPro RTSP stream is now connected and ready for fish counting!",
-                  preferredStyle: .alert
-                )
-                successAlert.addAction(UIAlertAction(title: "OK", style: .default))
-                viewController.present(successAlert, animated: true)
-              }
-              
-            case .failure(let error):
-              
-              loadingAlert.dismiss(animated: true) {
-                
-                let errorAlert = UIAlertController(
-                  title: "Stream Failed",
-                  message: "Failed to start GoPro stream: \(error.localizedDescription)",
-                  preferredStyle: .alert
-                )
-                
-                
-                errorAlert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
-                  self?.initializeGoProFishCounting(viewController: viewController)
-                })
-                
-                errorAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-                viewController.present(errorAlert, animated: true)
-              }
-            }
-          }
-        } catch {
-          await MainActor.run {
-            loadingAlert.dismiss(animated: true) {
-              
-              let errorAlert = UIAlertController(
-                title: "Error",
-                message: "An unexpected error occurred: \(error.localizedDescription)",
-                preferredStyle: .alert
-              )
-              errorAlert.addAction(UIAlertAction(title: "OK", style: .default))
-              viewController.present(errorAlert, animated: true)
-            }
-          }
-        }
-      }
-    }
-  }
-  
-  
-  private func initializeGoProFishCountingWithExisting(viewController: UIViewController, goProSource: GoProSource) {
-    
-    let loadingAlert = UIAlertController(
-      title: "Starting GoPro Stream",
-      message: "Connecting to GoPro RTSP stream for fish counting...",
-      preferredStyle: .alert
-    )
-    
-    
-    loadingAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in
-      
-      goProSource.stopRTSPStream()
-    })
-    
-    viewController.present(loadingAlert, animated: true)
-    
-    
-    goProSource.predictor = videoCapture.predictor
-    goProSource.setUp { success in
-      if !success {
-        DispatchQueue.main.async {
-          loadingAlert.dismiss(animated: true) {
-            
-            let errorAlert = UIAlertController(
-              title: "Setup Failed",
-              message: "Failed to set up GoPro stream.",
-              preferredStyle: .alert
-            )
-            errorAlert.addAction(UIAlertAction(title: "OK", style: .default))
-            viewController.present(errorAlert, animated: true)
-          }
-        }
-        return
-      }
-      
-      
-      Task {
-        do {
-          
-          await MainActor.run {
-            self.optimizeForGoProSource(goProSource)
-          }
-          
-          
-          try await Task.sleep(nanoseconds: 500_000_000) 
-          
-          
-          let streamResult = await self.startRTSPStreamWithRetry(goProSource: goProSource, maxRetries: 3)
-          
-          
-          await MainActor.run {
-            switch streamResult {
-            case .success:
-              
-              loadingAlert.dismiss(animated: true) {
-                
-                let successAlert = UIAlertController(
-                  title: "GoPro Stream Active",
-                  message: "GoPro RTSP stream is now connected and ready for fish counting!",
-                  preferredStyle: .alert
-                )
-                successAlert.addAction(UIAlertAction(title: "OK", style: .default))
-                viewController.present(successAlert, animated: true)
-              }
-              
-              
-              
-            case .failure(let error):
-              
-              loadingAlert.dismiss(animated: true) {
-                
-                let errorAlert = UIAlertController(
-                  title: "Stream Failed",
-                  message: "Failed to start GoPro stream: \(error.localizedDescription)",
-                  preferredStyle: .alert
-                )
-                
-                
-                errorAlert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
-                  self?.initializeGoProFishCountingWithExisting(viewController: viewController, goProSource: goProSource)
-                })
-                
-                errorAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-                viewController.present(errorAlert, animated: true)
-              }
-            }
-          }
-        } catch {
-          await MainActor.run {
-            loadingAlert.dismiss(animated: true) {
-              
-              let errorAlert = UIAlertController(
-                title: "Error",
-                message: "An unexpected error occurred: \(error.localizedDescription)",
-                preferredStyle: .alert
-              )
-              errorAlert.addAction(UIAlertAction(title: "OK", style: .default))
-              viewController.present(errorAlert, animated: true)
-            }
-          }
-        }
-      }
-    }
-  }
-  
-  
-  private func startRTSPStreamWithRetry(goProSource: GoProSource, maxRetries: Int) async -> Result<Void, Error> {
-    for attempt in 1...maxRetries {
-      print("GoPro: Stream start attempt \(attempt)/\(maxRetries)")
-      
-      let result = await withCheckedContinuation { continuation in
-        Task { @MainActor in
-          goProSource.startRTSPStream { result in
-            continuation.resume(returning: result)
-          }
-        }
-      }
-      
-      switch result {
-      case .success:
-        print("GoPro: Stream started successfully on attempt \(attempt)")
-        return .success(())
-        
-      case .failure(let error):
-        print("GoPro: Stream start attempt \(attempt) failed: \(error.localizedDescription)")
-        
-        
-        if error.localizedDescription.contains("not properly integrated") && attempt < maxRetries {
-          print("GoPro: Waiting for integration to complete before retry...")
-          try? await Task.sleep(nanoseconds: 1_000_000_000) 
-          continue
-        } else {
-          
-          return .failure(error)
-        }
-      }
-    }
-    
-    
-    let finalError = NSError(domain: "GoProSource", code: 4, userInfo: [NSLocalizedDescriptionKey: "Failed to start stream after \(maxRetries) attempts"])
-    return .failure(finalError)
-  }
-  
-  
-  private func showStreamTestResults(viewController: UIViewController, success: Bool, message: String, log: String) {
-    let title = success ? "Stream Test Successful" : "Stream Test Failed"
-    let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-    
-    
-    alert.addAction(UIAlertAction(title: "View Details", style: .default) { _ in
-      let logAlert = UIAlertController(title: "Stream Test Log", message: log, preferredStyle: .alert)
-      logAlert.addAction(UIAlertAction(title: "Close", style: .cancel))
-      viewController.present(logAlert, animated: true)
-    })
-    
-    
-    alert.addAction(UIAlertAction(title: "OK", style: .default))
-    
-    viewController.present(alert, animated: true)
-  }
 
-  
-  private func showConnectionError(viewController: UIViewController, message: String) {
-    let failureAlert = UIAlertController(
-        title: "Connection Failed",
-        message: message,
-        preferredStyle: .alert
-    )
-    
-    
-    failureAlert.addAction(UIAlertAction(title: "Try Again", style: .default) { [weak self] _ in
-        guard let self = self else { return }
-        self.showGoProConnectionPrompt(viewController: viewController)
-    })
-    
-    
-    failureAlert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-    
-    viewController.present(failureAlert, animated: true)
-  }
 
   @objc func handleVideoPlaybackEnd(_ notification: Notification) {
     

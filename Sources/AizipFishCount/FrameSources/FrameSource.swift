@@ -183,7 +183,6 @@ public enum FrameSourceType {
     case camera
     case videoFile
     case imageSequence
-    case goPro
     case uvc
     // Add more source types as needed
 }
@@ -252,9 +251,6 @@ extension FrameSource {
             pixelFormat = FrameSourceSettings.cameraSourcePixelFormat
         case .videoFile, .imageSequence:
             pixelFormat = FrameSourceSettings.videoSourcePixelFormat
-        case .goPro:
-            // Use the same format as for camera sources
-            pixelFormat = FrameSourceSettings.cameraSourcePixelFormat
         case .uvc:
             // Use the same format as for camera sources
             pixelFormat = FrameSourceSettings.cameraSourcePixelFormat
