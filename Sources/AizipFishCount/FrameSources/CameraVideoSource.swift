@@ -494,7 +494,7 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
   // MARK: - FrameSource Protocol Implementation for UI Integration
   
   @MainActor
-  func integrateWithYOLOView(view: UIView) {
+  func integrateWithFishCountView(view: UIView) {
     // For camera source, we need to add the preview layer to the view's layer
     if let previewLayer = self.previewLayer {
       view.layer.insertSublayer(previewLayer, at: 0)

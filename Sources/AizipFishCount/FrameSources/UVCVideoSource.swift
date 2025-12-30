@@ -215,7 +215,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         captureDevice = nil
         
         // Notify delegates about disconnection if needed
-        if let delegate = videoCaptureDelegate as? YOLOView {
+        if let delegate = videoCaptureDelegate as? FishCountView {
             print("UVC: Device disconnected - consider switching back to camera source")
         }
     }
@@ -1014,7 +1014,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     // MARK: - UI Integration & Coordinate Transformation
     
     @MainActor
-    func integrateWithYOLOView(view: UIView) {
+    func integrateWithFishCountView(view: UIView) {
         guard let previewLayer = self.previewLayer else { return }
         
         view.layer.insertSublayer(previewLayer, at: 0)
@@ -1024,7 +1024,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         setVideoGravityForOrientation(orientation: orientation)
         updateForOrientationChange(orientation: orientation)
         
-        print("UVC: Integrated with YOLOView - frame: \(previewLayer.frame), gravity: \(previewLayer.videoGravity.rawValue)")
+        print("UVC: Integrated with FishCountView - frame: \(previewLayer.frame), gravity: \(previewLayer.videoGravity.rawValue)")
     }
     
     /// Adds an overlay layer to the UVC preview

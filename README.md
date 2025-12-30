@@ -33,7 +33,7 @@ The YOLO Swift package is organized into functional subdirectories:
 - `UVCVideoSource.swift` - External USB camera support
 
 **Visualization** (`Visualization/`):
-- `Visualization/YOLOView.swift` - Core fish counting UI component
+- `Visualization/FishCountView.swift` - Core fish counting UI component
 - `Visualization/BoundingBoxView.swift` - Detection visualization
 - `Visualization/Plot.swift` - Visualization utilities
 
@@ -42,13 +42,13 @@ The YOLO Swift package is organized into functional subdirectories:
 - `Utilities/NonMaxSuppression.swift` - Post-processing algorithms
 - `Utilities/YOLOResult.swift`, `YOLOTask.swift` - Data structures
 
-### 2. UI Layer (`YOLOiOSApp/`, `Sources/YOLO/YOLOView.swift`, and `Sources/YOLO/BoundingBoxView.swift`)
+### 2. UI Layer (`YOLOiOSApp/`, `Sources/YOLO/FishCountView.swift`, and `Sources/YOLO/BoundingBoxView.swift`)
 
 **Main UI Files** (primary focus for external developers):
 - `YOLOiOSApp/ViewController.swift` - Main app controller and model selection
 - `YOLOiOSApp/Main.storyboard` - Interface Builder layout definitions
 - `YOLOiOSApp/LaunchScreen.storyboard` - App launch screen
-- `Sources/YOLO/YOLOView.swift` - Core fish counting UI component
+- `Sources/YOLO/FishCountView.swift` - Core fish counting UI component
 - `Sources/YOLO/BoundingBoxView.swift` - Detection visualization
 
 **Supporting UI Files**:

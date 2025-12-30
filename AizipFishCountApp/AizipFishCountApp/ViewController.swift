@@ -20,9 +20,9 @@ import UIKit
 import AizipFishCount
 
 /// The main view controller for the YOLO iOS application, handling model selection and visualization.
-class ViewController: UIViewController, YOLOViewActionDelegate {
+class ViewController: UIViewController, FishCountViewActionDelegate {
 
-  @IBOutlet weak var yoloView: YOLOView!
+  @IBOutlet weak var yoloView: FishCountView!
   @IBOutlet var View0: UIView!
   @IBOutlet var segmentedControl: UISegmentedControl! // Will be hidden, but keeping the outlet for compatibility
   @IBOutlet weak var labelName: UILabel!
@@ -132,7 +132,7 @@ class ViewController: UIViewController, YOLOViewActionDelegate {
 
     setupTableView()
     
-    // Set up the YOLOView action delegate
+    // Set up the FishCountView action delegate
     yoloView.actionDelegate = self
     
     // Setup logo tap gesture
@@ -168,7 +168,7 @@ class ViewController: UIViewController, YOLOViewActionDelegate {
       }
     }
     
-    // Ensure YOLOView toolbar has consistent transparency
+    // Ensure FishCountView toolbar has consistent transparency
     yoloView.toolbar.backgroundColor = .clear
   }
 
@@ -388,7 +388,7 @@ class ViewController: UIViewController, YOLOViewActionDelegate {
       let key = entry.identifier  // "yolov8n", "yolov8m-seg", etc.
 
       if ModelCacheManager.shared.isModelDownloaded(key: key) {
-        loadCachedModelAndSetToYOLOView(
+        loadCachedModelAndSetToFishCountView(
           key: key, yoloTask: yoloTask, displayName: entry.displayName)
       } else {
         guard let remoteURL = entry.remoteURL else {
@@ -412,7 +412,7 @@ class ViewController: UIViewController, YOLOViewActionDelegate {
             self.finishLoadingModel(success: false, modelName: entry.displayName)
             return
           }
-          self.loadCachedModelAndSetToYOLOView(
+          self.loadCachedModelAndSetToFishCountView(
             key: loadedKey,
             yoloTask: yoloTask,
             displayName: entry.displayName)
@@ -421,7 +421,7 @@ class ViewController: UIViewController, YOLOViewActionDelegate {
     }
   }
 
-  private func loadCachedModelAndSetToYOLOView(key: String, yoloTask: YOLOTask, displayName: String)
+  private func loadCachedModelAndSetToFishCountView(key: String, yoloTask: YOLOTask, displayName: String)
   {
     let localModelURL = ModelCacheManager.shared.getDocumentsDirectory()
       .appendingPathComponent(key)
@@ -584,7 +584,7 @@ class ViewController: UIViewController, YOLOViewActionDelegate {
     )
   }
 
-  // YOLOViewActionDelegate implementation
+  // FishCountViewActionDelegate implementation
   func didTapModelsButton() {
     // Show/hide the model selection table
     let isCurrentlyVisible = !modelTableView.isHidden

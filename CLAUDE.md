@@ -16,7 +16,7 @@ yolo-ios-app/                          # Development repo (partners get same str
 │   │   ├── AlbumVideoSource.swift     # Video playback
 │   │   └── UVCVideoSource.swift       # External USB camera
 │   └── Visualization/                 # Target 3: Frontend (source code for partners)
-│       ├── YOLOView.swift             # Complete UI (2770 lines)
+│       ├── FishCountView.swift             # Complete UI (2770 lines)
 │       └── BoundingBoxView.swift      # Rendering
 ├── Packages/opencv2/                  # Backend dependency (embedded in xcframework)
 │   ├── opencv2.xcframework/
@@ -32,7 +32,7 @@ yolo-ios-app/                          # Development repo (partners get same str
 
 **Partner Distribution**: Same structure, but `AizipFishCount/` → `AizipFishCount.xcframework/` (binary)
 
-**Flow**: `CameraVideoSource → session.processFrame() → TrackingDetector → ByteTracker → Delegate → YOLOView`
+**Flow**: `CameraVideoSource → session.processFrame() → TrackingDetector → ByteTracker → Delegate → FishCountView`
 
 ## Development Rules
 

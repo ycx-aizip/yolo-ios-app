@@ -14,7 +14,7 @@ The YOLO Swift Package provides an easy way to integrate Core ML-exported [Ultra
 - [🚀 Installation](#-installation)
 - [💡 Usage](#-usage)
   - [YOLO Class (Inference)](#yolo-class-inference)
-  - [YOLOCamera / YOLOView (Real-Time Camera Inference)](#yolocamera--yoloview-real-time-camera-inference)
+  - [YOLOCamera / FishCountView (Real-Time Camera Inference)](#yolocamera--yoloview-real-time-camera-inference)
 - [🤝 Contributing](contributing)
 - [📜 License](license)
 
@@ -70,7 +70,7 @@ Once added, the YOLO Swift Package will be automatically integrated into your pr
 
 ## 💡 Usage
 
-The YOLO Swift Package primarily provides two main components: the **`YOLO` class** for inference and **`YOLOCamera` / `YOLOView`** for real-time camera integration.
+The YOLO Swift Package primarily provides two main components: the **`YOLO` class** for inference and **`YOLOCamera` / `FishCountView`** for real-time camera integration.
 
 ### Import
 
@@ -135,9 +135,9 @@ do {
 }
 ```
 
-### YOLOCamera / YOLOView (Real-Time Camera Inference)
+### YOLOCamera / FishCountView (Real-Time Camera Inference)
 
-The package provides convenient SwiftUI (`YOLOCamera`) and UIKit (`YOLOView`) components for real-time inference using the device's camera stream. Add these views to your layout, and they handle the camera input and on-device model inference automatically.
+The package provides convenient SwiftUI (`YOLOCamera`) and UIKit (`FishCountView`) components for real-time inference using the device's camera stream. Add these views to your layout, and they handle the camera input and on-device model inference automatically.
 
 #### SwiftUI Example
 
@@ -171,7 +171,7 @@ import UIKit
 import AVFoundation // Needed for camera permission check
 
 class CameraViewController: UIViewController {
-    var yoloView: YOLOView?
+    var yoloView: FishCountView?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -184,8 +184,8 @@ class CameraViewController: UIViewController {
             guard let self = self else { return }
             DispatchQueue.main.async {
                 if granted {
-                    // Initialize YOLOView on the main thread after permission check
-                    self.yoloView = YOLOView(
+                    // Initialize FishCountView on the main thread after permission check
+                    self.yoloView = FishCountView(
                         frame: self.view.bounds,
                         modelFileName: "yolo11n-seg", // Model file name in bundle
                         task: .segment,             // Specify the task
@@ -196,9 +196,9 @@ class CameraViewController: UIViewController {
                     if let yoloView = self.yoloView {
                         yoloView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
                         self.view.addSubview(yoloView)
-                        // Start the camera session if needed (often handled internally by YOLOView)
+                        // Start the camera session if needed (often handled internally by FishCountView)
                     } else {
-                        print("Error: Failed to initialize YOLOView.")
+                        print("Error: Failed to initialize FishCountView.")
                         // Show an error message to the user
                     }
                 } else {

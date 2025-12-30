@@ -8,7 +8,7 @@ This guide provides Softbank collaborators with clear instructions for safely mo
 - **`YOLOiOSApp/Main.storyboard`** - Interface Builder layout
 - **`YOLOiOSApp/LaunchScreen.storyboard`** - App launch screen
 - **`YOLOiOSApp/Assets.xcassets/`** - App icons and visual assets
-- **`Sources/YOLO/Visualization/YOLOView.swift`** - Fish counting UI *(see editing guide below)*
+- **`Sources/YOLO/Visualization/FishCountView.swift`** - Fish counting UI *(see editing guide below)*
 
 **Do NOT Edit:**
 - **`YOLOiOSApp/ViewController.swift`** - App startup logic
@@ -19,9 +19,9 @@ This guide provides Softbank collaborators with clear instructions for safely mo
 - **`Sources/YOLO/Tracking/`** - Object tracking algorithms
 - **`Sources/YOLO/FishCounting/`** - Counting algorithms
 
-## YOLOView.swift Editing Guide
+## FishCountView.swift Editing Guide
 
-`YOLOView.swift` (3518 lines) contains both UI and AI logic. **Only modify visual styling in designated sections.**
+`FishCountView.swift` (3518 lines) contains both UI and AI logic. **Only modify visual styling in designated sections.**
 
 ### SAFE TO EDIT
 

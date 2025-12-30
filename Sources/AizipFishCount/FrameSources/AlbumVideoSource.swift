@@ -787,7 +787,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     // MARK: - FrameSource Protocol Implementation for UI Integration
     
     @MainActor
-    func integrateWithYOLOView(view: UIView) {
+    func integrateWithFishCountView(view: UIView) {
         // For video source, we need to add the player layer to the view's layer
         if let playerLayer = self._previewLayer {
             playerLayer.frame = view.bounds

@@ -5,7 +5,7 @@
 //  Access the source code: https://github.com/ultralytics/yolo-ios-app
 //
 //  The YOLOCamera component provides a SwiftUI view for real-time object detection using device cameras.
-//  It wraps the underlying YOLOView component to provide a clean SwiftUI interface for camera feed processing,
+//  It wraps the underlying FishCountView component to provide a clean SwiftUI interface for camera feed processing,
 //  model inference, and result display. The component automatically handles camera setup, frame capture,
 //  model loading, and inference processing, making it simple to add real-time object detection capabilities
 //  to SwiftUI applications with minimal code. Results are exposed through a callback for custom handling
@@ -33,7 +33,7 @@ public struct YOLOCamera: View {
   }
 
   public var body: some View {
-    YOLOViewRepresentable(
+    FishCountViewRepresentable(
       modelPathOrName: modelPathOrName,
       task: task,
       cameraPosition: cameraPosition
@@ -43,14 +43,14 @@ public struct YOLOCamera: View {
   }
 }
 
-struct YOLOViewRepresentable: UIViewRepresentable {
+struct FishCountViewRepresentable: UIViewRepresentable {
   let modelPathOrName: String
   let task: YOLOTask
   let cameraPosition: AVCaptureDevice.Position
   let onDetection: ((YOLOResult) -> Void)?
 
-  func makeUIView(context: Context) -> YOLOView {
-    let yoloView = YOLOView(
+  func makeUIView(context: Context) -> FishCountView {
+    let yoloView = FishCountView(
       frame: .zero,
       modelPathOrName: modelPathOrName,
       task: task
@@ -58,7 +58,7 @@ struct YOLOViewRepresentable: UIViewRepresentable {
     return yoloView
   }
 
-  func updateUIView(_ uiView: YOLOView, context: Context) {
+  func updateUIView(_ uiView: FishCountView, context: Context) {
     uiView.onDetection = onDetection
   }
 }

@@ -160,7 +160,7 @@
     
 //     // MARK: - Properties
     
-//     /// Delegate for YOLOView integration and detection result handling
+//     /// Delegate for FishCountView integration and detection result handling
 //     weak var videoCaptureDelegate: VideoCaptureDelegate?
 //     /// Delegate for GoPro-specific status updates and notifications
 //     weak var goProDelegate: GoProSourceDelegate?
@@ -172,7 +172,7 @@
 //     private var videoPlayer: VLCMediaPlayer?
 //     /// UI view where VLC renders video content
 //     var playerView: UIView?
-//     /// Container view that holds the player view (typically YOLOView)
+//     /// Container view that holds the player view (typically FishCountView)
 //     private weak var containerView: UIView?
     
 //     // MARK: - State Management
@@ -504,7 +504,7 @@
 //               [.playing, .paused, .buffering].contains(videoPlayer.state) else { return nil }
         
 //         // Hide UI overlays temporarily
-//         if let yoloView = containerView as? YOLOView {
+//         if let yoloView = containerView as? FishCountView {
 //             yoloView.hideUIOverlaysForExtraction()
 //             defer { yoloView.restoreUIOverlaysAfterExtraction() }
 //         }
@@ -704,7 +704,7 @@
 //     private func startRTSPStreamInternal(completion: @escaping (Result<Void, Error>) -> Void) {
 //         guard isProperlyIntegrated() else {
 //             completion(.failure(NSError(domain: "GoProSource", code: 3, 
-//                 userInfo: [NSLocalizedDescriptionKey: "Not properly integrated with YOLOView"])))
+//                 userInfo: [NSLocalizedDescriptionKey: "Not properly integrated with FishCountView"])))
 //             return
 //         }
         
@@ -909,7 +909,7 @@
 //             object: self, userInfo: ["frameSize": size]
 //         )
         
-//         if let yoloView = videoCaptureDelegate as? YOLOView {
+//         if let yoloView = videoCaptureDelegate as? FishCountView {
 //             yoloView.goProLastFrameSize = size
 //             DispatchQueue.main.async {
 //                 yoloView.setNeedsLayout()
@@ -1071,7 +1071,7 @@
 //         DispatchQueue.main.async {
 //             containerView.setNeedsDisplay()
             
-//             if let yoloView = containerView as? YOLOView {
+//             if let yoloView = containerView as? FishCountView {
 //                 yoloView.setNeedsLayout()
 //                 yoloView.layoutIfNeeded()
                 
@@ -1118,7 +1118,7 @@
 //     }
     
 //     @MainActor
-//     func integrateWithYOLOView(view: UIView) {
+//     func integrateWithFishCountView(view: UIView) {
 //         guard let captureDelegate = view as? VideoCaptureDelegate,
 //               let frameDelegate = view as? FrameSourceDelegate else { return }
         
@@ -1131,7 +1131,7 @@
         
 //         setupPlayerViewInContainer(view)
         
-//         if predictor == nil, let yoloView = view as? YOLOView {
+//         if predictor == nil, let yoloView = view as? FishCountView {
 //             predictor = yoloView.getCurrentPredictor()
 //         }
 //     }
@@ -1159,7 +1159,7 @@
 //         containerView.layoutIfNeeded()
 //         videoPlayer?.drawable = playerView
         
-//         if let yoloView = containerView as? YOLOView {
+//         if let yoloView = containerView as? FishCountView {
 //             for box in yoloView.boundingBoxViews {
 //                 box.addToLayer(playerView.layer)
 //             }

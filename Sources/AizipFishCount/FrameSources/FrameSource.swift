@@ -156,10 +156,10 @@ protocol FrameSource: AnyObject {
     
     // MARK: - New methods for UI integration
     
-    /// Integrates the source with a YOLOView for proper display and interaction
-    /// - Parameter view: The YOLOView to integrate with
+    /// Integrates the source with a FishCountView for proper display and interaction
+    /// - Parameter view: The FishCountView to integrate with
     @MainActor
-    func integrateWithYOLOView(view: UIView)
+    func integrateWithFishCountView(view: UIView)
     
     /// Adds a layer to the source's display hierarchy
     /// - Parameter layer: The layer to add
@@ -360,7 +360,7 @@ extension FrameSource {
     
     // Default implementation for UI integration
     @MainActor
-    func integrateWithYOLOView(view: UIView) {
+    func integrateWithFishCountView(view: UIView) {
         // Default implementation does nothing
         // Each source should override this with its specific integration logic
     }
