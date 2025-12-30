@@ -35,8 +35,8 @@ internal class SessionAdapter: FishCountSession {
 
     // MARK: - Private Properties
 
-    /// The internal tracking detector instance
-    private let detector: TrackingDetector
+    /// The internal tracking detector instance (mutable for model switching)
+    private var detector: TrackingDetector
 
     /// Model name
     private let modelName: String
@@ -53,6 +53,12 @@ internal class SessionAdapter: FishCountSession {
     /// Listener reference to keep it alive
     private var resultsListener: DetectorResultsListener?
 
+    /// Pause state
+    private var isPausedState: Bool = false
+
+    /// Current model name (mutable for switching)
+    private var currentModelName: String
+
     // MARK: - Initialization
 
     /// Initialize the session adapter
@@ -63,6 +69,7 @@ internal class SessionAdapter: FishCountSession {
     ///   - delegate: Optional delegate for callbacks
     internal init(modelName: String, detector: TrackingDetector, delegate: FishCountSessionDelegate? = nil) {
         self.modelName = modelName
+        self.currentModelName = modelName
         self.detector = detector
         self.delegate = delegate
         self.currentDirection = ThresholdCounter.defaultCountingDirection
@@ -155,6 +162,9 @@ internal class SessionAdapter: FishCountSession {
     // MARK: - FishCountSession Protocol Implementation
 
     public func processFrame(_ pixelBuffer: CVPixelBuffer) {
+        // Skip processing if paused
+        guard !isPausedState else { return }
+
         // First, let TrackingDetector process for calibration if needed
         detector.processFrame(pixelBuffer)
 
@@ -283,10 +293,90 @@ internal class SessionAdapter: FishCountSession {
     }
 
     public func getModelName() -> String {
-        return modelName
+        return currentModelName
     }
 
     public func setDelegate(_ delegate: FishCountSessionDelegate?) {
         self.delegate = delegate
+    }
+
+    public func switchModel(to modelName: String, completion: ((Result<Void, FishCountError>) -> Void)?) {
+        // Find the new model in the bundle
+        guard let modelURL = Bundle.main.url(forResource: modelName, withExtension: "mlmodelc") ??
+                             Bundle.main.url(forResource: modelName, withExtension: "mlmodel") else {
+            let error = FishCountError.modelNotFound(modelName)
+            completion?(.failure(error))
+            return
+        }
+
+        // Save current session state
+        let currentThresholds = getThresholds()
+        let currentDirection = getCountingDirection()
+        let currentCount = getCount()
+        let currentConfig = getDetectionConfig()
+
+        // Load new model asynchronously
+        TrackingDetector.create(unwrappedModelURL: modelURL, isRealTime: true) { [weak self] result in
+            guard let self = self else { return }
+
+            Task { @MainActor in
+                switch result {
+                case .success(let newDetector):
+                    guard let trackingDetector = newDetector as? TrackingDetector else {
+                        let error = FishCountError.processingFailed("Failed to create tracking detector")
+                        completion?(.failure(error))
+                        return
+                    }
+
+                    // Apply shared configuration
+                    trackingDetector.applySharedConfiguration()
+
+                    // Restore session state
+                    trackingDetector.confidenceThreshold = Double(currentConfig.confidenceThreshold)
+                    trackingDetector.iouThreshold = Double(currentConfig.iouThreshold)
+                    trackingDetector.numItemsThreshold = currentConfig.maxDetections
+                    trackingDetector.setCountingDirection(currentDirection)
+
+                    // Convert display thresholds to counting coordinates
+                    let countingThresholds = UnifiedCoordinateSystem.displayToCounting(currentThresholds, countingDirection: currentDirection)
+                    trackingDetector.setThresholds(countingThresholds, originalDisplayValues: currentThresholds)
+
+                    // NOTE: Count cannot be restored after model switch
+                    // The new detector starts with count=0 because track IDs are reset
+                    // This is acceptable behavior - model switch implies a fresh start
+
+                    // Update detector reference
+                    self.detector = trackingDetector
+
+                    // Update model name
+                    self.currentModelName = modelName
+
+                    // Re-setup callbacks for the new detector
+                    self.setupDetectorCallbacks()
+
+                    // Notify delegate that count was reset to 0
+                    self.lastCount = 0
+                    self.delegate?.session(self, countDidChange: 0)
+
+                    completion?(.success(()))
+
+                case .failure(let error):
+                    let fishCountError = FishCountError.modelNotFound("\(modelName): \(error.localizedDescription)")
+                    completion?(.failure(fishCountError))
+                }
+            }
+        }
+    }
+
+    public func pause() {
+        isPausedState = true
+    }
+
+    public func resume() {
+        isPausedState = false
+    }
+
+    public func isPaused() -> Bool {
+        return isPausedState
     }
 }

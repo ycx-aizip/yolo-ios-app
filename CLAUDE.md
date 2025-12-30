@@ -3,26 +3,36 @@
 ## Structure
 
 ```
-yolo-ios-app/                    # Development repo
-├── Sources/AizipFishCount/      # Backend (xcframework sources)
-│   ├── Predictors/              # TrackingDetector
-│   ├── Tracking/                # ByteTracker, STrack, KalmanFilter
-│   ├── FishCounting/            # CountingUtils, OpenCVWrapper
-│   ├── FrameSources/            # Camera, Album, UVC
-│   └── Visualization/           # YOLOView
-├── Packages/                    # Backend dependencies
-│   └── opencv2/
-│       ├── opencv2.xcframework/ # Universal OpenCV (device + simulator)
-│       ├── OpenCVBridge.h       # Obj-C++ bridge (added to Xcode project)
-│       └── OpenCVBridge.mm      # Obj-C++ bridge (added to Xcode project)
-├── YOLOiOSApp/                  # Example frontend implementation
-│   ├── ViewController.swift
-│   ├── Main.storyboard
-│   └── FishCountModels/         # CoreML models
-└── Package.swift
+yolo-ios-app/                          # Development repo (partners get same structure)
+├── Sources/                           # Swift Package (3 targets)
+│   ├── AizipFishCount/                # Target 1: Backend → xcframework (binary for partners)
+│   │   ├── PublicAPI/                 # Public session protocol, types
+│   │   ├── Predictors/                # TrackingDetector (internal)
+│   │   ├── Tracking/                  # ByteTracker, OCSort (internal)
+│   │   └── FishCounting/              # Counting, OpenCV (internal)
+│   ├── FrameSources/                  # Target 2: Frontend (source code for partners)
+│   │   ├── FrameSource.swift          # Protocol
+│   │   ├── CameraVideoSource.swift    # Camera capture
+│   │   ├── AlbumVideoSource.swift     # Video playback
+│   │   └── UVCVideoSource.swift       # External USB camera
+│   └── Visualization/                 # Target 3: Frontend (source code for partners)
+│       ├── YOLOView.swift             # Complete UI (2770 lines)
+│       └── BoundingBoxView.swift      # Rendering
+├── Packages/opencv2/                  # Backend dependency (embedded in xcframework)
+│   ├── opencv2.xcframework/
+│   ├── OpenCVBridge.h
+│   └── OpenCVBridge.mm
+├── YOLOiOSApp/YOLOiOSApp/             # iOS app example
+│   ├── AppDelegate.swift              # App lifecycle
+│   ├── ViewController.swift           # App UI integration
+│   ├── ModelDownloadManager.swift     # App-specific
+│   └── FishCountModels/               # CoreML models
+└── Package.swift                      # Defines 3 targets
 ```
 
-**Flow**: `FrameSource → AizipFishCount → TrackingDetector → ByteTracker → Counting → YOLOView`
+**Partner Distribution**: Same structure, but `AizipFishCount/` → `AizipFishCount.xcframework/` (binary)
+
+**Flow**: `CameraVideoSource → session.processFrame() → TrackingDetector → ByteTracker → Delegate → YOLOView`
 
 ## Development Rules
 

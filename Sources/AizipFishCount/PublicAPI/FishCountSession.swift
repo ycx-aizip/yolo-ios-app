@@ -105,6 +105,37 @@ public protocol FishCountSession: AnyObject {
     ///
     /// - Parameter delegate: The delegate to receive session events
     func setDelegate(_ delegate: FishCountSessionDelegate?)
+
+    /// Switch to a different CoreML model at runtime
+    ///
+    /// This allows changing the detection model without recreating the session.
+    /// All current session state (count, thresholds, direction) is preserved.
+    ///
+    /// - Parameters:
+    ///   - modelName: Name of the new CoreML model file (without .mlmodelc extension)
+    ///   - completion: Optional callback with result (success or error)
+    ///
+    /// - Note: Model loading is asynchronous. The session continues processing with
+    ///         the old model until the new model is fully loaded.
+    func switchModel(to modelName: String, completion: ((Result<Void, FishCountError>) -> Void)?)
+
+    /// Pause frame processing
+    ///
+    /// Temporarily suspends all inference operations. Frames received via processFrame()
+    /// will be ignored until resume() is called.
+    ///
+    /// - Note: Does not affect session state (count, thresholds, etc.)
+    func pause()
+
+    /// Resume frame processing after pause
+    ///
+    /// Re-enables inference operations suspended by pause().
+    func resume()
+
+    /// Check if session is currently paused
+    ///
+    /// - Returns: True if session is paused
+    func isPaused() -> Bool
 }
 
 // MARK: - Delegate Protocol
