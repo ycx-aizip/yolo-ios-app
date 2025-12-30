@@ -4,35 +4,32 @@
 
 ```
 yolo-ios-app/                          # Development repo (partners get same structure)
-├── Sources/                           # Swift Package (3 targets)
+├── Sources/                           # Swift Package (2 targets)
 │   ├── AizipFishCount/                # Target 1: Backend → xcframework (binary for partners)
 │   │   ├── PublicAPI/                 # Public session protocol, types
 │   │   ├── Predictors/                # TrackingDetector (internal)
 │   │   ├── Tracking/                  # ByteTracker, OCSort (internal)
-│   │   └── FishCounting/              # Counting, OpenCV (internal)
-│   ├── FrameSources/                  # Target 2: Frontend (source code for partners)
-│   │   ├── FrameSource.swift          # Protocol
-│   │   ├── CameraVideoSource.swift    # Camera capture
-│   │   ├── AlbumVideoSource.swift     # Video playback
-│   │   └── UVCVideoSource.swift       # External USB camera
-│   └── Visualization/                 # Target 3: Frontend (source code for partners)
-│       ├── FishCountView.swift             # Complete UI (2770 lines)
-│       └── BoundingBoxView.swift      # Rendering
+│   │   ├── FishCounting/              # Counting, OpenCV (internal)
+│   │   └── FrameSources/              # Camera, Album, UVC (internal)
+│   └── Visualization/                 # Target 2: Frontend (source code for partners)
+│       ├── UI.swift                   # Complete UI (was YOLOView.swift)
+│       ├── BoundingBoxView.swift      # Rendering
+│       └── YOLOCamera.swift           # SwiftUI wrapper
 ├── Packages/opencv2/                  # Backend dependency (embedded in xcframework)
 │   ├── opencv2.xcframework/
 │   ├── OpenCVBridge.h
 │   └── OpenCVBridge.mm
-├── YOLOiOSApp/YOLOiOSApp/             # iOS app example
+├── AizipFishCountApp/AIzipFishCountApp/  # iOS app example
 │   ├── AppDelegate.swift              # App lifecycle
 │   ├── ViewController.swift           # App UI integration
 │   ├── ModelDownloadManager.swift     # App-specific
 │   └── FishCountModels/               # CoreML models
-└── Package.swift                      # Defines 3 targets
+└── Package.swift                      # Defines 2 targets
 ```
 
 **Partner Distribution**: Same structure, but `AizipFishCount/` → `AizipFishCount.xcframework/` (binary)
 
-**Flow**: `CameraVideoSource → session.processFrame() → TrackingDetector → ByteTracker → Delegate → FishCountView`
+**Flow**: `CameraVideoSource → session.processFrame() → TrackingDetector → ByteTracker → Delegate → UI (YOLOView)`
 
 ## Development Rules
 
@@ -57,12 +54,12 @@ yolo-ios-app/                          # Development repo (partners get same str
 **iPad Pro M4 Simulator**:
 - Xcode version: 16.2, iOS version: 18.2
 ```bash
-cd /Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/YOLOiOSApp && \
+cd /Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/AizipFishCountApp && \
 xcodebuild -configuration Debug \
-           -scheme YOLOiOSApp \
+           -scheme AizipFishCountApp \
            -destination 'platform=iOS Simulator,id=FCB1DD0F-9CBE-4344-B3A4-164660B57BBD' \
            HEADER_SEARCH_PATHS="/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/Packages/opencv2" \
-           SWIFT_OBJC_BRIDGING_HEADER="/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/YOLOiOSApp/YOLOiOSApp-Bridging-Header.h" \
+           SWIFT_OBJC_BRIDGING_HEADER="/Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/AizipFishCountApp/AizipFishCountApp-Bridging-Header.h" \
            OTHER_LDFLAGS="-lc++ -ObjC" \
            OTHER_CPLUSPLUSFLAGS="-Wno-documentation -Wno-documentation-deprecated-sync -Wno-documentation-unknown-command -Wno-quoted-include-in-framework-header" \
            -quiet | grep -E "error:|warning:|BUILD|SUCCEEDED|FAILED" | head -50
