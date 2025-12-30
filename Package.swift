@@ -1,5 +1,4 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-
+// Aizip inc.
 // swift-tools-version: 6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
@@ -21,12 +20,5 @@ let package = Package(
     // Targets can depend on other targets in this package and products from dependencies.
     .target(
       name: "AizipFishCount"),
-    // .testTarget(
-    //   name: "YOLOTests",
-    //   dependencies: ["YOLO"],
-    //   resources: [
-    //     .process("Resources")
-    //   ]
-    // ),
   ]
 )

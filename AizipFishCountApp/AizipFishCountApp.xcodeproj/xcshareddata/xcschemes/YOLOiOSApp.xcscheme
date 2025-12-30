@@ -16,9 +16,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "7BCB411621C3096100BFC4D0"
-               BuildableName = "YOLOiOSApp.app"
-               BlueprintName = "YOLOiOSApp"
-               ReferencedContainer = "container:YOLOiOSApp.xcodeproj">
+               BuildableName = "AIzipFishCountApp.app"
+               BlueprintName = "AIzipFishCountApp"
+               ReferencedContainer = "container:AizipFishCountApp.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -45,9 +45,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "7BCB411621C3096100BFC4D0"
-            BuildableName = "YOLOiOSApp.app"
-            BlueprintName = "YOLOiOSApp"
-            ReferencedContainer = "container:YOLOiOSApp.xcodeproj">
+            BuildableName = "AIzipFishCountApp.app"
+            BlueprintName = "AIzipFishCountApp"
+            ReferencedContainer = "container:AizipFishCountApp.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -62,9 +62,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "7BCB411621C3096100BFC4D0"
-            BuildableName = "YOLOiOSApp.app"
-            BlueprintName = "YOLOiOSApp"
-            ReferencedContainer = "container:YOLOiOSApp.xcodeproj">
+            BuildableName = "AIzipFishCountApp.app"
+            BlueprintName = "AIzipFishCountApp"
+            ReferencedContainer = "container:AizipFishCountApp.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>
