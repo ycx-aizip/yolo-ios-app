@@ -6,8 +6,8 @@ import AVFoundation
 import CoreVideo
 import UIKit
 import CoreGraphics
-// Import OpenCVWrapper directly since we're in the same module
-// No need for @_exported import since we're in the same module
+// OpenCV integration removed - moved to app layer to enable xcframework distribution
+// Phase 1 calibration (threshold detection) is disabled
 
 /// Direction for counting objects (fish)
 public enum CountingDirection {
@@ -317,45 +317,60 @@ public class MovementAnalyzer {
 
 // MARK: - Calibration Utilities
 
-/// Utilities for OpenCV-based threshold calibration (Phase 1)
+/// Utilities for threshold calibration (Phase 1)
+/// OpenCV integration removed to enable xcframework distribution
 public class CalibrationUtils {
-    /// Test OpenCV integration - essential for debugging setup issues
+    /// Test OpenCV integration - DISABLED (OpenCV moved to app layer)
     public static func testOpenCVAccess(frame: CVPixelBuffer?) -> Bool {
+        // OpenCV integration removed from AizipFishCount framework
+        // Phase 1 calibration is disabled
+        print("⚠️ OpenCV test: Phase 1 calibration disabled (OpenCV not available in framework)")
+        return false
+
+        /* Original OpenCV code - commented out for xcframework build
         guard let frame = frame else {
             print("❌ OpenCV test: No frame provided")
             return false
         }
-        
+
         let isWorking = OpenCVWrapper.isOpenCVWorking()
         let version = OpenCVWrapper.getOpenCVVersion()
         let frameProcessed = OpenCVWrapper.processTestFrame(frame)
-        
+
         let allTestsPassed = isWorking && frameProcessed
         if !allTestsPassed {
             print("❌ OpenCV integration failed - Version: \(version)")
         }
-        
+
         return allTestsPassed
+        */
     }
-    
-    /// Process single frame for streaming calibration (used internally by TrackingDetector)
+
+    /// Process single frame for streaming calibration - DISABLED (OpenCV moved to app layer)
     public static func processCalibrationFrame(
         _ frame: CVPixelBuffer,
         direction: CountingDirection
     ) -> (threshold1: CGFloat, threshold2: CGFloat)? {
+        // OpenCV integration removed from AizipFishCount framework
+        // Phase 1 calibration is disabled
+        print("⚠️ Phase 1 calibration: Disabled (OpenCV not available in framework)")
+        return nil
+
+        /* Original OpenCV code - commented out for xcframework build
         let isVerticalDirection = direction == .topToBottom || direction == .bottomToTop
-        
+
         if let thresholdArray = OpenCVWrapper.processCalibrationFrame(frame, isVerticalDirection: isVerticalDirection),
            thresholdArray.count >= 2,
            let value1 = thresholdArray[0] as? NSNumber,
            let value2 = thresholdArray[1] as? NSNumber {
-            
+
             let threshold1 = CGFloat(value1.floatValue)
             let threshold2 = CGFloat(value2.floatValue)
-            
+
             return (min(threshold1, threshold2), max(threshold1, threshold2))
         }
-        
+
         return nil
+        */
     }
 } 

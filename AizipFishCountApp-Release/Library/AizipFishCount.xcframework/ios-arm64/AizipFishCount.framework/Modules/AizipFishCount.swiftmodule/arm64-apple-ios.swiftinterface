@@ -1,0 +1,727 @@
+// swift-interface-format-version: 1.0
+// swift-compiler-version: Apple Swift version 6.2.3 effective-5.10 (swiftlang-6.2.3.3.21 clang-1700.6.3.2)
+// swift-module-flags: -target arm64-apple-ios16.6 -enable-objc-interop -enable-library-evolution -swift-version 5 -enforce-exclusivity=checked -O -enable-upcoming-feature DisableOutwardActorInference -enable-upcoming-feature InferSendableFromCaptures -enable-upcoming-feature GlobalActorIsolatedTypesUsability -enable-upcoming-feature MemberImportVisibility -enable-upcoming-feature InferIsolatedConformances -enable-upcoming-feature NonisolatedNonsendingByDefault -enable-experimental-feature DebugDescriptionMacro -enable-bare-slash-regex -module-name AizipFishCount
+// swift-module-flags-ignorable:  -formal-cxx-interoperability-mode=off -interface-compiler-version 6.2.3
+import AVFoundation
+import Accelerate
+import CoreGraphics
+import CoreImage
+import CoreML
+import CoreMedia
+import CoreVideo
+import Foundation
+import Photos
+import QuartzCore
+import Swift
+import SwiftUI
+import UIKit
+import Vision
+import _Concurrency
+import _StringProcessing
+import _SwiftConcurrencyShims
+public class YOLO {
+  #if compiler(>=5.3) && $NonescapableTypes
+  public init(_ modelPathOrName: Swift.String, task: AizipFishCount.YOLOTask, completion: ((Swift.Result<AizipFishCount.YOLO, any Swift.Error>) -> Swift.Void)? = nil)
+  #endif
+  public func callAsFunction(_ uiImage: UIKit.UIImage, returnAnnotatedImage: Swift.Bool = true) -> AizipFishCount.YOLOResult
+  public func callAsFunction(_ ciImage: CoreImage.CIImage, returnAnnotatedImage: Swift.Bool = true) -> AizipFishCount.YOLOResult
+  public func callAsFunction(_ cgImage: CoreGraphics.CGImage, returnAnnotatedImage: Swift.Bool = true) -> AizipFishCount.YOLOResult
+  #if compiler(>=5.3) && $NonescapableTypes
+  public func callAsFunction(_ resourceName: Swift.String, withExtension ext: Swift.String? = nil, returnAnnotatedImage: Swift.Bool = true) -> AizipFishCount.YOLOResult
+  #endif
+  #if compiler(>=5.3) && $NonescapableTypes
+  public func callAsFunction(_ remoteURL: Foundation.URL?, returnAnnotatedImage: Swift.Bool = true) -> AizipFishCount.YOLOResult
+  #endif
+  public func callAsFunction(_ localPath: Swift.String, returnAnnotatedImage: Swift.Bool = true) -> AizipFishCount.YOLOResult
+  @available(iOS 16.0, *)
+  @_Concurrency.MainActor public func callAsFunction(_ swiftUIImage: SwiftUICore.Image, returnAnnotatedImage: Swift.Bool = true) -> AizipFishCount.YOLOResult
+  @objc deinit
+}
+public struct CountingResult {
+}
+@_Concurrency.MainActor public protocol CounterProtocol {
+  @_Concurrency.MainActor func processFrame(tracks: [AizipFishCount.STrack]) -> AizipFishCount.CountingResult
+  @_Concurrency.MainActor func resetCount()
+  @_Concurrency.MainActor func configure(thresholds: [CoreFoundation.CGFloat], direction: AizipFishCount.CountingDirection)
+  @_Concurrency.MainActor func getTotalCount() -> Swift.Int
+  @_Concurrency.MainActor func getTrackingInfo() -> [(trackId: Swift.Int, position: (x: CoreFoundation.CGFloat, y: CoreFoundation.CGFloat), isCounted: Swift.Bool)]
+}
+public enum CountingDirection {
+  case topToBottom
+  case bottomToTop
+  case leftToRight
+  case rightToLeft
+  public static func == (a: AizipFishCount.CountingDirection, b: AizipFishCount.CountingDirection) -> Swift.Bool
+  public func hash(into hasher: inout Swift.Hasher)
+  public var hashValue: Swift.Int {
+    get
+  }
+}
+@_hasMissingDesignatedInitializers final public class AutoCalibrationConfig : @unchecked Swift.Sendable {
+  public static let shared: AizipFishCount.AutoCalibrationConfig
+  final public var isThresholdCalibrationEnabled: Swift.Bool
+  final public var isDirectionCalibrationEnabled: Swift.Bool
+  final public var thresholdCalibrationFrames: Swift.Int
+  final public var movementAnalysisFrames: Swift.Int
+  final public var minTrackLengthForAnalysis: Swift.Int
+  final public var minConfidenceForAnalysis: Swift.Float
+  final public var directionDecisionThreshold: Swift.Float
+  final public func setConfiguration(thresholdCalibration: Swift.Bool = true, directionCalibration: Swift.Bool = true, thresholdFrames: Swift.Int = 300, movementFrames: Swift.Int = 300)
+  final public var totalCalibrationFrames: Swift.Int {
+    get
+  }
+  @objc deinit
+}
+public struct FishMovementData {
+}
+public struct DirectionalAnalysis {
+}
+public struct CalibrationSummary {
+  public let thresholds: [CoreFoundation.CGFloat]
+  public let detectedDirection: AizipFishCount.CountingDirection?
+  public let originalDirection: AizipFishCount.CountingDirection
+  public let movementAnalysisSuccess: Swift.Bool
+  public let qualifiedTracksCount: Swift.Int
+  public let warnings: [Swift.String]
+  public let thresholdCalibrationEnabled: Swift.Bool
+  public let directionCalibrationEnabled: Swift.Bool
+}
+@_hasMissingDesignatedInitializers public class MovementAnalyzer {
+  public static func analyzeTrackMovement(_ data: AizipFishCount.FishMovementData) -> AizipFishCount.DirectionalAnalysis
+  public static func calculateMovementConsistency(_ vectors: [(dx: CoreFoundation.CGFloat, dy: CoreFoundation.CGFloat)]) -> Swift.Float
+  public static func determineDirection(from movements: [AizipFishCount.FishMovementData]) -> AizipFishCount.DirectionalAnalysis
+  public static func generateWarnings(from analysis: AizipFishCount.DirectionalAnalysis) -> [Swift.String]
+  @objc deinit
+}
+@_hasMissingDesignatedInitializers public class CalibrationUtils {
+  #if compiler(>=5.3) && $NonescapableTypes
+  public static func testOpenCVAccess(frame: CoreVideo.CVPixelBuffer?) -> Swift.Bool
+  #endif
+  #if compiler(>=5.3) && $NonescapableTypes
+  public static func processCalibrationFrame(_ frame: CoreVideo.CVPixelBuffer, direction: AizipFishCount.CountingDirection) -> (threshold1: CoreFoundation.CGFloat, threshold2: CoreFoundation.CGFloat)?
+  #endif
+  @objc deinit
+}
+@_Concurrency.MainActor public class ThresholdCounter : AizipFishCount.CounterProtocol {
+  nonisolated(unsafe) public static var defaultThresholds: [CoreFoundation.CGFloat]
+  nonisolated(unsafe) public static var defaultCountingDirection: AizipFishCount.CountingDirection
+  nonisolated public init()
+  @_Concurrency.MainActor public func processFrame(tracks: [AizipFishCount.STrack]) -> AizipFishCount.CountingResult
+  @_Concurrency.MainActor public func resetCount()
+  @_Concurrency.MainActor public func configure(thresholds: [CoreFoundation.CGFloat], direction: AizipFishCount.CountingDirection)
+  @_Concurrency.MainActor public func getTotalCount() -> Swift.Int
+  @_Concurrency.MainActor public func getTrackingInfo() -> [(trackId: Swift.Int, position: (x: CoreFoundation.CGFloat, y: CoreFoundation.CGFloat), isCounted: Swift.Bool)]
+  @objc deinit
+}
+extension Foundation.NSNotification.Name {
+  public static let videoPlaybackDidEnd: Foundation.Notification.Name
+}
+@objc @_inheritsConvenienceInitializers @preconcurrency public class AlbumVideoSource : ObjectiveC.NSObject, AizipFishCount.FrameSource, AizipFishCount.ResultsListener, AizipFishCount.InferenceTimeListener {
+  weak public var delegate: (any AizipFishCount.FrameSourceDelegate)?
+  weak public var videoCaptureDelegate: (any AizipFishCount.VideoCaptureDelegate)?
+  public var predictor: (any AizipFishCount.Predictor)!
+  public var longSide: CoreFoundation.CGFloat
+  public var shortSide: CoreFoundation.CGFloat
+  public var inferenceOK: Swift.Bool
+  #if compiler(>=5.3) && $NonescapableTypes
+  public var previewLayer: AVFoundation.AVCaptureVideoPreviewLayer? {
+    get
+  }
+  #endif
+  #if compiler(>=5.3) && $NonescapableTypes
+  public var playerLayer: AVFoundation.AVPlayerLayer? {
+    get
+  }
+  #endif
+  public var sourceType: AizipFishCount.FrameSourceType {
+    get
+  }
+  @objc override dynamic public init()
+  @objc deinit
+  @_Concurrency.MainActor public func updateForOrientationChange(orientation: UIKit.UIDeviceOrientation)
+  @_Concurrency.MainActor public func setUp(completion: @escaping @Sendable (Swift.Bool) -> Swift.Void)
+  nonisolated public func start()
+  nonisolated public func stop()
+  nonisolated public func setZoomRatio(ratio: CoreFoundation.CGFloat)
+  @_Concurrency.MainActor public func requestPermission(completion: @escaping (Swift.Bool) -> Swift.Void)
+  @_Concurrency.MainActor public func showContentSelectionUI(from viewController: UIKit.UIViewController, completion: @escaping (Swift.Bool) -> Swift.Void)
+  public func on(inferenceTime: Swift.Double, fpsRate: Swift.Double)
+  public func on(result: AizipFishCount.YOLOResult)
+  @_Concurrency.MainActor public func resetProcessingState()
+  @_Concurrency.MainActor public func integrateWithFishCountView(view: UIKit.UIView)
+  @_Concurrency.MainActor public func addOverlayLayer(_ layer: QuartzCore.CALayer)
+  @_Concurrency.MainActor public func addBoundingBoxViews(_ boxViews: [AizipFishCount.BoundingBoxView])
+  @_Concurrency.MainActor public func transformDetectionToScreenCoordinates(rect: CoreFoundation.CGRect, viewBounds: CoreFoundation.CGRect, orientation: UIKit.UIDeviceOrientation) -> CoreFoundation.CGRect
+}
+extension AizipFishCount.AlbumVideoSource : UIKit.UIImagePickerControllerDelegate, UIKit.UINavigationControllerDelegate {
+  @_Concurrency.MainActor @preconcurrency @objc dynamic public func imagePickerController(_ picker: UIKit.UIImagePickerController, didFinishPickingMediaWithInfo info: [UIKit.UIImagePickerController.InfoKey : Any])
+  @_Concurrency.MainActor @preconcurrency @objc dynamic public func imagePickerControllerDidCancel(_ picker: UIKit.UIImagePickerController)
+}
+@_Concurrency.MainActor public protocol VideoCaptureDelegate : AnyObject {
+  @_Concurrency.MainActor func onPredict(result: AizipFishCount.YOLOResult)
+  @_Concurrency.MainActor func onInferenceTime(speed: Swift.Double, fps: Swift.Double)
+  @_Concurrency.MainActor func onClearBoxes()
+}
+@objc @_inheritsConvenienceInitializers @preconcurrency public class CameraVideoSource : ObjectiveC.NSObject, AizipFishCount.FrameSource, @unchecked Swift.Sendable {
+  public var predictor: (any AizipFishCount.Predictor)!
+  public var previewLayer: AVFoundation.AVCaptureVideoPreviewLayer?
+  weak public var videoCaptureDelegate: (any AizipFishCount.VideoCaptureDelegate)?
+  weak public var frameSourceDelegate: (any AizipFishCount.FrameSourceDelegate)?
+  public var captureDevice: AVFoundation.AVCaptureDevice?
+  final public let captureSession: AVFoundation.AVCaptureSession
+  public var inferenceOK: Swift.Bool
+  public var longSide: CoreFoundation.CGFloat
+  public var shortSide: CoreFoundation.CGFloat
+  #if compiler(>=5.3) && $NonescapableTypes
+  public var delegate: (any AizipFishCount.FrameSourceDelegate)? {
+    get
+    set
+  }
+  #endif
+  public var sourceType: AizipFishCount.FrameSourceType {
+    get
+  }
+  @objc override dynamic public init()
+  #if compiler(>=5.3) && $NonescapableTypes
+  public func setUp(sessionPreset: AVFoundation.AVCaptureSession.Preset? = nil, position: AVFoundation.AVCaptureDevice.Position, orientation: UIKit.UIDeviceOrientation, completion: @escaping @_Concurrency.MainActor @Sendable (Swift.Bool) -> Swift.Void)
+  #endif
+  @_Concurrency.MainActor public func setUp(completion: @escaping @Sendable (Swift.Bool) -> Swift.Void)
+  nonisolated public func start()
+  nonisolated public func stop()
+  nonisolated public func setZoomRatio(ratio: CoreFoundation.CGFloat)
+  @_Concurrency.MainActor public func resetProcessingState()
+  @_Concurrency.MainActor public func requestPermission(completion: @escaping (Swift.Bool) -> Swift.Void)
+  @_Concurrency.MainActor public func updateForOrientationChange(orientation: UIKit.UIDeviceOrientation)
+  @_Concurrency.MainActor public func integrateWithFishCountView(view: UIKit.UIView)
+  @_Concurrency.MainActor public func addOverlayLayer(_ layer: QuartzCore.CALayer)
+  @_Concurrency.MainActor public func addBoundingBoxViews(_ boxViews: [AizipFishCount.BoundingBoxView])
+  @_Concurrency.MainActor public func transformDetectionToScreenCoordinates(rect: CoreFoundation.CGRect, viewBounds: CoreFoundation.CGRect, orientation: UIKit.UIDeviceOrientation) -> CoreFoundation.CGRect
+  @objc deinit
+}
+extension AizipFishCount.CameraVideoSource : AVFoundation.AVCaptureVideoDataOutputSampleBufferDelegate {
+  @objc dynamic public func captureOutput(_ output: AVFoundation.AVCaptureOutput, didOutput sampleBuffer: CoreMedia.CMSampleBuffer, from connection: AVFoundation.AVCaptureConnection)
+}
+extension AizipFishCount.CameraVideoSource : AizipFishCount.ResultsListener, AizipFishCount.InferenceTimeListener {
+  public func on(inferenceTime: Swift.Double, fpsRate: Swift.Double)
+  public func on(result: AizipFishCount.YOLOResult)
+}
+@_Concurrency.MainActor public protocol FrameSourceDelegate : AnyObject {
+  @_Concurrency.MainActor func frameSource(_ source: any AizipFishCount.FrameSource, didOutputImage image: UIKit.UIImage)
+  @_Concurrency.MainActor func frameSource(_ source: any AizipFishCount.FrameSource, didUpdateWithSpeed speed: Swift.Double, fps: Swift.Double)
+}
+public typealias FrameProcessor = AizipFishCount.Predictor
+public protocol FrameSource : AnyObject {
+  #if compiler(>=5.3) && $NonescapableTypes
+  var delegate: (any AizipFishCount.FrameSourceDelegate)? { get set }
+  #endif
+  #if compiler(>=5.3) && $NonescapableTypes
+  var previewLayer: AVFoundation.AVCaptureVideoPreviewLayer? { get }
+  #endif
+  #if compiler(>=5.3) && $NonescapableTypes
+  var predictor: (any AizipFishCount.Predictor)! { get set }
+  #endif
+  var longSide: CoreFoundation.CGFloat { get }
+  var shortSide: CoreFoundation.CGFloat { get }
+  var inferenceOK: Swift.Bool { get set }
+  nonisolated func start()
+  nonisolated func stop()
+  @_Concurrency.MainActor func setUp(completion: @escaping @Sendable (Swift.Bool) -> Swift.Void)
+  #if compiler(>=5.3) && $NonescapableTypes
+  @_Concurrency.MainActor func capturePhoto(completion: @escaping @Sendable (UIKit.UIImage?) -> Swift.Void)
+  #endif
+  nonisolated func setZoomRatio(ratio: CoreFoundation.CGFloat)
+  var sourceType: AizipFishCount.FrameSourceType { get }
+  @_Concurrency.MainActor func requestPermission(completion: @escaping (Swift.Bool) -> Swift.Void)
+  @_Concurrency.MainActor func updateForOrientationChange(orientation: UIKit.UIDeviceOrientation)
+  @_Concurrency.MainActor func showContentSelectionUI(from viewController: UIKit.UIViewController, completion: @escaping (Swift.Bool) -> Swift.Void)
+  @_Concurrency.MainActor func transformDetectionToScreenCoordinates(rect: CoreFoundation.CGRect, viewBounds: CoreFoundation.CGRect, orientation: UIKit.UIDeviceOrientation) -> CoreFoundation.CGRect
+  @_Concurrency.MainActor func integrateWithFishCountView(view: UIKit.UIView)
+  @_Concurrency.MainActor func addOverlayLayer(_ layer: QuartzCore.CALayer)
+  @_Concurrency.MainActor func addBoundingBoxViews(_ boxViews: [AizipFishCount.BoundingBoxView])
+  @_Concurrency.MainActor func resetProcessingState()
+}
+public enum FrameSourceType {
+  case camera
+  case videoFile
+  case imageSequence
+  case uvc
+  public static func == (a: AizipFishCount.FrameSourceType, b: AizipFishCount.FrameSourceType) -> Swift.Bool
+  public func hash(into hasher: inout Swift.Hasher)
+  public var hashValue: Swift.Int {
+    get
+  }
+}
+extension AizipFishCount.FrameSource {
+  @_Concurrency.MainActor public func showContentSelectionUI(from viewController: UIKit.UIViewController, completion: @escaping (Swift.Bool) -> Swift.Void)
+  #if compiler(>=5.3) && $NonescapableTypes
+  @_Concurrency.MainActor public func capturePhoto(completion: @escaping @Sendable (UIKit.UIImage?) -> Swift.Void)
+  #endif
+}
+@objc @_inheritsConvenienceInitializers @preconcurrency public class UVCVideoSource : ObjectiveC.NSObject, AizipFishCount.FrameSource, @unchecked Swift.Sendable {
+  public var predictor: (any AizipFishCount.Predictor)!
+  public var previewLayer: AVFoundation.AVCaptureVideoPreviewLayer?
+  weak public var videoCaptureDelegate: (any AizipFishCount.VideoCaptureDelegate)?
+  public var inferenceOK: Swift.Bool
+  public var longSide: CoreFoundation.CGFloat
+  public var shortSide: CoreFoundation.CGFloat
+  public var sourceType: AizipFishCount.FrameSourceType {
+    get
+  }
+  #if compiler(>=5.3) && $NonescapableTypes
+  public var delegate: (any AizipFishCount.FrameSourceDelegate)? {
+    get
+    set
+  }
+  #endif
+  @objc override dynamic public init()
+  @objc deinit
+  public func getDetailedStatus() -> Swift.String
+  @_Concurrency.MainActor public func setUp(completion: @escaping (Swift.Bool) -> Swift.Void)
+  nonisolated public func start()
+  nonisolated public func stop()
+  nonisolated public func setZoomRatio(ratio: CoreFoundation.CGFloat)
+  @_Concurrency.MainActor public func resetProcessingState()
+  #if compiler(>=5.3) && $NonescapableTypes
+  @_Concurrency.MainActor public func capturePhoto(completion: @escaping @Sendable (UIKit.UIImage?) -> Swift.Void)
+  #endif
+  @_Concurrency.MainActor public func showContentSelectionUI(from viewController: UIKit.UIViewController, completion: @escaping (Swift.Bool) -> Swift.Void)
+  @_Concurrency.MainActor public func requestPermission(completion: @escaping (Swift.Bool) -> Swift.Void)
+  @_Concurrency.MainActor public func updateForOrientationChange(orientation: UIKit.UIDeviceOrientation)
+  @_Concurrency.MainActor public func integrateWithFishCountView(view: UIKit.UIView)
+  @_Concurrency.MainActor public func addOverlayLayer(_ layer: QuartzCore.CALayer)
+  @_Concurrency.MainActor public func addBoundingBoxViews(_ boxViews: [AizipFishCount.BoundingBoxView])
+  @_Concurrency.MainActor public func transformDetectionToScreenCoordinates(rect: CoreFoundation.CGRect, viewBounds: CoreFoundation.CGRect, orientation: UIKit.UIDeviceOrientation) -> CoreFoundation.CGRect
+}
+extension AizipFishCount.UVCVideoSource : AVFoundation.AVCaptureVideoDataOutputSampleBufferDelegate {
+  @objc dynamic public func captureOutput(_ output: AVFoundation.AVCaptureOutput, didOutput sampleBuffer: CoreMedia.CMSampleBuffer, from connection: AVFoundation.AVCaptureConnection)
+}
+extension AizipFishCount.UVCVideoSource : AizipFishCount.ResultsListener, AizipFishCount.InferenceTimeListener {
+  public func on(inferenceTime: Swift.Double, fpsRate: Swift.Double)
+  public func on(result: AizipFishCount.YOLOResult)
+}
+@_hasMissingDesignatedInitializers public class BasePredictor : AizipFishCount.Predictor, @unchecked Swift.Sendable {
+  public var labels: [Swift.String]
+  public var isUpdating: Swift.Bool
+  @objc deinit
+  #if compiler(>=5.3) && $NonescapableTypes
+  public static func create(unwrappedModelURL: Foundation.URL, isRealTime: Swift.Bool = false, completion: @escaping (Swift.Result<AizipFishCount.BasePredictor, any Swift.Error>) -> Swift.Void)
+  #endif
+  #if compiler(>=5.3) && $NonescapableTypes
+  public func predict(sampleBuffer: CoreMedia.CMSampleBuffer, onResultsListener: (any AizipFishCount.ResultsListener)?, onInferenceTime: (any AizipFishCount.InferenceTimeListener)?)
+  #endif
+  public func predictOnImage(image: CoreImage.CIImage) -> AizipFishCount.YOLOResult
+}
+@_inheritsConvenienceInitializers @_hasMissingDesignatedInitializers public class ObjectDetector : AizipFishCount.BasePredictor {
+  override public func predictOnImage(image: CoreImage.CIImage) -> AizipFishCount.YOLOResult
+  @objc deinit
+}
+public protocol ResultsListener : AnyObject {
+  func on(result: AizipFishCount.YOLOResult)
+}
+public protocol InferenceTimeListener : AnyObject {
+  func on(inferenceTime: Swift.Double, fpsRate: Swift.Double)
+}
+public protocol Predictor {
+  #if compiler(>=5.3) && $NonescapableTypes
+  func predict(sampleBuffer: CoreMedia.CMSampleBuffer, onResultsListener: (any AizipFishCount.ResultsListener)?, onInferenceTime: (any AizipFishCount.InferenceTimeListener)?)
+  #endif
+  func predictOnImage(image: CoreImage.CIImage) -> AizipFishCount.YOLOResult
+  var labels: [Swift.String] { get set }
+  var isUpdating: Swift.Bool { get set }
+}
+public enum PredictorError : Swift.Error {
+  case invalidTask
+  case noLabelsFound
+  case invalidUrl
+  case modelFileNotFound
+  public static func == (a: AizipFishCount.PredictorError, b: AizipFishCount.PredictorError) -> Swift.Bool
+  public func hash(into hasher: inout Swift.Hasher)
+  public var hashValue: Swift.Int {
+    get
+  }
+}
+@_hasMissingDesignatedInitializers @_Concurrency.MainActor public class TrackingDetectorConfig {
+  @_Concurrency.MainActor public static let shared: AizipFishCount.TrackingDetectorConfig
+  @_Concurrency.MainActor public var defaultConfidenceThreshold: Swift.Float
+  @_Concurrency.MainActor public var defaultIoUThreshold: Swift.Float
+  @_Concurrency.MainActor public var defaultNumItemsThreshold: Swift.Int
+  #if compiler(>=5.3) && $NonescapableTypes
+  @_Concurrency.MainActor public func updateDefaults(confidenceThreshold: Swift.Float? = nil, iouThreshold: Swift.Float? = nil, numItemsThreshold: Swift.Int? = nil)
+  #endif
+  @objc deinit
+}
+@_inheritsConvenienceInitializers @_hasMissingDesignatedInitializers public class TrackingDetector : AizipFishCount.ObjectDetector {
+  public var onCalibrationProgress: ((Swift.Int, Swift.Int) -> Swift.Void)?
+  public var onCalibrationComplete: (([CoreFoundation.CGFloat]) -> Swift.Void)?
+  public var onDirectionDetected: ((AizipFishCount.CountingDirection) -> Swift.Void)?
+  public var onCalibrationSummary: ((AizipFishCount.CalibrationSummary) -> Swift.Void)?
+  @_Concurrency.MainActor public func applySharedConfiguration()
+  @_Concurrency.MainActor public func setThresholds(_ values: [CoreFoundation.CGFloat])
+  @_Concurrency.MainActor public func setThresholds(_ countingValues: [CoreFoundation.CGFloat], originalDisplayValues: [CoreFoundation.CGFloat])
+  @_Concurrency.MainActor public func getCount() -> Swift.Int
+  @_Concurrency.MainActor public func resetCount()
+  @_Concurrency.MainActor public func setCountingDirection(_ direction: AizipFishCount.CountingDirection)
+  @_Concurrency.MainActor public func setAutoCalibration(enabled: Swift.Bool)
+  #if compiler(>=5.3) && $NonescapableTypes
+  @_Concurrency.MainActor public func getTrackInfo(for box: AizipFishCount.Box) -> (trackId: Swift.Int, isCounted: Swift.Bool)?
+  #endif
+  @_Concurrency.MainActor public func isObjectTracked(box: AizipFishCount.Box) -> Swift.Bool
+  @_Concurrency.MainActor public func isObjectCounted(box: AizipFishCount.Box) -> Swift.Bool
+  @_Concurrency.MainActor public func getAutoCalibrationEnabled() -> Swift.Bool
+  @objc deinit
+}
+@_Concurrency.MainActor public class ByteTracker {
+  nonisolated public init()
+  @_Concurrency.MainActor public func update(detections: [AizipFishCount.Box], scores: [Swift.Float], classes: [Swift.String]) -> [AizipFishCount.STrack]
+  @_Concurrency.MainActor public func update(detections: [(position: (x: CoreFoundation.CGFloat, y: CoreFoundation.CGFloat), box: AizipFishCount.Box)]) -> [AizipFishCount.STrack]
+  @_Concurrency.MainActor public func reset()
+  @_Concurrency.MainActor public func getTracks() -> [AizipFishCount.STrack]
+  @_Concurrency.MainActor public func getStats() -> [Swift.String : Any]
+  @objc deinit
+}
+extension AizipFishCount.ByteTracker : AizipFishCount.TrackerProtocol {
+  @_Concurrency.MainActor public func getActiveTracks() -> [AizipFishCount.STrack]
+}
+@_Concurrency.MainActor public struct ByteTrackHelpers {
+  #if compiler(>=5.3) && $NonescapableTypes
+  @_Concurrency.MainActor public static func estimateCameraMotion(currentCenters: [(x: CoreFoundation.CGFloat, y: CoreFoundation.CGFloat)], previousCenters: [(x: CoreFoundation.CGFloat, y: CoreFoundation.CGFloat)], expectedDirection: AizipFishCount.CountingDirection?, previousMotion: (dx: CoreFoundation.CGFloat, dy: CoreFoundation.CGFloat)) -> (dx: CoreFoundation.CGFloat, dy: CoreFoundation.CGFloat)
+  #endif
+  #if compiler(>=5.3) && $NonescapableTypes
+  @_Concurrency.MainActor public static func applyMotionCompensation(to tracks: [AizipFishCount.STrack], motion: (dx: CoreFoundation.CGFloat, dy: CoreFoundation.CGFloat), expectedDirection: AizipFishCount.CountingDirection?)
+  #endif
+  #if compiler(>=5.3) && $NonescapableTypes
+  @_Concurrency.MainActor public static func improvedAssociateFirstStage(tracks: [AizipFishCount.STrack], detections: [AizipFishCount.STrack], expectedDirection: AizipFishCount.CountingDirection?, matchHistory: [Swift.Int : Swift.Set<Swift.Int>], matchThreshold: Swift.Float) -> (matches: [(Swift.Int, Swift.Int)], unmatchedTracks: [Swift.Int], unmatchedDetections: [Swift.Int])
+  #endif
+  #if compiler(>=5.3) && $NonescapableTypes
+  @_Concurrency.MainActor public static func improvedAssociateSecondStage(tracks: [AizipFishCount.STrack], detections: [AizipFishCount.STrack], expectedDirection: AizipFishCount.CountingDirection?, matchThreshold: Swift.Float) -> (matches: [(Swift.Int, Swift.Int)], unmatchedDetections: [Swift.Int])
+  #endif
+  @_Concurrency.MainActor public static func updateMatchHistory(trackId: Swift.Int, detectionId: Swift.Int, history: inout [Swift.Int : Swift.Set<Swift.Int>], maxHistorySize: Swift.Int = 10)
+  @_Concurrency.MainActor public static func cleanupMatchHistory(history: inout [Swift.Int : Swift.Set<Swift.Int>], activeTrackIds: Swift.Set<Swift.Int>, lostTrackIds: Swift.Set<Swift.Int>)
+  @_Concurrency.MainActor public static func limitCollectionSize<T>(_ collection: inout [T], maxSize: Swift.Int, priorityFunc: (T, T) -> Swift.Bool)
+  #if compiler(>=5.3) && $NonescapableTypes
+  @_Concurrency.MainActor public static func updateMovementConsistency(for track: AizipFishCount.STrack, newPosition: (x: CoreFoundation.CGFloat, y: CoreFoundation.CGFloat), expectedDirection: AizipFishCount.CountingDirection?, isReactivation: Swift.Bool)
+  #endif
+  @_Concurrency.MainActor public static func calculateAdaptiveTTL(for track: AizipFishCount.STrack, isReactivation: Swift.Bool) -> Swift.Int
+}
+public class KalmanFilter : @unchecked Swift.Sendable {
+  public init()
+  public func initiate(measurement: [Swift.Float]) -> ([Swift.Float], [Swift.Float])
+  public func predict(mean: [Swift.Float], covariance: [Swift.Float]) -> ([Swift.Float], [Swift.Float])
+  public func update(mean: [Swift.Float], covariance: [Swift.Float], measurement: [Swift.Float]) -> ([Swift.Float], [Swift.Float])
+  public func project(mean: [Swift.Float], covariance: [Swift.Float]) -> ([Swift.Float], [Swift.Float])
+  @objc deinit
+}
+@_hasMissingDesignatedInitializers public class MatchingUtils {
+  public static func calculateIoU(box1: CoreFoundation.CGRect, box2: CoreFoundation.CGRect) -> Swift.Float
+  public static func iouDistance(tracks: [AizipFishCount.STrack], detections: [AizipFishCount.STrack]) -> [[Swift.Float]]
+  public static func positionDistance(tracks: [AizipFishCount.STrack], detections: [AizipFishCount.STrack]) -> [[Swift.Float]]
+  public static func giouDistance(tracks: [AizipFishCount.STrack], detections: [AizipFishCount.STrack]) -> [[Swift.Float]]
+  public static func diouDistance(tracks: [AizipFishCount.STrack], detections: [AizipFishCount.STrack]) -> [[Swift.Float]]
+  public static func ciouDistance(tracks: [AizipFishCount.STrack], detections: [AizipFishCount.STrack]) -> [[Swift.Float]]
+  public static func centerDistance(tracks: [AizipFishCount.STrack], detections: [AizipFishCount.STrack]) -> [[Swift.Float]]
+  public static func linearAssignment(costMatrix: [[Swift.Float]], threshold: Swift.Float = 0.7) -> ([Swift.Int], [Swift.Int], [Swift.Int], [Swift.Int])
+  public static func associateFirstStage(tracks: [AizipFishCount.STrack], detections: [AizipFishCount.STrack], thresholdFirstStage: Swift.Float) -> ([(Swift.Int, Swift.Int)], [Swift.Int], [Swift.Int])
+  public static func associateSecondStage(tracks: [AizipFishCount.STrack], detections: [AizipFishCount.STrack], thresholdSecondStage: Swift.Float) -> ([(Swift.Int, Swift.Int)], [Swift.Int])
+  public static func filterTracks(tracks: [AizipFishCount.STrack], threshold: Swift.Float = 0.6) -> [Swift.Int]
+  @objc deinit
+}
+public class OCKalmanFilter {
+  public init(bbox: [Swift.Double])
+  public func predict()
+  public func update(bbox: [Swift.Double])
+  public func getState() -> [Swift.Double]
+  public func getPosition() -> [Swift.Double]
+  public func getVelocity() -> [Swift.Double]
+  @objc deinit
+}
+@_Concurrency.MainActor public class OCSort : AizipFishCount.TrackerProtocol {
+  nonisolated convenience public init()
+  nonisolated public init(config: AizipFishCount.TrackingParameters.OCSortConfig)
+  @_Concurrency.MainActor public func update(detections: [AizipFishCount.Box], scores: [Swift.Float], classes: [Swift.String]) -> [AizipFishCount.STrack]
+  @_Concurrency.MainActor public func reset()
+  @_Concurrency.MainActor public func getActiveTracks() -> [AizipFishCount.STrack]
+  @objc deinit
+}
+public enum TrackState {
+  case new
+  case tracked
+  case lost
+  case removed
+  public static func == (a: AizipFishCount.TrackState, b: AizipFishCount.TrackState) -> Swift.Bool
+  public func hash(into hasher: inout Swift.Hasher)
+  public var hashValue: Swift.Int {
+    get
+  }
+}
+public class STrack {
+  @_Concurrency.MainActor public static var expectedMovementDirection: AizipFishCount.CountingDirection
+  final public let trackId: Swift.Int
+  public var position: (x: CoreFoundation.CGFloat, y: CoreFoundation.CGFloat)
+  public var state: AizipFishCount.TrackState
+  public var counted: Swift.Bool
+  public var ttl: Swift.Int
+  public var lastDetection: AizipFishCount.Box?
+  public var score: Swift.Float
+  public var cls: Swift.String
+  public var startFrame: Swift.Int
+  public var endFrame: Swift.Int
+  public var isActivated: Swift.Bool
+  public var trackletLen: Swift.Int
+  public var mean: [Swift.Float]?
+  public var covariance: [Swift.Float]?
+  public var movementConsistency: Swift.Float
+  public var framesWithExpectedMovement: Swift.Int
+  public var age: Swift.Int {
+    get
+  }
+  public var lastObservation: AizipFishCount.Box? {
+    get
+  }
+  #if compiler(>=5.3) && $NonescapableTypes
+  @_Concurrency.MainActor public init(trackId: Swift.Int, position: (x: CoreFoundation.CGFloat, y: CoreFoundation.CGFloat), detection: AizipFishCount.Box?, score: Swift.Float, cls: Swift.String)
+  #endif
+  #if compiler(>=5.3) && $NonescapableTypes
+  @_Concurrency.MainActor convenience public init(trackId: Swift.Int, position: (x: CoreFoundation.CGFloat, y: CoreFoundation.CGFloat), detection: AizipFishCount.Box?)
+  #endif
+  @_Concurrency.MainActor public func activate(kalmanFilter: AizipFishCount.KalmanFilter, frameId: Swift.Int)
+  @_Concurrency.MainActor public func reactivate(newTrack: AizipFishCount.STrack, frameId: Swift.Int, newId: Swift.Bool = false)
+  #if compiler(>=5.3) && $NonescapableTypes
+  @_Concurrency.MainActor public func update(newPosition: (x: CoreFoundation.CGFloat, y: CoreFoundation.CGFloat), detection: AizipFishCount.Box?, newScore: Swift.Float, frameId: Swift.Int)
+  #endif
+  @_Concurrency.MainActor public func decreaseTTL() -> Swift.Bool
+  public func markLost()
+  public func markCounted()
+  @_Concurrency.MainActor public func markRemoved()
+  public func predict()
+  @_Concurrency.MainActor public func cleanup()
+  public func getMovementVector(from previousPosition: (x: CoreFoundation.CGFloat, y: CoreFoundation.CGFloat)) -> (dx: CoreFoundation.CGFloat, dy: CoreFoundation.CGFloat)
+  public func recordObservation(bbox: AizipFishCount.Box)
+  #if compiler(>=5.3) && $NonescapableTypes
+  public func getPreviousObservation(deltaT: Swift.Int) -> (x: Swift.Float, y: Swift.Float, w: Swift.Float, h: Swift.Float)?
+  #endif
+  public func incrementAge()
+  public func clearObservations()
+  @_Concurrency.MainActor public static func nextId() -> Swift.Int
+  @_Concurrency.MainActor public static func resetId()
+  @_Concurrency.MainActor public static func multiPredict(tracks: [AizipFishCount.STrack])
+  @_Concurrency.MainActor public static func updateMulti(tracks: [AizipFishCount.STrack], dets: [AizipFishCount.STrack], frameId: Swift.Int)
+  @objc deinit
+}
+@_Concurrency.MainActor public protocol TrackerProtocol {
+  @_Concurrency.MainActor func update(detections: [AizipFishCount.Box], scores: [Swift.Float], classes: [Swift.String]) -> [AizipFishCount.STrack]
+  @_Concurrency.MainActor func reset()
+  @_Concurrency.MainActor func getActiveTracks() -> [AizipFishCount.STrack]
+}
+public struct TrackingParameters {
+  public struct SharedConfig : Swift.Sendable {
+  }
+  public struct ByteTrackConfig : Swift.Sendable {
+  }
+  public struct OCSortConfig : Swift.Sendable {
+  }
+  @_Concurrency.MainActor public static let defaultSharedConfig: AizipFishCount.TrackingParameters.SharedConfig
+  @_Concurrency.MainActor public static let defaultByteTrackConfig: AizipFishCount.TrackingParameters.ByteTrackConfig
+  public static let defaultOCSortConfig: AizipFishCount.TrackingParameters.OCSortConfig
+  public static let coreMLOCSortConfig: AizipFishCount.TrackingParameters.OCSortConfig
+  @_Concurrency.MainActor public static func shared() -> AizipFishCount.TrackingParameters.SharedConfig
+  @_Concurrency.MainActor public static func bytetrack() -> AizipFishCount.TrackingParameters.ByteTrackConfig
+  @_Concurrency.MainActor public static func ocsort() -> AizipFishCount.TrackingParameters.OCSortConfig
+  @_Concurrency.MainActor public static func updateParametersForCountingDirection(_ direction: Any)
+  @_Concurrency.MainActor public static var highMatchThreshold: Swift.Float {
+    get
+  }
+  @_Concurrency.MainActor public static var lowMatchThreshold: Swift.Float {
+    get
+  }
+  @_Concurrency.MainActor public static var minMatchDistance: CoreFoundation.CGFloat {
+    get
+  }
+  @_Concurrency.MainActor public static var iouMatchThreshold: Swift.Float {
+    get
+  }
+  @_Concurrency.MainActor public static var maxTimeLost: Swift.Int {
+    get
+  }
+  @_Concurrency.MainActor public static var maxUnmatchedFrames: Swift.Int {
+    get
+  }
+  @_Concurrency.MainActor public static var requiredFramesForTrack: Swift.Int {
+    get
+  }
+  @_Concurrency.MainActor public static var maxMatchingDistance: CoreFoundation.CGFloat {
+    get
+  }
+  @_Concurrency.MainActor public static var defaultTTL: Swift.Int {
+    get
+  }
+  @_Concurrency.MainActor public static var highConsistencyTTL: Swift.Int {
+    get
+  }
+  @_Concurrency.MainActor public static var mediumConsistencyTTL: Swift.Int {
+    get
+  }
+  @_Concurrency.MainActor public static var lowConsistencyTTL: Swift.Int {
+    get
+  }
+  @_Concurrency.MainActor public static var reactivationHighTTL: Swift.Int {
+    get
+  }
+  @_Concurrency.MainActor public static var reactivationMediumTTL: Swift.Int {
+    get
+  }
+  @_Concurrency.MainActor public static var reactivationLowTTL: Swift.Int {
+    get
+  }
+  @_Concurrency.MainActor public static var maxHorizontalDeviation: CoreFoundation.CGFloat {
+    get
+  }
+  @_Concurrency.MainActor public static var maxVerticalDeviation: CoreFoundation.CGFloat {
+    get
+  }
+  @_Concurrency.MainActor public static var consistencyIncreaseRate: CoreFoundation.CGFloat {
+    get
+  }
+  @_Concurrency.MainActor public static var consistencyDecreaseRate: CoreFoundation.CGFloat {
+    get
+  }
+  @_Concurrency.MainActor public static var reactivationConsistencyIncreaseRate: CoreFoundation.CGFloat {
+    get
+  }
+  @_Concurrency.MainActor public static var reactivationConsistencyDecreaseRate: CoreFoundation.CGFloat {
+    get
+  }
+}
+@_Concurrency.MainActor public class BoundingBoxView {
+  @_Concurrency.MainActor public init()
+  @_Concurrency.MainActor public func addToLayer(_ parent: QuartzCore.CALayer)
+  @_Concurrency.MainActor public func show(frame: CoreFoundation.CGRect, label: Swift.String, color: UIKit.UIColor, alpha: CoreFoundation.CGFloat)
+  @_Concurrency.MainActor public func hide()
+  @objc deinit
+}
+public func nonMaxSuppression(boxes: [CoreFoundation.CGRect], scores: [Swift.Float], threshold: Swift.Float) -> [Swift.Int]
+public let ultralyticsColors: [UIKit.UIColor]
+public func drawYOLODetections(on ciImage: CoreImage.CIImage, result: AizipFishCount.YOLOResult) -> UIKit.UIImage
+public func drawYOLOClassifications(on ciImage: CoreImage.CIImage, result: AizipFishCount.YOLOResult) -> UIKit.UIImage
+public struct UnifiedCoordinateSystem {
+  public struct UnifiedRect {
+    public let x: CoreFoundation.CGFloat
+    public let y: CoreFoundation.CGFloat
+    public let width: CoreFoundation.CGFloat
+    public let height: CoreFoundation.CGFloat
+    public init(x: CoreFoundation.CGFloat, y: CoreFoundation.CGFloat, width: CoreFoundation.CGFloat, height: CoreFoundation.CGFloat)
+    public var cgRect: CoreFoundation.CGRect {
+      get
+    }
+    public var center: (x: CoreFoundation.CGFloat, y: CoreFoundation.CGFloat) {
+      get
+    }
+  }
+  public struct UnifiedPoint {
+    public let x: CoreFoundation.CGFloat
+    public let y: CoreFoundation.CGFloat
+    public init(x: CoreFoundation.CGFloat, y: CoreFoundation.CGFloat)
+    public var cgPoint: CoreFoundation.CGPoint {
+      get
+    }
+  }
+  public static func fromVision(_ visionRect: CoreFoundation.CGRect) -> AizipFishCount.UnifiedCoordinateSystem.UnifiedRect
+  public static func fromCamera(_ cameraRect: CoreFoundation.CGRect, sessionPreset: AVFoundation.AVCaptureSession.Preset) -> AizipFishCount.UnifiedCoordinateSystem.UnifiedRect
+  public static func fromCameraWithAspectFill(_ cameraRect: CoreFoundation.CGRect, cameraSize: CoreFoundation.CGSize, displayBounds: CoreFoundation.CGRect) -> AizipFishCount.UnifiedCoordinateSystem.UnifiedRect
+  public static func fromAlbum(_ albumRect: CoreFoundation.CGRect, videoSize: CoreFoundation.CGSize, displayBounds: CoreFoundation.CGRect) -> AizipFishCount.UnifiedCoordinateSystem.UnifiedRect
+  public static func fromGoPro(_ goProRect: CoreFoundation.CGRect, streamSize: CoreFoundation.CGSize, displayBounds: CoreFoundation.CGRect) -> AizipFishCount.UnifiedCoordinateSystem.UnifiedRect
+  public static func fromUVC(_ uvcRect: CoreFoundation.CGRect, sourceSize: CoreFoundation.CGSize, displayBounds: CoreFoundation.CGRect) -> AizipFishCount.UnifiedCoordinateSystem.UnifiedRect
+  public static func toScreen(_ unifiedRect: AizipFishCount.UnifiedCoordinateSystem.UnifiedRect, screenBounds: CoreFoundation.CGRect) -> CoreFoundation.CGRect
+  public static func toCounting(_ unifiedRect: AizipFishCount.UnifiedCoordinateSystem.UnifiedRect, countingDirection: AizipFishCount.CountingDirection) -> AizipFishCount.UnifiedCoordinateSystem.UnifiedRect
+  public static func thresholdsToScreen(_ thresholds: [CoreFoundation.CGFloat], countingDirection: AizipFishCount.CountingDirection, screenBounds: CoreFoundation.CGRect) -> [CoreFoundation.CGRect]
+  public static func displayToCounting(_ displayThresholds: [CoreFoundation.CGFloat], countingDirection: AizipFishCount.CountingDirection) -> [CoreFoundation.CGFloat]
+  public static func countingToDisplay(_ countingThresholds: [CoreFoundation.CGFloat], countingDirection: AizipFishCount.CountingDirection) -> [CoreFoundation.CGFloat]
+  public static func isValid(_ rect: AizipFishCount.UnifiedCoordinateSystem.UnifiedRect) -> Swift.Bool
+  public static func clamp(_ rect: AizipFishCount.UnifiedCoordinateSystem.UnifiedRect) -> AizipFishCount.UnifiedCoordinateSystem.UnifiedRect
+  public static func fromCenter(_ center: AizipFishCount.UnifiedCoordinateSystem.UnifiedPoint, size: (width: CoreFoundation.CGFloat, height: CoreFoundation.CGFloat)) -> AizipFishCount.UnifiedCoordinateSystem.UnifiedRect
+}
+@_hasMissingDesignatedInitializers public class CoordinateSystemMigration {
+  public static func identifyTransformationCalls(in sourceFile: Swift.String) -> [Swift.String]
+  public static func migrationGuidance(for pattern: Swift.String) -> Swift.String
+  @objc deinit
+}
+public struct YOLOResult : @unchecked Swift.Sendable {
+  public let orig_shape: CoreFoundation.CGSize
+  public let boxes: [AizipFishCount.Box]
+  public var masks: AizipFishCount.Masks?
+  public var probs: AizipFishCount.Probs?
+  public var keypointsList: [AizipFishCount.Keypoints]
+  public var obb: [AizipFishCount.OBBResult]
+  public var annotatedImage: UIKit.UIImage?
+  public var speed: Swift.Double
+  public var fps: Swift.Double?
+  public var originalImage: UIKit.UIImage?
+  public var names: [Swift.String]
+}
+public struct Box : @unchecked Swift.Sendable {
+  public let index: Swift.Int
+  public let cls: Swift.String
+  public let conf: Swift.Float
+  public let xywh: CoreFoundation.CGRect
+  public let xywhn: CoreFoundation.CGRect
+}
+public struct Masks : @unchecked Swift.Sendable {
+  public let masks: [[[Swift.Float]]]
+  public let combinedMask: CoreGraphics.CGImage?
+}
+public struct Probs : @unchecked Swift.Sendable {
+  public var top1: Swift.String
+  public var top5: [Swift.String]
+  public var top1Conf: Swift.Float
+  public var top5Confs: [Swift.Float]
+}
+public struct Keypoints {
+  public let xyn: [(x: Swift.Float, y: Swift.Float)]
+  public let xy: [(x: Swift.Float, y: Swift.Float)]
+  public let conf: [Swift.Float]
+}
+public struct OBBResult {
+}
+public struct OBB {
+  public var cx: Swift.Float
+  public var cy: Swift.Float
+  public var w: Swift.Float
+  public var h: Swift.Float
+  public var angle: Swift.Float
+  public init(cx: Swift.Float, cy: Swift.Float, w: Swift.Float, h: Swift.Float, angle: Swift.Float)
+}
+public typealias Polygon = [CoreFoundation.CGPoint]
+extension AizipFishCount.OBB {
+  public func toPolygon() -> AizipFishCount.Polygon
+  public var area: CoreFoundation.CGFloat {
+    get
+  }
+}
+public enum YOLOTask {
+  case detect
+  case segment
+  case pose
+  case obb
+  case classify
+  case fishCount
+  public static func == (a: AizipFishCount.YOLOTask, b: AizipFishCount.YOLOTask) -> Swift.Bool
+  public func hash(into hasher: inout Swift.Hasher)
+  public var hashValue: Swift.Int {
+    get
+  }
+}
+extension AizipFishCount.CountingDirection : Swift.Equatable {}
+extension AizipFishCount.CountingDirection : Swift.Hashable {}
+extension AizipFishCount.ThresholdCounter : Swift.Sendable {}
+extension AizipFishCount.FrameSourceType : Swift.Equatable {}
+extension AizipFishCount.FrameSourceType : Swift.Hashable {}
+extension AizipFishCount.PredictorError : Swift.Equatable {}
+extension AizipFishCount.PredictorError : Swift.Hashable {}
+extension AizipFishCount.TrackingDetectorConfig : Swift.Sendable {}
+extension AizipFishCount.ByteTracker : Swift.Sendable {}
+extension AizipFishCount.ByteTrackHelpers : Swift.Sendable {}
+extension AizipFishCount.OCSort : Swift.Sendable {}
+extension AizipFishCount.TrackState : Swift.Equatable {}
+extension AizipFishCount.TrackState : Swift.Hashable {}
+extension AizipFishCount.BoundingBoxView : Swift.Sendable {}
+extension AizipFishCount.YOLOTask : Swift.Equatable {}
+extension AizipFishCount.YOLOTask : Swift.Hashable {}

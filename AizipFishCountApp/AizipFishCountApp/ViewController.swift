@@ -110,7 +110,7 @@ class ViewController: UIViewController, FishCountViewActionDelegate {
     // Test OpenCV integration
     // let isWorking = OpenCVBridge.isOpenCVWorking()
     // print("OpenCV integration test: \(isWorking)")
-    print("OpenCV version: \(OpenCVBridge.getOpenCVVersion() ?? "unknown")")
+    // print("OpenCV version: \(OpenCVBridge.getOpenCVVersion() ?? "unknown")")
 
     // Hide the segmented control as we'll use a toolbar button instead
     segmentedControl.isHidden = true

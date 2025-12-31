@@ -3,33 +3,26 @@
 ## Structure
 
 ```
-yolo-ios-app/                          # Development repo (partners get same structure)
-├── Sources/                           # Swift Package (2 targets)
-│   ├── AizipFishCount/                # Target 1: Backend → xcframework (binary for partners)
-│   │   ├── PublicAPI/                 # Public session protocol, types
-│   │   ├── Predictors/                # TrackingDetector (internal)
-│   │   ├── Tracking/                  # ByteTracker, OCSort (internal)
-│   │   ├── FishCounting/              # Counting, OpenCV (internal)
-│   │   └── FrameSources/              # Camera, Album, UVC (internal)
-│   └── Visualization/                 # Target 2: Frontend (source code for partners)
-│       ├── UI.swift                   # Complete UI (was YOLOView.swift)
-│       ├── BoundingBoxView.swift      # Rendering
-│       └── YOLOCamera.swift           # SwiftUI wrapper
-├── Packages/opencv2/                  # Backend dependency (embedded in xcframework)
-│   ├── opencv2.xcframework/
-│   ├── OpenCVBridge.h
-│   └── OpenCVBridge.mm
-├── AizipFishCountApp/AIzipFishCountApp/  # iOS app example
-│   ├── AppDelegate.swift              # App lifecycle
-│   ├── ViewController.swift           # App UI integration
-│   ├── ModelDownloadManager.swift     # App-specific
-│   └── FishCountModels/               # CoreML models
-└── Package.swift                      # Defines 2 targets
+yolo-ios-app/
+├── Sources/                            # Canonical source (edit here)
+│   ├── AizipFishCount/                 # Backend
+│   └── Visualization/                  # Frontend UI
+│
+├── AizipFishCountApp/                  # Dev project (Swift Package)
+│   └── AizipFishCountApp.xcodeproj
+│
+├── AizipFishCountApp-Release/          # Release project (Framework)
+│   ├── AizipFishCountApp.xcodeproj
+│   └── AizipFishCount/                 # Copied from Sources/
+│
+├── Packages/opencv2/                   # OpenCV xcframework
+├── build/                              # XCFramework output
+└── Scripts/                            # Build scripts
 ```
 
-**Partner Distribution**: Same structure, but `AizipFishCount/` → `AizipFishCount.xcframework/` (binary)
+**See**: `setup.md` for quick reference
 
-**Flow**: `CameraVideoSource → session.processFrame() → TrackingDetector → ByteTracker → Delegate → UI (YOLOView)`
+**Flow**: `Camera → session.processFrame() → TrackingDetector → ByteTracker → Delegate → UI`
 
 ## Development Rules
 
@@ -49,10 +42,12 @@ yolo-ios-app/                          # Development repo (partners get same str
 - Add docstrings (Apple markup) for public APIs
 - Use Accelerate framework for math (not manual loops)
 
-## Build Command
+## Build Commands
 
-**iPad Pro M4 Simulator**:
-- Xcode version: 16.2, iOS version: 18.2
+### Development Build (Daily Work)
+
+**Use**: `AizipFishCountApp` project with Swift Package
+
 ```bash
 cd /Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app/AizipFishCountApp && \
 xcodebuild -configuration Debug \
@@ -65,11 +60,29 @@ xcodebuild -configuration Debug \
            -quiet | grep -E "error:|warning:|BUILD|SUCCEEDED|FAILED" | head -50
 ```
 
-**OpenCV Framework**:
+**Xcode**: Open `AizipFishCountApp/AizipFishCountApp.xcodeproj`, select iPad Pro M4 simulator
+
+### Release Build (Partner Distribution)
+
+**Use**: `AizipFishCountApp-Release` project with Framework target
+
+```bash
+cd /Users/xxb9075/Documents/softbank_fishcount_iphone14/yolo-ios-app
+./Scripts/build_aizipfishcount_xcframework.sh
+```
+
+**Output**: `AizipFishCountApp-Release/Library/AizipFishCount.xcframework` (5.7MB)
+
+**Protected**: ByteTracker, OCSort, TrackingDetector, counting logic (compiled binary)
+**Exposed**: Public APIs only (FishCountingSession protocol, configuration types)
+
+### OpenCV Integration
+
 - Using `opencv2.xcframework` (universal binary, embedded with "Embed & Sign")
 - XCFramework automatically selects correct architecture (device vs simulator)
 - `HEADER_SEARCH_PATHS` required for OpenCVBridge.h (Obj-C++ bridging header)
 - Framework search paths use `$(inherited)` (configured in project.pbxproj)
+- **Note**: OpenCV calls are commented out in AizipFishCount framework
 
 ## Python → Swift Translation
 

@@ -391,17 +391,22 @@ public class TrackingDetector: ObjectDetector {
         
         // Normal threshold calibration mode
         // Mark that Phase 1 is actually being executed
-        wasPhase1Executed = true
-        
+        wasPhase1Executed = false  // Phase 1 disabled - OpenCV removed from framework
+
+        // OpenCV integration removed to enable xcframework distribution
+        // Phase 1 calibration (threshold detection) is disabled
+        print("⚠️ Phase 1 calibration: Disabled (OpenCV not available in framework)")
+
+        /* Original OpenCV code - commented out for xcframework build
         // Process frame with OpenCV directly for calibration
         let isVerticalDirection = countingDirection == .topToBottom || countingDirection == .bottomToTop
-        
-        if let thresholds = OpenCVWrapper.processCalibrationFrame(pixelBuffer, isVerticalDirection: isVerticalDirection) as? [NSNumber], 
+
+        if let thresholds = OpenCVWrapper.processCalibrationFrame(pixelBuffer, isVerticalDirection: isVerticalDirection) as? [NSNumber],
            thresholds.count >= 2 {
             // Accumulate these threshold values (we'll average them at the end)
             let threshold1 = CGFloat(thresholds[0].floatValue)
             let threshold2 = CGFloat(thresholds[1].floatValue)
-            
+
             // Update our running thresholds
             if calibrationFrameCount == 1 {
                 // First frame - just use the values directly
@@ -409,12 +414,13 @@ public class TrackingDetector: ObjectDetector {
             } else {
                 // Accumulate by blending with previous values using weighted average
                 // Give more weight to newer frames using a simple exponential moving average
-                let weight = 2.0 / Double(calibrationFrameCount + 1) 
+                let weight = 2.0 / Double(calibrationFrameCount + 1)
                 let newThreshold1 = CGFloat(weight) * threshold1 + CGFloat(1 - weight) * calibrationThresholds[0]
                 let newThreshold2 = CGFloat(weight) * threshold2 + CGFloat(1 - weight) * calibrationThresholds[1]
                 calibrationThresholds = [newThreshold1, newThreshold2]
             }
         }
+        */
         
         // Check if we've processed enough frames for this phase
         if calibrationFrameCount >= config.thresholdCalibrationFrames {
