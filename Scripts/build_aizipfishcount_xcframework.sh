@@ -22,6 +22,22 @@ if [ ! -d "${RELEASE_PROJECT}" ]; then
     exit 1
 fi
 
+# Sync source code from Sources/AizipFishCount to Release project
+echo "🔄 Syncing source code from Sources/AizipFishCount..."
+SOURCE_DIR="${PROJECT_ROOT}/Sources/AizipFishCount"
+FRAMEWORK_SOURCE="${RELEASE_PROJECT}/AizipFishCount"
+
+if [ ! -d "${SOURCE_DIR}" ]; then
+    echo "❌ Error: Source directory not found at: ${SOURCE_DIR}"
+    exit 1
+fi
+
+# Remove old framework source and copy fresh
+rm -rf "${FRAMEWORK_SOURCE}"
+cp -R "${SOURCE_DIR}" "${FRAMEWORK_SOURCE}"
+echo "✅ Source code synced successfully"
+echo ""
+
 # Clean previous builds
 echo "🧹 Cleaning previous builds..."
 rm -rf "${BUILD_DIR}"

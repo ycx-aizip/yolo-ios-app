@@ -4,6 +4,7 @@
 .cursorignore
 .cursor/
 .claude/settings.local.json
+*CLAUDE*
 *.code-workspace
 
 # Repo-specific GitIgnore ----------------------------------------------------------------------------------------------
