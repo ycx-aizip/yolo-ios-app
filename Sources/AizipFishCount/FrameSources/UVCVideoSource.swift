@@ -29,28 +29,28 @@ import Foundation
 /// - Smooth orientation transitions with consistent video display
 /// - Performance metrics and logging
 @preconcurrency
-class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
+public class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     
     // MARK: - FrameSource Protocol Properties
     
-    var predictor: FrameProcessor!
-    var previewLayer: AVCaptureVideoPreviewLayer?
-    weak var videoCaptureDelegate: VideoCaptureDelegate?
+    public var predictor: FrameProcessor!
+    public var previewLayer: AVCaptureVideoPreviewLayer?
+    weak public var videoCaptureDelegate: VideoCaptureDelegate?
     weak var frameSourceDelegate: FrameSourceDelegate?
     var captureDevice: AVCaptureDevice?
     let captureSession = AVCaptureSession()
     var videoInput: AVCaptureDeviceInput?
     let videoOutput = AVCaptureVideoDataOutput()
     let cameraQueue = DispatchQueue(label: "uvc-camera-queue")
-    var inferenceOK = true
-    var longSide: CGFloat = 3
-    var shortSide: CGFloat = 4
+    public var inferenceOK = true
+    public var longSide: CGFloat = 3
+    public var shortSide: CGFloat = 4
     
     /// The source type identifier
-    var sourceType: FrameSourceType { return .uvc }
+    public var sourceType: FrameSourceType { return .uvc }
     
     /// The delegate to receive frames and performance metrics
-    var delegate: FrameSourceDelegate? {
+    public var delegate: FrameSourceDelegate? {
         get { return frameSourceDelegate }
         set { frameSourceDelegate = newValue }
     }
@@ -141,7 +141,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     // MARK: - Initialization
     
     /// Initializes UVC video source with connection monitoring
-    override init() {
+    public override init() {
         super.init()
         Task { @MainActor in
             self.setupConnectionMonitoring()
@@ -213,11 +213,12 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
         }
         
         captureDevice = nil
-        
+
         // Notify delegates about disconnection if needed
-        if let delegate = videoCaptureDelegate as? FishCountView {
-            print("UVC: Device disconnected - consider switching back to camera source")
-        }
+        // Note: FishCountView is now in Visualization module, avoiding circular dependency
+        // if let delegate = videoCaptureDelegate as? FishCountView {
+        print("UVC: Device disconnected - consider switching back to camera source")
+        // }
     }
 
     // MARK: - Device Discovery & Management
@@ -335,7 +336,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     
     /// Gets detailed status information for the current UVC device configuration
     /// - Returns: Detailed status string for UI display
-    func getDetailedStatus() -> String {
+    public func getDetailedStatus() -> String {
         guard let device = captureDevice,
               let config = activeConfiguration else {
             return "No UVC camera connected"
@@ -606,7 +607,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     // MARK: - FrameSource Protocol Implementation
     
     @MainActor
-    func setUp(completion: @escaping (Bool) -> Void) {
+    public func setUp(completion: @escaping (Bool) -> Void) {
         print("UVC: Starting setup...")
         
         guard let uvcDevice = Self.bestUVCDevice() else {
@@ -753,7 +754,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     }
 
     /// Starts frame acquisition from the UVC camera
-    nonisolated func start() {
+    nonisolated public func start() {
         print("UVC: Start method called")
         guard !captureSession.isRunning else {
             print("UVC: Session already running")
@@ -772,7 +773,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     }
 
     /// Stops frame acquisition from the UVC camera
-    nonisolated func stop() {
+    nonisolated public func stop() {
         guard captureSession.isRunning else { return }
         DispatchQueue.global().async {
             self.captureSession.stopRunning()
@@ -781,7 +782,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
 
     /// Sets the zoom level for the UVC camera, if supported
     /// - Parameter ratio: The zoom ratio to apply
-    nonisolated func setZoomRatio(ratio: CGFloat) {
+    nonisolated public func setZoomRatio(ratio: CGFloat) {
         guard let captureDevice = captureDevice else { return }
         
         do {
@@ -800,7 +801,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     
     /// Resets processing state to allow normal inference to resume after calibration
     @MainActor
-    func resetProcessingState() {
+    public func resetProcessingState() {
         isModelProcessing = false
         print("UVC: Processing state reset - ready for normal inference")
     }
@@ -808,7 +809,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     /// Captures a still image from the UVC camera (not supported)
     /// - Parameter completion: Callback with nil (UVC cameras don't support photo capture)
     @MainActor
-    func capturePhoto(completion: @escaping @Sendable (UIImage?) -> Void) {
+    public func capturePhoto(completion: @escaping @Sendable (UIImage?) -> Void) {
         completion(nil)
     }
     
@@ -817,7 +818,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     ///   - viewController: The view controller to present UI from
     ///   - completion: Called when selection is complete with true
     @MainActor
-    func showContentSelectionUI(from viewController: UIViewController, completion: @escaping (Bool) -> Void) {
+    public func showContentSelectionUI(from viewController: UIViewController, completion: @escaping (Bool) -> Void) {
         // Show capability report popup if device is available
         if let capabilities = cachedCapabilities {
             showCapabilityReport(capabilities, from: viewController)
@@ -878,7 +879,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     /// Requests camera permission for UVC cameras
     /// - Parameter completion: Called with the result of the permission request
     @MainActor
-    func requestPermission(completion: @escaping (Bool) -> Void) {
+    public func requestPermission(completion: @escaping (Bool) -> Void) {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             completion(true)
@@ -898,7 +899,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     /// Updates the UVC camera for orientation changes with smooth transitions
     /// - Parameter orientation: The new device orientation
     @MainActor
-    func updateForOrientationChange(orientation: UIDeviceOrientation) {
+    public func updateForOrientationChange(orientation: UIDeviceOrientation) {
         guard !isUpdatingOrientation else {
             pendingOrientationUpdate = orientation
             return
@@ -1014,7 +1015,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     // MARK: - UI Integration & Coordinate Transformation
     
     @MainActor
-    func integrateWithFishCountView(view: UIView) {
+    public func integrateWithFishCountView(view: UIView) {
         guard let previewLayer = self.previewLayer else { return }
         
         view.layer.insertSublayer(previewLayer, at: 0)
@@ -1030,14 +1031,14 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     /// Adds an overlay layer to the UVC preview
     /// - Parameter layer: The layer to add
     @MainActor
-    func addOverlayLayer(_ layer: CALayer) {
+    public func addOverlayLayer(_ layer: CALayer) {
         previewLayer?.addSublayer(layer)
     }
     
     /// Adds bounding box views to the UVC preview
     /// - Parameter boxViews: The bounding box views to add
     @MainActor
-    func addBoundingBoxViews(_ boxViews: [BoundingBoxView]) {
+    public func addBoundingBoxViews(_ boxViews: [BoundingBoxView]) {
         guard let previewLayer = self.previewLayer else { return }
         for box in boxViews {
             box.addToLayer(previewLayer)
@@ -1051,7 +1052,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
     ///   - orientation: The current device orientation
     /// - Returns: A rectangle in screen coordinates
     @MainActor
-    func transformDetectionToScreenCoordinates(rect: CGRect, viewBounds: CGRect, orientation: UIDeviceOrientation) -> CGRect {
+    public func transformDetectionToScreenCoordinates(rect: CGRect, viewBounds: CGRect, orientation: UIDeviceOrientation) -> CGRect {
         // Convert to unified coordinate system first
         let unifiedRect = toUnifiedCoordinates(rect)
         
@@ -1248,7 +1249,7 @@ class UVCVideoSource: NSObject, FrameSource, @unchecked Sendable {
 // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
 
 extension UVCVideoSource: AVCaptureVideoDataOutputSampleBufferDelegate {
-    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+    public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         processFrameOnCameraQueue(sampleBuffer: sampleBuffer)
     }
 }
@@ -1256,7 +1257,7 @@ extension UVCVideoSource: AVCaptureVideoDataOutputSampleBufferDelegate {
 // MARK: - ResultsListener & InferenceTimeListener
 
 extension UVCVideoSource: ResultsListener, InferenceTimeListener {
-    func on(inferenceTime: Double, fpsRate: Double) {
+    public func on(inferenceTime: Double, fpsRate: Double) {
         lastInferenceTime = inferenceTime
         
         DispatchQueue.main.async {
@@ -1265,7 +1266,7 @@ extension UVCVideoSource: ResultsListener, InferenceTimeListener {
         }
     }
 
-    func on(result: YOLOResult) {
+    public func on(result: YOLOResult) {
         let postProcessingStartTime = CACurrentMediaTime()
         let timestamp = CACurrentMediaTime()
         

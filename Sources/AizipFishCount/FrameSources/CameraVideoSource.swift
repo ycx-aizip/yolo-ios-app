@@ -18,7 +18,7 @@ import Vision
 
 /// Protocol for receiving video capture frame processing results.
 @MainActor
-protocol VideoCaptureDelegate: AnyObject {
+public protocol VideoCaptureDelegate: AnyObject {
   func onPredict(result: YOLOResult)
   func onInferenceTime(speed: Double, fps: Double)
   func onClearBoxes()
@@ -46,29 +46,29 @@ func bestCaptureDevice(position: AVCaptureDevice.Position) -> AVCaptureDevice {
 }
 
 @preconcurrency
-class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
-  var predictor: FrameProcessor!
-  var previewLayer: AVCaptureVideoPreviewLayer?
-  weak var videoCaptureDelegate: VideoCaptureDelegate?
-  weak var frameSourceDelegate: FrameSourceDelegate?
-  var captureDevice: AVCaptureDevice?
-  let captureSession = AVCaptureSession()
+public class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
+  public var predictor: FrameProcessor!
+  public var previewLayer: AVCaptureVideoPreviewLayer?
+  weak public var videoCaptureDelegate: VideoCaptureDelegate?
+  weak public var frameSourceDelegate: FrameSourceDelegate?
+  public var captureDevice: AVCaptureDevice?
+  public let captureSession = AVCaptureSession()
   var videoInput: AVCaptureDeviceInput? = nil
   let videoOutput = AVCaptureVideoDataOutput()
   let cameraQueue = DispatchQueue(label: "camera-queue")
-  var inferenceOK = true
-  var longSide: CGFloat = 3
-  var shortSide: CGFloat = 4
+  public var inferenceOK = true
+  public var longSide: CGFloat = 3
+  public var shortSide: CGFloat = 4
   var frameSizeCaptured = false
   
   // Implement FrameSource protocol property
-  var delegate: FrameSourceDelegate? {
+  public var delegate: FrameSourceDelegate? {
     get { return frameSourceDelegate }
     set { frameSourceDelegate = newValue }
   }
   
   // Implement FrameSource protocol property
-  var sourceType: FrameSourceType { return .camera }
+  public var sourceType: FrameSourceType { return .camera }
 
   private var currentBuffer: CVPixelBuffer?
   
@@ -123,11 +123,11 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
   }
   
   // Default initializer
-  override init() {
+  public override init() {
     super.init()
   }
 
-  func setUp(
+  public func setUp(
     sessionPreset: AVCaptureSession.Preset? = nil,
     position: AVCaptureDevice.Position,
     orientation: UIDeviceOrientation,
@@ -152,7 +152,7 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
   
   // Simplified version for FrameSource protocol compatibility
   @MainActor
-  func setUp(completion: @escaping @Sendable (Bool) -> Void) {
+  public func setUp(completion: @escaping @Sendable (Bool) -> Void) {
     // Capture orientation and preset on the main actor
     let orientation = UIDevice.current.orientation
     let preset = self.optimalSessionPreset
@@ -247,7 +247,7 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
     return true
   }
 
-  nonisolated func start() {
+  nonisolated public func start() {
     if !captureSession.isRunning {
       DispatchQueue.global().async {
         self.captureSession.startRunning()
@@ -255,7 +255,7 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
     }
   }
 
-  nonisolated func stop() {
+  nonisolated public func stop() {
     if captureSession.isRunning {
       DispatchQueue.global().async {
         self.captureSession.stopRunning()
@@ -263,7 +263,7 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
     }
   }
 
-  nonisolated func setZoomRatio(ratio: CGFloat) {
+  nonisolated public func setZoomRatio(ratio: CGFloat) {
     do {
       try captureDevice!.lockForConfiguration()
       defer {
@@ -277,7 +277,7 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
   
   /// Resets processing state to allow normal inference to resume after calibration
   @MainActor
-  func resetProcessingState() {
+  public func resetProcessingState() {
     isModelProcessing = false
     print("Camera: Processing state reset - ready for normal inference")
   }
@@ -413,7 +413,7 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
   
   /// Implementation of the FrameSource protocol method to request camera permission
   @MainActor
-  func requestPermission(completion: @escaping (Bool) -> Void) {
+  public func requestPermission(completion: @escaping (Bool) -> Void) {
     switch AVCaptureDevice.authorizationStatus(for: .video) {
     case .authorized:
       // Already authorized
@@ -435,7 +435,7 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
   
   /// Implementation of the FrameSource protocol method to handle orientation changes
   @MainActor
-  func updateForOrientationChange(orientation: UIDeviceOrientation) {
+  public func updateForOrientationChange(orientation: UIDeviceOrientation) {
     var videoOrientation: AVCaptureVideoOrientation = .portrait
     
     switch orientation {
@@ -494,7 +494,7 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
   // MARK: - FrameSource Protocol Implementation for UI Integration
   
   @MainActor
-  func integrateWithFishCountView(view: UIView) {
+  public func integrateWithFishCountView(view: UIView) {
     // For camera source, we need to add the preview layer to the view's layer
     if let previewLayer = self.previewLayer {
       view.layer.insertSublayer(previewLayer, at: 0)
@@ -503,7 +503,7 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
   }
   
   @MainActor
-  func addOverlayLayer(_ layer: CALayer) {
+  public func addOverlayLayer(_ layer: CALayer) {
     // Add the overlay layer to the preview layer
     if let previewLayer = self.previewLayer {
       previewLayer.addSublayer(layer)
@@ -511,7 +511,7 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
   }
   
   @MainActor
-  func addBoundingBoxViews(_ boxViews: [BoundingBoxView]) {
+  public func addBoundingBoxViews(_ boxViews: [BoundingBoxView]) {
     // Add bounding box views to the preview layer
     if let previewLayer = self.previewLayer {
       for box in boxViews {
@@ -523,7 +523,7 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
   // MARK: - Coordinate Transformation
   
   @MainActor
-  func transformDetectionToScreenCoordinates(
+  public func transformDetectionToScreenCoordinates(
     rect: CGRect,
     viewBounds: CGRect,
     orientation: UIDeviceOrientation
@@ -565,7 +565,7 @@ class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
 }
 
 extension CameraVideoSource: AVCaptureVideoDataOutputSampleBufferDelegate {
-  func captureOutput(
+  public func captureOutput(
     _ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
     from connection: AVCaptureConnection
   ) {
@@ -576,7 +576,7 @@ extension CameraVideoSource: AVCaptureVideoDataOutputSampleBufferDelegate {
 }
 
 extension CameraVideoSource: ResultsListener, InferenceTimeListener {
-  func on(inferenceTime: Double, fpsRate: Double) {
+  public func on(inferenceTime: Double, fpsRate: Double) {
     lastInferenceTime = inferenceTime
     
     DispatchQueue.main.async {
@@ -585,7 +585,7 @@ extension CameraVideoSource: ResultsListener, InferenceTimeListener {
     }
   }
 
-  func on(result: YOLOResult) {
+  public func on(result: YOLOResult) {
     let postProcessingStartTime = CACurrentMediaTime()
     let timestamp = CACurrentMediaTime()
     

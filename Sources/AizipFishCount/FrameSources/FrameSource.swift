@@ -14,7 +14,7 @@ import Vision
 
 /// Protocol for receiving frames from any frame source.
 @MainActor
-protocol FrameSourceDelegate: AnyObject {
+public protocol FrameSourceDelegate: AnyObject {
     /// Called when a new frame is available from the source.
     ///
     /// - Parameters:
@@ -33,7 +33,7 @@ protocol FrameSourceDelegate: AnyObject {
 
 /// Protocol defining the minimal interface needed for processing frames
 /// This simply uses Predictor directly, avoiding protocol extension issues
-typealias FrameProcessor = Predictor
+public typealias FrameProcessor = Predictor
 
 /// Standard settings and utilities for frame sources
 enum FrameSourceSettings {
@@ -75,7 +75,7 @@ enum FrameSourceSettings {
 }
 
 /// Protocol defining a common interface for all frame sources.
-protocol FrameSource: AnyObject {
+public protocol FrameSource: AnyObject {
     /// The delegate to receive frames and performance metrics.
     var delegate: FrameSourceDelegate? { get set }
     
@@ -334,14 +334,14 @@ extension FrameSource {
     
     /// Default implementation for showing content selection UI - no UI to show
     @MainActor
-    func showContentSelectionUI(from viewController: UIViewController, completion: @escaping (Bool) -> Void) {
+    public func showContentSelectionUI(from viewController: UIViewController, completion: @escaping (Bool) -> Void) {
         // By default, no content selection UI is available
         completion(false)
     }
-    
+
     /// Default implementation of capturePhoto - doesn't capture anything
     @MainActor
-    func capturePhoto(completion: @escaping @Sendable (UIImage?) -> Void) {
+    public func capturePhoto(completion: @escaping @Sendable (UIImage?) -> Void) {
         // Default implementation does nothing and returns nil
         completion(nil)
     }

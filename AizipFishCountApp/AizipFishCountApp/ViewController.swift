@@ -18,6 +18,7 @@ import CoreMedia
 import ReplayKit
 import UIKit
 import AizipFishCount
+import Visualization
 
 /// The main view controller for the YOLO iOS application, handling model selection and visualization.
 class ViewController: UIViewController, FishCountViewActionDelegate {

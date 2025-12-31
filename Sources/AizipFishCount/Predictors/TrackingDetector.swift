@@ -81,7 +81,7 @@ public class TrackingDetectorConfig {
  * - Maintains tracking states similar to `track_states` dictionary in Python
  * - Provides methods to integrate tracking information with visualization
  */
-class TrackingDetector: ObjectDetector {
+public class TrackingDetector: ObjectDetector {
     
     /// The tracker instance (protocol-based for flexibility)
     /// Using nonisolated(unsafe) to avoid Sendable issues with protocol types
@@ -149,16 +149,16 @@ class TrackingDetector: ObjectDetector {
     // MARK: - Unified Calibration Callbacks
     
     /// Callback for reporting calibration progress (unified for both phases)
-    var onCalibrationProgress: ((Int, Int) -> Void)?
+    public var onCalibrationProgress: ((Int, Int) -> Void)?
     
     /// Callback for reporting calibration completion with new thresholds
-    var onCalibrationComplete: (([CGFloat]) -> Void)?
+    public var onCalibrationComplete: (([CGFloat]) -> Void)?
     
     /// Callback for reporting direction detection
-    var onDirectionDetected: ((CountingDirection) -> Void)?
+    public var onDirectionDetected: ((CountingDirection) -> Void)?
     
     /// Callback for reporting complete calibration summary
-    var onCalibrationSummary: ((CalibrationSummary) -> Void)?
+    public var onCalibrationSummary: ((CalibrationSummary) -> Void)?
     
     // MARK: - Initialization
     
@@ -187,7 +187,7 @@ class TrackingDetector: ObjectDetector {
     /// Apply the shared configuration to this instance
     /// This must be called after initialization to apply the centralized settings
     @MainActor
-    func applySharedConfiguration() {
+    public func applySharedConfiguration() {
         let config = TrackingDetectorConfig.shared
 
         // Apply detection configuration
@@ -212,7 +212,7 @@ class TrackingDetector: ObjectDetector {
     
     /// Sets the thresholds for counting
     @MainActor
-    func setThresholds(_ values: [CGFloat]) {
+    public func setThresholds(_ values: [CGFloat]) {
         guard values.count >= 1 else { return }
         
         // Delegate to counter
@@ -221,7 +221,7 @@ class TrackingDetector: ObjectDetector {
     
     /// Sets the thresholds with original display values (for bypass mode)
     @MainActor
-    func setThresholds(_ countingValues: [CGFloat], originalDisplayValues: [CGFloat]) {
+    public func setThresholds(_ countingValues: [CGFloat], originalDisplayValues: [CGFloat]) {
         guard countingValues.count >= 1 && originalDisplayValues.count >= 1 else { return }
         
         // Configure counter with counting thresholds
@@ -236,7 +236,7 @@ class TrackingDetector: ObjectDetector {
     ///
     /// - Returns: The total count
     @MainActor
-    func getCount() -> Int {
+    public func getCount() -> Int {
         return counter.getTotalCount()
     }
     
@@ -258,7 +258,7 @@ class TrackingDetector: ObjectDetector {
     
     /// Sets the counting direction
     @MainActor
-    func setCountingDirection(_ direction: CountingDirection) {
+    public func setCountingDirection(_ direction: CountingDirection) {
         self.countingDirection = direction
         
         // Update counter configuration
@@ -278,7 +278,7 @@ class TrackingDetector: ObjectDetector {
     
     /// Enable or disable auto-calibration
     @MainActor
-    func setAutoCalibration(enabled: Bool) {
+    public func setAutoCalibration(enabled: Bool) {
         // If we're disabling calibration that was previously enabled, clean up properly
         if !enabled && isAutoCalibrationEnabled {
             resetCalibration()
@@ -775,7 +775,7 @@ class TrackingDetector: ObjectDetector {
      * - Identifies track ID and counted status for UI rendering
      */
     @MainActor
-    func getTrackInfo(for box: Box) -> (trackId: Int, isCounted: Bool)? {
+    public func getTrackInfo(for box: Box) -> (trackId: Int, isCounted: Bool)? {
         // Calculate the center of the box
         let centerX = (box.xywhn.minX + box.xywhn.maxX) / 2
         let centerY = (box.xywhn.minY + box.xywhn.maxY) / 2
@@ -837,7 +837,7 @@ class TrackingDetector: ObjectDetector {
     /// - Parameter box: The detection box to check
     /// - Returns: True if the box is associated with an active track
     @MainActor
-    func isObjectTracked(box: Box) -> Bool {
+    public func isObjectTracked(box: Box) -> Bool {
         return getTrackingStatus(for: box).isTracked
     }
     
@@ -846,7 +846,7 @@ class TrackingDetector: ObjectDetector {
     /// - Parameter box: The detection box to check
     /// - Returns: True if the box is associated with a track that has been counted
     @MainActor
-    func isObjectCounted(box: Box) -> Bool {
+    public func isObjectCounted(box: Box) -> Bool {
         return getTrackingStatus(for: box).isCounted
     }
     
@@ -870,7 +870,7 @@ class TrackingDetector: ObjectDetector {
     ///
     /// - Returns: True if auto-calibration is active
     @MainActor
-    func getAutoCalibrationEnabled() -> Bool {
+    public func getAutoCalibrationEnabled() -> Bool {
         return isAutoCalibrationEnabled
     }
     

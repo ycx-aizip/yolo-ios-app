@@ -21,20 +21,20 @@ import CoreMedia
 // Extension for Notification.Name to define custom notifications
 extension Notification.Name {
     /// Notification posted when video playback has ended
-    static let videoPlaybackDidEnd = Notification.Name("videoPlaybackDidEnd")
+    public static let videoPlaybackDidEnd = Notification.Name("videoPlaybackDidEnd")
 }
 
 /// Frame source implementation that plays videos from the photo library.
 @preconcurrency
-class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeListener {
+public class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeListener {
     /// The delegate to receive frames and performance metrics.
-    weak var delegate: FrameSourceDelegate?
+    weak public var delegate: FrameSourceDelegate?
     
     /// The VideoCaptureDelegate to receive prediction results (same as in CameraVideoSource).
-    weak var videoCaptureDelegate: VideoCaptureDelegate?
+    weak public var videoCaptureDelegate: VideoCaptureDelegate?
     
     /// The predictor used to process frames from this source.
-    var predictor: FrameProcessor!
+    public var predictor: FrameProcessor!
     
     /// The video player.
     private var player: AVPlayer?
@@ -64,10 +64,10 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     private var actualFrameSize: CGSize = .zero
     
     /// The long side of the video frame (for compatibility with CameraVideoSource).
-    var longSide: CGFloat = 3
+    public var longSide: CGFloat = 3
     
     /// The short side of the video frame (for compatibility with CameraVideoSource).
-    var shortSide: CGFloat = 4
+    public var shortSide: CGFloat = 4
     
     /// Flag indicating if the frame size has been captured.
     var frameSizeCaptured = false
@@ -88,21 +88,21 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     private var isProcessing: Bool = false
     
     /// Flag indicating if inference should be performed on frames
-    var inferenceOK: Bool = true
+    public var inferenceOK: Bool = true
     
     /// The preview layer for displaying the source's visual output.
     private var _previewLayer: AVPlayerLayer?
-    var previewLayer: AVCaptureVideoPreviewLayer? {
+    public var previewLayer: AVCaptureVideoPreviewLayer? {
         return nil // AVPlayerLayer is used directly instead
     }
     
     /// Returns the player layer for displaying video.
-    var playerLayer: AVPlayerLayer? {
+    public var playerLayer: AVPlayerLayer? {
         return _previewLayer
     }
     
     /// The source type identifier.
-    var sourceType: FrameSourceType {
+    public var sourceType: FrameSourceType {
         return .videoFile
     }
     
@@ -133,7 +133,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     
     // MARK: - Initialization
     
-    override init() {
+    public override init() {
         super.init()
         // Explicitly set inferenceOK to true to prevent automatic calibration
         inferenceOK = true
@@ -269,7 +269,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     
     /// Configures video orientation and layout when device orientation changes
     @MainActor
-    func updateForOrientationChange(orientation: UIDeviceOrientation) {
+    public func updateForOrientationChange(orientation: UIDeviceOrientation) {
         // Update content rect based on new orientation
         updateVideoContentRect()
     }
@@ -279,13 +279,13 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     /// - Parameters:
     ///   - completion: Called when setup is complete, with a Boolean indicating success.
     @MainActor
-    func setUp(completion: @escaping @Sendable (Bool) -> Void) {
+    public func setUp(completion: @escaping @Sendable (Bool) -> Void) {
         // Default implementation returns true since actual setup requires a video URL
         completion(true)
     }
     
     /// Begins frame acquisition from the source.
-    nonisolated func start() {
+    nonisolated public func start() {
         Task { @MainActor in
             // Check here instead of in the nonisolated context
             if videoURL == nil { return }
@@ -302,7 +302,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     }
     
     /// Stops frame acquisition from the source.
-    nonisolated func stop() {
+    nonisolated public func stop() {
         Task { @MainActor in
             stopMainActorIsolated()
         }
@@ -318,7 +318,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     /// Sets the zoom level for the video (not supported).
     ///
     /// - Parameter ratio: The zoom ratio to apply.
-    nonisolated func setZoomRatio(ratio: CGFloat) {
+    nonisolated public func setZoomRatio(ratio: CGFloat) {
         // Zoom not supported for video playback
     }
     
@@ -326,7 +326,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     
     /// Implementation of the FrameSource protocol method to request photo library permission
     @MainActor
-    func requestPermission(completion: @escaping (Bool) -> Void) {
+    public func requestPermission(completion: @escaping (Bool) -> Void) {
         let status = PHPhotoLibrary.authorizationStatus()
         
         switch status {
@@ -350,7 +350,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     
     /// Implementation of the FrameSource protocol method to show video picker
     @MainActor
-    func showContentSelectionUI(from viewController: UIViewController, completion: @escaping (Bool) -> Void) {
+    public func showContentSelectionUI(from viewController: UIViewController, completion: @escaping (Bool) -> Void) {
         // First check for permission
         requestPermission { granted in
             if !granted {
@@ -387,7 +387,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     
     // MARK: - ResultsListener & InferenceTimeListener Implementation
     
-    func on(inferenceTime: Double, fpsRate: Double) {
+    public func on(inferenceTime: Double, fpsRate: Double) {
         lastInferenceTime = inferenceTime
         
         // Forward to delegates on the main thread
@@ -397,7 +397,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
         }
     }
     
-    func on(result: YOLOResult) {
+    public func on(result: YOLOResult) {
         let postProcessingStartTime = CACurrentMediaTime()
         let timestamp = CACurrentMediaTime()
         
@@ -440,7 +440,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     
     /// Resets processing state to allow normal inference to resume after calibration
     @MainActor
-    func resetProcessingState() {
+    public func resetProcessingState() {
         isProcessingFrame = false
         isModelProcessing = false
         print("Album: Processing state reset - ready for normal inference")
@@ -787,7 +787,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     // MARK: - FrameSource Protocol Implementation for UI Integration
     
     @MainActor
-    func integrateWithFishCountView(view: UIView) {
+    public func integrateWithFishCountView(view: UIView) {
         // For video source, we need to add the player layer to the view's layer
         if let playerLayer = self._previewLayer {
             playerLayer.frame = view.bounds
@@ -812,7 +812,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     }
     
     @MainActor
-    func addOverlayLayer(_ layer: CALayer) {
+    public func addOverlayLayer(_ layer: CALayer) {
         // Add the overlay layer to the player layer
         if let playerLayer = self._previewLayer {
             playerLayer.addSublayer(layer)
@@ -820,7 +820,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     }
     
     @MainActor
-    func addBoundingBoxViews(_ boxViews: [BoundingBoxView]) {
+    public func addBoundingBoxViews(_ boxViews: [BoundingBoxView]) {
         // Add bounding box views to the player layer
         if let playerLayer = self._previewLayer {
             for box in boxViews {
@@ -832,7 +832,7 @@ class AlbumVideoSource: NSObject, FrameSource, ResultsListener, InferenceTimeLis
     // MARK: - Coordinate Transformation
     
     @MainActor
-    func transformDetectionToScreenCoordinates(
+    public func transformDetectionToScreenCoordinates(
         rect: CGRect,
         viewBounds: CGRect,
         orientation: UIDeviceOrientation

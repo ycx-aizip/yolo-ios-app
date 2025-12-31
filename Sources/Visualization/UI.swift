@@ -2,6 +2,7 @@
 import AVFoundation
 import UIKit
 import Vision
+import AizipFishCount
 
 // MARK: - Protocols
 @MainActor
@@ -189,7 +190,7 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
    * Called when inference time information is available
    * Updates the FPS display label with current performance metrics
    */
-  func onInferenceTime(speed: Double, fps: Double) {
+  public func onInferenceTime(speed: Double, fps: Double) {
     DispatchQueue.main.async {
       self.labelFPS.text = String(format: "%.1f FPS - %.1f ms", fps, speed)
     }
@@ -198,7 +199,7 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
    * Called when YOLO prediction results are available
    * For fish counting, displays bounding boxes with tracking information
    */
-  func onPredict(result: YOLOResult) {
+  public func onPredict(result: YOLOResult) {
     if !isCalibrating {
       showBoxes(predictions: result)
       onDetection?(result)
@@ -208,7 +209,7 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   /**
    * Called to clear all bounding boxes from display
    */
-  func onClearBoxes() {
+  public func onClearBoxes() {
     boundingBoxViews.forEach { box in
       box.hide()
     }
@@ -217,13 +218,13 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   /**
    * Called when a new frame image is available from the frame source
    */
-  func frameSource(_ source: FrameSource, didOutputImage image: UIImage) {
+  public func frameSource(_ source: FrameSource, didOutputImage image: UIImage) {
     // Currently not used, but required by protocol
   }
   /**
    * Called when frame processing performance metrics are updated
    */
-  func frameSource(_ source: FrameSource, didUpdateWithSpeed speed: Double, fps: Double) {
+  public func frameSource(_ source: FrameSource, didUpdateWithSpeed speed: Double, fps: Double) {
     // Currently not used, but required by protocol
   }
   

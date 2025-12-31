@@ -19,6 +19,7 @@
 import AVFoundation
 import UIKit
 import Vision
+import AizipFishCount
 
 // MARK: - FishCountView Extension: Backend Dependencies
 extension FishCountView {

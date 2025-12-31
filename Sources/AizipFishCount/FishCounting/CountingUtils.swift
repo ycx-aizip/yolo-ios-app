@@ -140,14 +140,14 @@ public struct DirectionalAnalysis {
 
 /// Summary of complete calibration process
 public struct CalibrationSummary {
-    let thresholds: [CGFloat]
-    let detectedDirection: CountingDirection?
-    let originalDirection: CountingDirection
-    let movementAnalysisSuccess: Bool
-    let qualifiedTracksCount: Int
-    let warnings: [String]
-    let thresholdCalibrationEnabled: Bool
-    let directionCalibrationEnabled: Bool
+    public let thresholds: [CGFloat]
+    public let detectedDirection: CountingDirection?
+    public let originalDirection: CountingDirection
+    public let movementAnalysisSuccess: Bool
+    public let qualifiedTracksCount: Int
+    public let warnings: [String]
+    public let thresholdCalibrationEnabled: Bool
+    public let directionCalibrationEnabled: Bool
 }
 
 // MARK: - Movement Analysis Engine

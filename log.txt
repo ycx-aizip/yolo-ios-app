@@ -1,0 +1,26 @@
+`UIScene` lifecycle will soon be required. Failure to adopt will result in an assert in the future.
+Update the Info.plist: 1) `UIRequiresFullScreen` will soon be ignored. 2) Support for all orientations will soon be required.
+OpenCV version: 4.11.0
+Start loading model: FishCount_v12
+DEBUG: createSession called with URL: /private/var/containers/Bundle/Application/310EE36D-37BE-4B04-9D24-22169ED6E91D/AIzipFishCountApp.app/FishCountModels/FishCount_v12.mlpackage
+DEBUG: Waiting for model to load...
+Camera: Configuring iPad with HD 1280×720 (Optimized for YOLO) for unified YOLO optimization
+(Fig) signalled err=-12710 at <>:601
+(Fig) signalled err=-12710 at <>:601
+(Fig) signalled err=-12710 at <>:601
+<<<< AVCaptureProprietaryDefaults >>>> Fig assert: "value" at bail (AVCaptureProprietaryDefaults.m:1411) - (err=0)
+<<<< AVCaptureProprietaryDefaults >>>> Fig assert: "value" at bail (AVCaptureProprietaryDefaults.m:1411) - (err=0)
+<<<< AVCaptureProprietaryDefaults >>>> Fig assert: "value" at bail (AVCaptureProprietaryDefaults.m:1411) - (err=0)
+<<<< AVCaptureProprietaryDefaults >>>> Fig assert: "value" at bail (AVCaptureProprietaryDefaults.m:1411) - (err=0)
+<<<< FigXPCUtilities >>>> signalled err=-17281 at <>:308
+<<<< FigCaptureSourceRemote >>>> Fig assert: "err == 0 " at bail (FigCaptureSourceRemote.m:569) - (err=-17281)
+<<<< FigXPCUtilities >>>> signalled err=-17281 at <>:308
+<<<< FigCaptureSourceRemote >>>> Fig assert: "err == 0 " at bail (FigCaptureSourceRemote.m:569) - (err=-17281)
+MLE5Engine is disabled through the configuration.
+DEBUG: Input type: MLFeatureType(rawValue: 2)
+DEBUG: Has multiArrayConstraint: false
+DEBUG: Has imageConstraint: false
+DEBUG: multiArrayConstraint is nil despite type being MultiArray
+WARNING: Cannot determine input size from constraints, using default 640x640
+DEBUG: TrackingDetector.create completion called
+DEBUG: Model loading complete

@@ -19,7 +19,7 @@ import Foundation
 import QuartzCore
 import UIKit
 
-let ultralyticsColors: [UIColor] = [
+public let ultralyticsColors: [UIColor] = [
   UIColor(red: 4 / 255, green: 42 / 255, blue: 255 / 255, alpha: 0.6),
   UIColor(red: 11 / 255, green: 219 / 255, blue: 235 / 255, alpha: 0.6),
   UIColor(red: 243 / 255, green: 243 / 255, blue: 243 / 255, alpha: 0.6),

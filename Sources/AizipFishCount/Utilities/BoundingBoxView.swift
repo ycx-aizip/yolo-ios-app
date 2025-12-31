@@ -14,7 +14,7 @@ import UIKit
 
 /// Manages the visualization of bounding boxes and associated labels for object detection results.
 @MainActor
-class BoundingBoxView {
+public class BoundingBoxView {
   /// The layer that draws the bounding box around a detected object.
   let shapeLayer: CAShapeLayer
 
@@ -26,7 +26,7 @@ class BoundingBoxView {
   private var wasTextLayerHidden: Bool = true
 
   /// Initializes a new BoundingBoxView with configured shape and text layers.
-  init() {
+  public init() {
     shapeLayer = CAShapeLayer()
     shapeLayer.fillColor = UIColor.clear.cgColor  // No fill to only show the bounding outline
     shapeLayer.lineWidth = 4  // Set the stroke line width
@@ -42,7 +42,7 @@ class BoundingBoxView {
 
   /// Adds the bounding box and text layers to a specified parent layer.
   /// - Parameter parent: The CALayer to which the bounding box and text layers will be added.
-  func addToLayer(_ parent: CALayer) {
+  public func addToLayer(_ parent: CALayer) {
     parent.addSublayer(shapeLayer)
     parent.addSublayer(textLayer)
   }
@@ -53,7 +53,7 @@ class BoundingBoxView {
   ///   - label: The text label to display (e.g., object class and confidence).
   ///   - color: The color of the bounding box stroke and label background.
   ///   - alpha: The opacity level for the bounding box stroke and label background.
-  func show(frame: CGRect, label: String, color: UIColor, alpha: CGFloat) {
+  public func show(frame: CGRect, label: String, color: UIColor, alpha: CGFloat) {
     CATransaction.setDisableActions(true)  // Disable implicit animations
 
     let path = UIBezierPath(roundedRect: frame, cornerRadius: 6.0)  // Rounded rectangle for the bounding box
@@ -78,7 +78,7 @@ class BoundingBoxView {
   }
 
   /// Hides the bounding box and text layers.
-  func hide() {
+  public func hide() {
     shapeLayer.isHidden = true
     textLayer.isHidden = true
   }
