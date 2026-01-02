@@ -1,325 +1,176 @@
-# Fish Counting SDK for iOS
+# Fish Counting iOS SDK - Development Repository
 
-**Version**: 1.2.1
-**Developer**: Aizip Inc. & SoftBank
-**Last Updated**: 2025-12-31
+**Version**: 1.4.0
+**Developer**: Aizip Inc.
 
-A specialized iOS SDK for real-time fish counting using computer vision and multi-object tracking. Provides binary framework for IP protection with customizable UI source code.
-
----
-
-## Environment
-
-### Requirements
-
-- **Development**: macOS with Xcode 16.0+ (tested with Xcode 16.2)
-- **Target Platform**: iOS 16.0+ (tested on iOS 18+, iPadOS 18+)
-- **Hardware**: iPhone 14+ or iPad Pro recommended
-- **Apple Developer Account**: Free account sufficient for development
-
-### Package Contents
-
-```
-AizipFishCount/
-├── AizipFishCountApp-Release/          # Example Xcode project
-│   ├── AizipFishCountApp.xcodeproj     # Integration reference
-│   ├── Library/
-│   │   └── AizipFishCount.xcframework  # Binary SDK (5.7MB)
-│   └── AizipFishCountApp/              # Example app
-│       ├── ViewController.swift
-│       ├── Main.storyboard
-│       └── FishCountModels/            # CoreML models
-│
-├── Sources/
-│   └── Visualization/                  # UI source code (customizable)
-│       ├── UI.swift                    # FishCountView
-│       ├── FishCountView+BackendDependencies.swift
-│       └── YOLOCamera.swift
-│
-└── Packages/
-    └── opencv2/                        # OpenCV dependency (optional)
-        ├── opencv2.xcframework
-        ├── OpenCVBridge.h
-        └── OpenCVBridge.mm
-```
-
-### What's Included
-
-**Binary Framework**:
-- `AizipFishCount.xcframework` - Compiled tracking/counting algorithms
-  - Aizip Fish Counting models and implementations.
-  - Public API only (no source code)
-
-**UI Source Code** (Customizable):
-- `Sources/Visualization/` - Complete UI implementation
-  - Modify colors, layouts, controls
-  - Add custom feature
-  - Full source access
-
-**Example Project**:
-- Working integration reference
-- Storyboard setup
-- Build configuration
+Development repository for Fish Counting iOS SDK. Contains source code, build scripts, and example app.
 
 ---
 
-## Implementation
+## Architecture
 
-### Integration Steps
+**Backend** (`AizipFishCount`):
+- **ByteTracker** - Multi-object tracking (SORT-based)
+- **OCSort** - Kalman filter tracking with velocity direction consistency
+- **ThresholdCounter** - Threshold-based counting state machine
+- **TrackingDetector** - Coordinates detection → tracking → counting pipeline
+- **PublicAPI** - Protocol-based interface for Visualization layer
+- **Distribution**: Compiled to `AizipFishCount.xcframework` (binary, IP protected)
 
-#### 1. Add Binary Framework
+**Frontend** (`Visualization`):
+- **FishCountView** - Main UI component with drawing, controls, gestures
+- **YOLOCamera** - Camera integration and frame capture
+- **FishCountView+BackendDependencies** - Only file that imports AizipFishCount
+- **Distribution**: Source code (partners can customize)
 
-Open your Xcode project:
-```
-File → Add Files to "YourProject"
-→ Select AizipFishCountApp-Release/Library/AizipFishCount.xcframework
-→ Ensure "Copy items if needed" is checked
-```
+**Example iOS App XCode Project** (`AizipFishCountApp`):
+- Development reference using Swift Package Manager (SPM)
+- SPM imports `Sources/AizipFishCount/` and `Sources/Visualization/` directly
+- Storyboard integration, model loading, delegate implementation
+- Camera/Album/UVC video sources
+- Fast incremental builds during development
 
-Configure target:
-```
-Target → General → Frameworks, Libraries, and Embedded Content
-→ Set AizipFishCount.xcframework to "Embed & Sign"
-```
+**Separation Strategy**:
+- Visualization uses `FishCountingSession` protocol (never concrete `TrackingDetector`)
+- Backend dependencies isolated to single file
+- PublicAPI provides clean abstraction layer
 
-#### 2. Add UI Source Files
+---
 
-Add Visualization source:
-```
-File → Add Files to "YourProject"
-→ Select Sources/Visualization/ folder
-→ Ensure "Create groups" is selected
-→ Add to your app target
-```
+## Sources
 
-#### 3. Configure Build Settings
+### `Sources/AizipFishCount/` (Backend - becomes xcframework)
 
-If using OpenCV (optional):
-```
-Target → Build Settings
-→ Search "Header Search Paths"
-→ Add: "$(PROJECT_DIR)/../Packages/opencv2"
+**PublicAPI/**:
+- `FishCountSession.swift` - Main protocol
+- `SessionAdapter.swift` - Wraps TrackingDetector
+- `PublicTypes.swift` - CountingResult, CountingDirection, CalibrationSummary, etc.
+- `PublicDelegate.swift` - FishCountingSessionDelegate
 
-→ Search "Bridging Header"
-→ Set: "YourApp-Bridging-Header.h"
+**Predictors/**:
+- `TrackingDetector.swift` - Main coordinator: detection → tracking → counting
+- `ObjectDetector.swift` - YOLO model wrapper
+- `BasePredictor.swift`, `Predictor.swift` - Model execution framework
 
-→ Search "Other Linker Flags"
-→ Add: -lc++ -ObjC
-```
+**Tracking/**:
+- `ByteTracker.swift` - SORT-based multi-object tracking
+- `OCSort.swift` - Kalman filter tracking with observation history
+- `STrack.swift` - Track state management
+- `KalmanFilter.swift`, `OCKalmanFilter.swift` - Motion prediction
+- `MatchingUtils.swift` - Hungarian algorithm, IoU variants (GIoU, DIoU, CIoU)
 
-#### 4. Update Storyboard (if using Interface Builder)
+**FishCounting/**:
+- `ThresholdCounter.swift` - Counting logic (2-threshold, direction-aware)
+- `CountingUtils.swift` - Configuration, calibration (OpenCV calls disabled)
+- `Movement.swift` - Movement analysis for Phase 2 calibration
 
-If using storyboard, update FishCountView module:
-```xml
-<view customClass="FishCountView"
-      customModule="YourAppName"
-      customModuleProvider="target">
-```
+**FrameSources/**:
+- `FrameSource.swift` - Abstract interface
+- `CameraVideoSource.swift` - AVFoundation camera
+- `AlbumVideoSource.swift` - Video file playback
+- `UVCVideoSource.swift` - External USB camera (iPad only)
 
-**Important**: Set `customModule` to your app name, not "Visualization"
+**Utilities/**:
+- `NonMaxSuppression.swift` - Post-processing
+- `UnifiedCoordinateSystem.swift` - Coordinate transformations
+- `YOLOResult.swift`, `YOLOTask.swift` - Data structures
 
-#### 5. Import and Use
+### `Sources/Visualization/` (Frontend - source distribution)
 
-```swift
-import AizipFishCount
+**UI.swift**:
+- `FishCountView` - Main view with drawing (bounding boxes, threshold lines, labels)
+- Control UI (sliders, buttons, direction selector)
+- Gesture handling (pinch, tap)
+- Drawing logic for tracks, detections, overlays
 
-class ViewController: UIViewController, FishCountingSessionDelegate {
-    @IBOutlet weak var fishCountView: FishCountView!
+**FishCountView+BackendDependencies.swift**:
+- Only file importing `AizipFishCount`
+- Creates `SessionAdapter`, handles delegate callbacks
+- Isolates backend coupling
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
+**YOLOCamera.swift**:
+- SwiftUI wrapper for FishCountView
+- Camera permission handling
 
-        // Configure counting
-        fishCountView.actionDelegate = self
-        fishCountView.countingDirection = .bottomToTop
-        fishCountView.countingThresholds = [0.3, 0.7]
+---
 
-        // Load model
-        let modelURL = Bundle.main.url(forResource: "FishCount_v12",
-                                       withExtension: "mlmodelc")!
-        fishCountView.startSession(modelURL: modelURL)
-    }
+## Packages
 
-    // Handle counting results
-    func onCountingResultUpdated(_ result: CountingResult) {
-        print("Total count: \(result.totalCount)")
-        print("Active tracks: \(result.tracks.count)")
-    }
+### `Packages/opencv2/`
 
-    func onCalibrationCompleted(_ summary: CalibrationSummary) {
-        print("Calibration: \(summary.direction)")
-    }
-}
-```
+**Contents**:
+- `opencv2.xcframework` - OpenCV binary (device + simulator)
+- `OpenCVBridge.h` - Objective-C header
+- `OpenCVBridge.mm` - Objective-C++ implementation
 
-### Public API Reference
+**Status**:
+- **NOT included in AizipFishCount.xcframework**
+- Bridging headers incompatible with `BUILD_LIBRARY_FOR_DISTRIBUTION=YES`
+- All OpenCV calls commented out in framework source
+- Phase 1 calibration (threshold detection) disabled
+- Linked at app level (not framework level)
 
-**Session Protocol**:
-```swift
-public protocol FishCountingSession {
-    var delegate: FishCountingSessionDelegate? { get set }
+**Partners**:
+- Can optionally use opencv2 in their app
+- Not required for fish counting to work
+- Only needed if re-enabling Phase 1 calibration
 
-    func startSession(modelURL: URL,
-                     countingDirection: CountingDirection,
-                     calibrationFrameCount: Int)
-    func stopSession()
-    func processFrame(_ pixelBuffer: CVPixelBuffer)
-    func updateThresholds(_ threshold1: CGFloat, _ threshold2: CGFloat)
-    func resetCounting()
-}
-```
+---
 
-**Data Types**:
-```swift
-public struct CountingResult {
-    public let frameCount: Int
-    public let totalCount: Int
-    public let tracks: [STrack]
-    public let detections: [YOLOResult]
-}
+## Scripts
 
-public enum CountingDirection {
-    case topToBottom, bottomToTop, leftToRight, rightToRight
-}
+### `build_aizipfishcount_xcframework.sh`
 
-public struct CalibrationSummary {
-    public let direction: CountingDirection
-    public let threshold1: CGFloat
-    public let threshold2: CGFloat
-}
-```
+**Purpose**: Build binary framework for distribution
 
-### Customizing UI
+**Process**:
+1. Syncs `Sources/AizipFishCount/` → `../Aizip_softbank_fishcount_ipad/AizipFishCountApp/AizipFishCount/`
+2. Archives for iOS device (arm64)
+3. Archives for iOS simulator (arm64 + x86_64)
+4. Creates xcframework: `.build/AizipFishCount.xcframework` (5.7MB)
 
-Modify `Sources/Visualization/UI.swift` to customize:
-- **Colors**: Change track colors, threshold line colors
-- **Layout**: Adjust control positions, sizes
-- **Features**: Add custom overlays, statistics displays
-- **Behavior**: Modify gesture handling, interactions
+**Output**: Binary framework with public API only (`.swiftinterface`)
 
-Example - Change threshold colors:
-```swift
-// In UI.swift, modify drawThresholdLines()
-context.setStrokeColor(UIColor.red.cgColor)      // First threshold
-context.setStrokeColor(UIColor.yellow.cgColor)   // Second threshold
-```
+**Usage**: `./Scripts/build_aizipfishcount_xcframework.sh`
+
+### `release.sh`
+
+**Purpose**: Package complete distribution for partners
+
+**Process**:
+1. Verifies xcframework exists in `.build/`
+2. Copies xcframework → `../Aizip_softbank_fishcount_ipad/Packages/`
+3. Copies Visualization source → `../Aizip_softbank_fishcount_ipad/Sources/`
+4. Copies CoreML models → `../Aizip_softbank_fishcount_ipad/AizipFishCountApp/FishCountModels/`
+5. **Removes** `AizipFishCount/` framework source (build artifact, not for distribution)
+6. **Does NOT copy** opencv2 (partners add if needed)
+
+**Output**: Complete SDK in `Aizip_softbank_fishcount_ipad/`
+
+**Usage**: `./Scripts/release.sh`
 
 ---
 
 ## Usage
 
-### Basic Fish Counting
-
-**Step 1: Launch App**
-- Opens with fish counting mode enabled
-- Camera permissions required
-
-**Step 2: Configure Thresholds**
-- Red line: First counting threshold
-- Yellow line: Second counting threshold
-- Drag sliders to adjust threshold positions
-
-**Step 3: Set Direction**
-- Default: Bottom-to-Top
-- Change via direction button for different orientations
-
-**Step 4: Monitor Counting**
-- **Dark Blue boxes**: Newly detected fish
-- **Light Blue boxes**: Tracked fish
-- **Green boxes**: Successfully counted fish
-- Count increments when fish cross threshold in correct direction
-
-**Step 5: Reset**
-- Tap RESET button to clear count and restart
-
-### Advanced Configuration
-
-**Manual Threshold Setup**:
-```swift
-fishCountView.countingThresholds = [0.25, 0.75]  // [threshold1, threshold2]
-fishCountView.countingDirection = .bottomToTop
 ```
+Development (this repo):
+  Sources/AizipFishCount/ → Edit backend code
+  Sources/Visualization/ → Edit UI code
+  AizipFishCountApp/ → Test with Swift Package Manager (SPM imports source directly)
 
-**Auto-Calibration** (Phase 2 only):
-```swift
-// Auto-detect counting direction from fish movement
-// Note: Phase 1 (OpenCV threshold detection) is disabled
-fishCountView.startSession(modelURL: modelURL)
-// Calibration runs for first 30 frames
-// Direction auto-detected and reported via delegate
+Release Build:
+  build_aizipfishcount_xcframework.sh → .build/AizipFishCount.xcframework (binary)
+  release.sh → Package to ../Aizip_softbank_fishcount_ipad/
+
+Partner Distribution:
+  Partners receive: Aizip_softbank_fishcount_ipad/ repository
+  - AizipFishCount.xcframework (binary, IP protected)
+  - Sources/Visualization/ (source code, customizable)
+  - Example app uses xcframework + Visualization source
 ```
-
-**Video Sources**:
-- **Camera**: Live camera feed (default)
-- **Album**: Video file playback
-- **UVC**: External USB camera (iPad only)
-
-### Tracking Parameters
-
-Default configuration (optimal for most scenarios):
-```swift
-// Detection
-confidenceThreshold: 0.25    // Minimum detection confidence
-iouThreshold: 0.45           // Non-maximum suppression
-
-// Tracking
-trackThreshold: 0.6          // Track creation threshold
-matchThreshold: 0.7          // Track-detection matching
-maxAge: 30                   // Frames before track deletion
-
-// Counting
-countingThresholds: [0.3, 0.7]  // Zone boundaries (normalized)
-countingDirection: .bottomToTop  // Fish movement direction
-```
-
-### Performance
-
-**Typical Performance** (iPad Pro M4):
-- **Inference**: 30-40 FPS
-- **Tracking**: <10ms per frame
-- **Memory**: <200MB stable
-- **Accuracy**: 95%+ on clear water videos
-
-**Optimization Tips**:
-- Use recommended iOS 18+ for best Neural Engine performance
-- Reduce video resolution for lower-end devices
-- Adjust `confidenceThreshold` to filter false detections
-
-### Troubleshooting
-
-**App hangs at launch**:
-- Verify storyboard `customModule` matches your app name
-- Check `FishCountView` outlet is connected
-
-**No detections appearing**:
-- Lower `confidenceThreshold` (try 0.2)
-- Verify model file is included in app bundle
-- Check camera permissions granted
-
-**Count not incrementing**:
-- Verify thresholds are positioned in fish path
-- Check `countingDirection` matches fish movement
-- Ensure fish crosses both thresholds completely
-
-**Build errors**:
-- Ensure xcframework is set to "Embed & Sign"
-- Verify Visualization source files added to target
-- Check build settings if using OpenCV
-
-### Example Project
-
-See `AizipFishCountApp-Release/AizipFishCountApp.xcodeproj` for:
-- Complete storyboard integration
-- Model loading and management
-- UI customization examples
-- Delegate implementation
-
-Build and run to test the SDK before integration.
 
 ---
 
-## Technical Support
-
-**Email**: yenchi@aizip.ai, yuchen@aizip.ai
-**Documentation**: See example project for integration reference
-**Issues**: Contact support with build logs and error descriptions
+## Documentation
+- `../docs/Implementations/ios_release.md` - Project level documentations including preview, implementation notes on all development phases, models -> deployment.

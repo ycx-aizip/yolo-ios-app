@@ -13,6 +13,7 @@
 //  results by removing duplicate predictions.
 
 import Foundation
+import CoreGraphics
 
 /// Performs non-maximum suppression on a set of bounding boxes to eliminate duplicate detections.
 /// - Parameters:

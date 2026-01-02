@@ -6,19 +6,21 @@ set -e
 # including both device (arm64) and simulator (arm64 + x86_64) architectures
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RELEASE_PROJECT="${PROJECT_ROOT}/AizipFishCountApp-Release"
-BUILD_DIR="${RELEASE_PROJECT}/Library/"
+RELEASE_REPO="${PROJECT_ROOT}/../Aizip_softbank_fishcount_ipad"
+RELEASE_PROJECT="${RELEASE_REPO}/AizipFishCountApp"
+BUILD_DIR="${PROJECT_ROOT}/.build"
 SCHEME="AizipFishCount"
 
 echo "🔨 Building AizipFishCount.xcframework..."
-echo "Project root: ${PROJECT_ROOT}"
+echo "Development repo: ${PROJECT_ROOT}"
+echo "Release repo: ${RELEASE_REPO}"
 echo "Release project: ${RELEASE_PROJECT}"
 echo ""
 
 # Check if Release project exists
 if [ ! -d "${RELEASE_PROJECT}" ]; then
     echo "❌ Error: Release project not found at: ${RELEASE_PROJECT}"
-    echo "Please ensure AizipFishCountApp-Release exists"
+    echo "Please ensure ${RELEASE_PROJECT} exists"
     exit 1
 fi
 
@@ -76,11 +78,15 @@ xcodebuild -create-xcframework \
     -framework "${BUILD_DIR}/AizipFishCount-iOS-Simulator.xcarchive/Products/Library/Frameworks/AizipFishCount.framework" \
     -output "${BUILD_DIR}/AizipFishCount.xcframework"
 
+# Clean up framework source code (build artifact, not for distribution)
+echo "🧹 Cleaning up framework source code..."
+rm -rf "${FRAMEWORK_SOURCE}"
+echo "✅ Framework source removed (build artifact only)"
+
 # Show size
 echo ""
 echo "✅ XCFramework built successfully!"
 echo "📍 Location: ${BUILD_DIR}/AizipFishCount.xcframework"
 echo "📊 Size: $(du -sh "${BUILD_DIR}/AizipFishCount.xcframework" | cut -f1)"
 echo ""
-echo "Contents:"
-ls -lh "${BUILD_DIR}/AizipFishCount.xcframework"
+echo "Note: Framework source cleaned from release project (only xcframework binary needed)"
