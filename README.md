@@ -1,6 +1,6 @@
 # Fish Counting iOS SDK - Development Repository
 
-**Version**: 1.4.0
+**Version**: 1.3.2
 **Developer**: Aizip Inc.
 
 Development repository for Fish Counting iOS SDK. Contains source code, build scripts, and example app.

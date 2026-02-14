@@ -1,4 +1,4 @@
-// // from softbank_fishcount_iphone14
+// // from softbank_fishcount_ios
 // //
 // //  GoProSource.swift
 // //  YOLO

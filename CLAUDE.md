@@ -1,45 +1,55 @@
-# iOS Development Rules
+# iOS Development
+
+Swift implementation of fish counting SDK with binary distribution. Development repository containing source code, build scripts, and example app.
 
 ## Structure
 
 ```
-/
-├── Sources/                            # Canonical source (edit here)
-│   ├── AizipFishCount/                 # Backend → xcframework
-│   └── Visualization/                  # Frontend → source
-├── AizipFishCountApp/                  # Dev (Swift Package)
-├── Packages/opencv2/                   # Packages
-├── Scripts/                            # Build and Release scripts
-└── .build/                             # XCode and XCFramework output
+yolo-ios-app/
+├── Sources/                        # Canonical source (edit here)
+│   ├── AizipFishCount/             # Backend → compiled to xcframework
+│   │   ├── PublicAPI/              # FishCountSession protocol
+│   │   ├── Predictors/             # TrackingDetector
+│   │   ├── Tracking/               # ByteTracker, OCSort
+│   │   ├── FishCounting/           # ThresholdCounter
+│   │   ├── FrameSources/           # Camera, Album, UVC
+│   │   └── Utilities/              # Helpers
+│   └── Visualization/              # Frontend → distributed as source
+│       ├── UI.swift                # FishCountView
+│       └── FishCountView+BackendDependencies.swift
+├── AizipFishCountApp/              # Dev app (Swift Package Manager)
+│   └── AizipFishCountApp.xcodeproj
+├── Packages/opencv2/               # OpenCV dependency
+├── Scripts/
+│   ├── build_aizipfishcount_xcframework.sh  # Build binary
+│   └── release.sh                           # Package for distribution
+└── .build/                         # Build output
 ```
-
-**Release repo**: `../Aizip_softbank_fishcount_ipad/` (separate Git repo)
-
----
 
 ## Development Rules
 
 ### Before Changes
-1. Read Python reference (`../vision_yolo/`)
-2. Explain planned changes
+1. Read Python reference (`../vision_yolo/projects/fish_count/`)
+2. Check implementation logs (`../docs/Implementations/`)
+3. Explain planned changes
+
+### During Development
+- **Code Style**: Swift conventions, `// MARK: -` for sections
+- **Documentation**: Docstrings for public APIs
+- **Performance**: Use Accelerate framework for math operations
+- **Testing**: Test with all frame sources (Camera, Album, UVC)
 
 ### After Changes
-1. Build and test
-2. Fix all errors
-3. Update docs if needed
+1. Build: `open AizipFishCountApp/AizipFishCountApp.xcodeproj`
+2. Test on iPad Pro M4 simulator (or device)
+3. Fix all build errors and warnings
+4. Update `../docs/Implementations/` if architecture changed
 
-### Code Quality
-- Apple Swift conventions
-- `// MARK: - Section` for organization
-- Docstrings for public APIs
-- Accelerate framework for math
+### Build Commands
 
----
-
-## Build Commands
-
-### Development (Daily)
-
+**Development (daily)**:
+```bash
+# Xcode with Swift Package Manager (fast incremental builds) set up already in the XCode Project before using this command.
 ```bash
 cd AizipFishCountApp
 xcodebuild -configuration Debug \
@@ -50,45 +60,20 @@ xcodebuild -configuration Debug \
            OTHER_LDFLAGS="-lc++ -ObjC"
 ```
 
-**Xcode**: `open AizipFishCountApp/AizipFishCountApp.xcodeproj` (iPad Pro M4 simulator)
-
-### Release (Distribution)
-
-**Build xcframework**:
+**Release (distribution)**:
 ```bash
-./Scripts/build_aizipfishcount_xcframework.sh
+./Scripts/build_aizipfishcount_xcframework.sh  # Build xcframework
+./Scripts/release.sh                            # Package to ../Aizip_softbank_fishcount_ipad/
 ```
-Output: `.build/AizipFishCount.xcframework` (5.7MB)
 
-**Package for partners**:
-```bash
-./Scripts/release.sh
-```
-Output: `../Aizip_softbank_fishcount_ipad/`
+### Performance Targets
+- Frame processing: 30+ FPS
+- Inference: <50ms (Neural Engine)
+- Memory: Stable during 1-hour sessions
 
----
+## Document Reference
 
-## Python → Swift Translation
-
-| Python | Swift |
-|:-------|:------|
-| `np.array` operations | Accelerate (`cblas_*`, `vDSP_*`) |
-| `dict` state tracking | `[Int: Type]` with cleanup |
-| `cv2.*` operations | Disabled (was `OpenCVWrapper`) |
-| Hungarian matching | `MatchingUtils.swift` |
-
----
-
-## Performance Targets
-
-- **Frame processing**: <100ms (10+ FPS)
-- **Inference**: <50ms (Neural Engine)
-- **Memory**: Stable during 1-hour sessions
-
----
-
-## Memory Management
-
-- Clean track state every 30 frames
-- Weak references for delegates
-- Release CVPixelBuffers properly
+- **Architecture**: `../docs/architecture.md` - System design
+- **Implementations**: `../docs/Implementations/*.md` - Implementation details of the core modules
+- **Preview**: `../docs/preview/*.md` - Review of previous implemented modules or algorithms
+- **Python Reference**: `../vision_yolo/CLAUDE.md` - Original algorithms
