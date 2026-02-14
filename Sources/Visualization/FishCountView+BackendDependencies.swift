@@ -135,15 +135,77 @@ extension FishCountView {
   func showBoxes(predictions: YOLOResult) {
     let width = self.bounds.width
     let height = self.bounds.height
-    var resultCount = 0
-    resultCount = predictions.boxes.count
+
+    // Hide all boxes first
     boundingBoxViews.forEach { box in
       box.hide()
     }
+
+    let orientation = UIDevice.current.orientation
+
+    // Special handling for fishCount task - display tracked objects directly
+    if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
+      let trackedObjects = trackingDetector.getTrackedObjects()
+      let trackingInfo = trackingDetector.getAllTrackingInfo()
+
+      // Display each tracked object (ensures unique IDs)
+      for i in 0..<min(trackedObjects.count, boundingBoxViews.count) {
+        let track = trackedObjects[i]
+
+        // Get bounding box from track's last detection
+        guard let lastDetection = track.lastDetection else { continue }
+
+        // OCSort stores boxes in CENTER format, convert to corner format
+        let center = UnifiedCoordinateSystem.UnifiedPoint(
+          x: lastDetection.xywhn.origin.x,
+          y: lastDetection.xywhn.origin.y)
+        let size = (width: lastDetection.xywhn.width, height: lastDetection.xywhn.height)
+        let unifiedRect = UnifiedCoordinateSystem.fromCenter(center, size: size)
+
+        // Convert to display coordinates (invert Y-axis)
+        let rect = CGRect(
+          x: unifiedRect.x,
+          y: 1 - (unifiedRect.y + unifiedRect.height),
+          width: unifiedRect.width,
+          height: unifiedRect.height)
+        let trackId = track.trackId
+
+        // Check if this track has been counted
+        let isCounted = trackingInfo.first(where: { $0.trackId == trackId })?.isCounted ?? false
+
+        // Set colors based on counting status
+        let boxColor: UIColor
+        let alpha: CGFloat
+        if isCounted {
+          boxColor = .green  // Counted fish
+          alpha = 0.7
+        } else {
+          boxColor = UIColor(red: 0.4, green: 0.7, blue: 1.0, alpha: 1.0)  // Tracked but not counted
+          alpha = 0.7
+        }
+
+        let label = "#\(trackId)"
+
+        let displayRect = currentFrameSource.transformDetectionToScreenCoordinates(
+          rect: rect,
+          viewBounds: self.bounds,
+          orientation: orientation
+        )
+        boundingBoxViews[i].show(
+          frame: displayRect, label: label, color: boxColor, alpha: alpha)
+      }
+
+      let currentCount = trackingDetector.getCount()
+      updateFishCountDisplay(count: currentCount)
+      return
+    }
+
+    // For non-fishCount tasks, use original detection-based rendering
+    var resultCount = predictions.boxes.count
     if resultCount == 0 {
       return
     }
-    let orientation = UIDevice.current.orientation
+
     for i in 0..<boundingBoxViews.count {
       // Limit to 30 boxes for better performance in dense scenes
       if i < resultCount && i < 30 {
@@ -153,6 +215,7 @@ extension FishCountView {
         var confidence: CGFloat = 0
         var alpha: CGFloat = 0.9
         var bestClass = ""
+
         switch task {
         case .detect:
           let prediction = predictions.boxes[i]
@@ -165,39 +228,6 @@ extension FishCountView {
           boxColor = ultralyticsColors[colorIndex]
           label = String(format: "%@ %.1f", bestClass, confidence * 100)
           alpha = CGFloat((confidence - 0.2) / (1.0 - 0.2) * 0.9)
-        case .fishCount:
-          let prediction = predictions.boxes[i]
-          rect = CGRect(
-            x: prediction.xywhn.minX, y: 1 - prediction.xywhn.maxY, width: prediction.xywhn.width,
-            height: prediction.xywhn.height)
-          bestClass = prediction.cls
-          confidence = CGFloat(prediction.conf)
-          if let trackingDetector = currentFrameSource.predictor as? TrackingDetector {
-            let isTracked = trackingDetector.isObjectTracked(box: prediction)
-            let isCounted = trackingDetector.isObjectCounted(box: prediction)
-            if isCounted {
-              boxColor = .green
-            } else if isTracked {
-              boxColor = UIColor(red: 0.4, green: 0.7, blue: 1.0, alpha: 1.0)
-            } else {
-              boxColor = UIColor(red: 0.0, green: 0.0, blue: 0.8, alpha: 1.0)
-            }
-            alpha = isTracked ? 0.7 : 0.5
-            if isTracked {
-              if let trackInfo = trackingDetector.getTrackInfo(for: prediction) {
-                label = "#\(trackInfo.trackId)"
-              } else {
-                label = "#?"
-              }
-            } else {
-              label = ""
-            }
-          } else {
-            let colorIndex = prediction.index % ultralyticsColors.count
-            boxColor = ultralyticsColors[colorIndex]
-            alpha = CGFloat((confidence - 0.2) / (1.0 - 0.2) * 0.9)
-            label = bestClass
-          }
         default:
           let prediction = predictions.boxes[i]
           rect = prediction.xywhn
@@ -208,6 +238,7 @@ extension FishCountView {
           boxColor = ultralyticsColors[colorIndex]
           alpha = CGFloat((confidence - 0.2) / (1.0 - 0.2) * 0.9)
         }
+
         let displayRect = currentFrameSource.transformDetectionToScreenCoordinates(
           rect: rect,
           viewBounds: self.bounds,
@@ -216,11 +247,6 @@ extension FishCountView {
         boundingBoxViews[i].show(
           frame: displayRect, label: label, color: boxColor, alpha: alpha)
       }
-    }
-    if task == .fishCount, let trackingDetector = currentFrameSource.predictor as? TrackingDetector
-    {
-      let currentCount = trackingDetector.getCount()
-      updateFishCountDisplay(count: currentCount)
     }
   }
 

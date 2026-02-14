@@ -903,5 +903,30 @@ public class TrackingDetector: ObjectDetector {
     func setTargetCalibrationFrames(_ count: Int) {
         targetCalibrationFrames = max(30, count) // Ensure at least 30 frames
     }
+
+    /// Get current tracked objects
+    ///
+    /// Returns the current list of active tracked objects. Each track has a unique ID.
+    /// Use this instead of iterating through all detection boxes to avoid duplicate IDs in UI.
+    /// OCSort already filters for confirmed, active tracks before returning them,
+    /// so no additional filtering is needed here.
+    ///
+    /// - Returns: Array of STrack objects representing currently tracked fish
+    @MainActor
+    public func getTrackedObjects() -> [STrack] {
+        // OCSort already returns only confirmed, active tracks
+        // Additional filter: only return tracks with valid detection boxes for display
+        return trackedObjects.filter { $0.lastDetection != nil }
+    }
+
+    /// Get tracking information for all tracked objects
+    ///
+    /// Returns counting status for all tracked objects
+    ///
+    /// - Returns: Array of tuples containing track ID, position, and whether the track has been counted
+    @MainActor
+    public func getAllTrackingInfo() -> [(trackId: Int, position: (x: CGFloat, y: CGFloat), isCounted: Bool)] {
+        return counter.getTrackingInfo()
+    }
 }
 

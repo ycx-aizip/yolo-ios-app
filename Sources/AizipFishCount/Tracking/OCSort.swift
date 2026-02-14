@@ -319,35 +319,7 @@ public class OCSort: TrackerProtocol {
             )
         }
 
-        // *** FIX: Deduplicate tracks by ID before returning ***
-        // Filter out duplicate IDs (keep first occurrence of each ID)
-        var seenIds = Set<Int>()
-        let uniqueResults = results.filter { track in
-            if seenIds.contains(track.trackId) {
-                return false  // Duplicate ID - filter out
-            }
-            seenIds.insert(track.trackId)
-            return true
-        }
-
-        #if DEBUG
-        // Validate no duplicates remain
-        if results.count != uniqueResults.count {
-            let allIds = results.map { $0.trackId }
-            let duplicates = allIds.filter { id in allIds.filter({ $0 == id }).count > 1 }
-            print("⚠️ OCSort Frame \(frameCount): Filtered out \(results.count - uniqueResults.count) duplicate track IDs: \(Set(duplicates))")
-        }
-
-        // Additional validation: Ensure all returned IDs are unique
-        let returnedIds = uniqueResults.map { $0.trackId }
-        let uniqueIds = Set(returnedIds)
-        if returnedIds.count != uniqueIds.count {
-            print("❌ CRITICAL: Duplicate IDs still present after filtering!")
-            assertionFailure("Duplicate track IDs detected in OCSort results!")
-        }
-        #endif
-
-        return uniqueResults
+        return results
     }
 
     @MainActor
