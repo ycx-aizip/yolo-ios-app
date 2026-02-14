@@ -51,13 +51,20 @@ yolo-ios-app/
 ```bash
 # Xcode with Swift Package Manager (fast incremental builds) set up already in the XCode Project before using this command.
 ```bash
-cd AizipFishCountApp
+cd /Users/xxb9075/Documents/softbank_fishcount_ios/yolo-ios-app/AizipFishCountApp
+
+# May need to clean before build
+xcodebuild clean -scheme AizipFishCountApp
+
+# Build using iPad Pro M5 Simulator
 xcodebuild -configuration Debug \
            -scheme AizipFishCountApp \
-           -destination 'platform=iOS Simulator,id=FCB1DD0F-9CBE-4344-B3A4-164660B57BBD' \
-           HEADER_SEARCH_PATHS="../Packages/opencv2" \
-           SWIFT_OBJC_BRIDGING_HEADER="AizipFishCountApp/AizipFishCountApp-Bridging-Header.h" \
-           OTHER_LDFLAGS="-lc++ -ObjC"
+           -destination 'platform=iOS Simulator,id=B57EF6B1-BA2E-4BAA-9D92-4BEDC58278A4' \
+           HEADER_SEARCH_PATHS="/Users/xxb9075/Documents/softbank_fishcount_ios/yolo-ios-app/Packages/opencv2/" \
+           SWIFT_OBJC_BRIDGING_HEADER="/Users/xxb9075/Documents/softbank_fishcount_ios/yolo-ios-app/AizipFishCountApp/AizipFIshCountApp-Bridging-Header.h" \
+           OTHER_LDFLAGS="-lc++ -ObjC" \
+           OTHER_CPLUSPLUSFLAGS="-Wno-documentation -Wno-documentation-deprecated-sync -Wno-documentation-unknown-command -Wno-quoted-include-in-framework-header" \
+           -quiet | grep -E "error:|warning:|BUILD|SUCCEEDED|FAILED" | head -50
 ```
 
 **Release (distribution)**:
