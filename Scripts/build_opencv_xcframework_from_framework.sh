@@ -28,8 +28,9 @@ mkdir -p "$TEMP_DIR"
 flatten_framework() {
     local source_framework="$1"
     local dest_framework="$2"
+    local platform="$3"  # "iPhoneOS" or "iPhoneSimulator"
 
-    echo -e "${YELLOW}Flattening: $(basename $source_framework)${NC}"
+    echo -e "${YELLOW}Flattening: $(basename $source_framework) for $platform${NC}"
 
     # Create destination framework directory
     mkdir -p "$dest_framework"
@@ -63,7 +64,7 @@ flatten_framework() {
 
     # Create Info.plist if it doesn't exist
     if [ ! -f "$dest_framework/Info.plist" ]; then
-        echo "  - Creating Info.plist..."
+        echo "  - Creating Info.plist for $platform..."
         cat > "$dest_framework/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -85,8 +86,7 @@ flatten_framework() {
     <string>1</string>
     <key>CFBundleSupportedPlatforms</key>
     <array>
-        <string>iPhoneOS</string>
-        <string>iPhoneSimulator</string>
+        <string>$platform</string>
     </array>
     <key>MinimumOSVersion</key>
     <string>14.0</string>
@@ -100,7 +100,7 @@ EOF
 
 # Flatten iOS device framework
 if [ -d "$OPENCV_DIR/ios/opencv2.framework" ]; then
-    flatten_framework "$OPENCV_DIR/ios/opencv2.framework" "$TEMP_DIR/ios/opencv2.framework"
+    flatten_framework "$OPENCV_DIR/ios/opencv2.framework" "$TEMP_DIR/ios/opencv2.framework" "iPhoneOS"
 else
     echo -e "${RED}Error: iOS framework not found${NC}"
     exit 1
@@ -108,7 +108,7 @@ fi
 
 # Flatten iOS simulator framework
 if [ -d "$OPENCV_DIR/ios-simulator/opencv2.framework" ]; then
-    flatten_framework "$OPENCV_DIR/ios-simulator/opencv2.framework" "$TEMP_DIR/ios-simulator/opencv2.framework"
+    flatten_framework "$OPENCV_DIR/ios-simulator/opencv2.framework" "$TEMP_DIR/ios-simulator/opencv2.framework" "iPhoneSimulator"
 else
     echo -e "${RED}Error: Simulator framework not found${NC}"
     exit 1
