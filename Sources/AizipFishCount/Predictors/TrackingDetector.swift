@@ -93,6 +93,9 @@ public class TrackingDetector: ObjectDetector {
     
     /// The current tracked objects
     private var trackedObjects: [STrack] = []
+
+    /// Frame counter for diagnostic logging
+    private var diagFrameCount: Int = 0
     
     /// Current counting direction (maintained for calibration)
     private var countingDirection: CountingDirection
@@ -308,28 +311,28 @@ public class TrackingDetector: ObjectDetector {
             if config.isThresholdCalibrationEnabled {
                 calibrationPhase = .thresholdDetection
                 targetCalibrationFrames = config.thresholdCalibrationFrames
-                print("AutoCalibration: Starting Phase 1 - Threshold Detection (\(config.thresholdCalibrationFrames) frames)")
+                if TrackingParameters.debugLogging { print("AutoCalibration: Starting Phase 1 - Threshold Detection (\(config.thresholdCalibrationFrames) frames)") }
             } else if config.isDirectionCalibrationEnabled {
                 // Even when Phase 1 is disabled, we start with threshold detection for bypass
                 calibrationPhase = .thresholdDetection
                 targetCalibrationFrames = 2  // Quick bypass for Phase 1
-                print("AutoCalibration: Phase 1 disabled - Quick bypass (2 frames) then Phase 2")
+                if TrackingParameters.debugLogging { print("AutoCalibration: Phase 1 disabled - Quick bypass (2 frames) then Phase 2") }
             } else {
                 print("AutoCalibration: ERROR - No phases configured")
                 isAutoCalibrationEnabled = false
                 return
             }
-            
+
             // Clear all tracked objects to ensure clean start for calibration
             trackedObjects.removeAll(keepingCapacity: true)
-            
+
             // Reset counter state
             counter.resetCount()
-            
+
             // Reset the tracker to clear any existing tracks
             tracker.reset()
-            
-            print("AutoCalibration: Started - Total frames needed: \(config.totalCalibrationFrames)")
+
+            if TrackingParameters.debugLogging { print("AutoCalibration: Started - Total frames needed: \(config.totalCalibrationFrames)") }
         }
     }
     
@@ -383,7 +386,7 @@ public class TrackingDetector: ObjectDetector {
                 // The user has manually set these values and we should preserve them
                 wasPhase1Executed = false  // Mark as bypassed
                 
-                print("AutoCalibration: Phase 1 bypassed - Using current thresholds: \(getThresholds())")
+                if TrackingParameters.debugLogging { print("AutoCalibration: Phase 1 bypassed - Using current thresholds: \(getThresholds())") }
                 completeThresholdCalibration()
             }
             return
@@ -438,27 +441,27 @@ public class TrackingDetector: ObjectDetector {
         if wasPhase1Executed {
             // Sort thresholds to ensure proper order for OpenCV-detected values
             finalThresholds = calibrationThresholds.sorted()
-            print("AutoCalibration: Phase 1 complete (executed) - Thresholds sorted: \(finalThresholds)")
+            if TrackingParameters.debugLogging { print("AutoCalibration: Phase 1 complete (executed) - Thresholds sorted: \(finalThresholds)") }
         } else {
             // Phase 1 was bypassed - keep current thresholds exactly as set by user
             finalThresholds = getThresholds()
-            print("AutoCalibration: Phase 1 complete (bypassed) - Thresholds preserved: \(finalThresholds)")
+            if TrackingParameters.debugLogging { print("AutoCalibration: Phase 1 complete (bypassed) - Thresholds preserved: \(finalThresholds)") }
         }
-        
+
         // Update counter with final thresholds
         counter.configure(thresholds: finalThresholds, direction: countingDirection)
-        
+
         // Notify threshold completion
         onCalibrationComplete?(finalThresholds)
-        
+
         // Check what to do next
         if config.isDirectionCalibrationEnabled {
             // Start Phase 2 immediately and sequentially
-            print("AutoCalibration: Starting Phase 2 immediately after Phase 1")
+            if TrackingParameters.debugLogging { print("AutoCalibration: Starting Phase 2 immediately after Phase 1") }
             startMovementAnalysisPhaseSequentially()
         } else {
             // No Phase 2 needed, complete immediately
-            print("AutoCalibration: Phase 2 not enabled, completing calibration")
+            if TrackingParameters.debugLogging { print("AutoCalibration: Phase 2 not enabled, completing calibration") }
             completeEntireCalibration()
         }
     }
@@ -483,7 +486,7 @@ public class TrackingDetector: ObjectDetector {
         // Step 3: Reset tracker synchronously
         tracker.reset()
         
-        print("AutoCalibration: Phase 2 ready - Movement Analysis (\(config.movementAnalysisFrames) frames)")
+        if TrackingParameters.debugLogging { print("AutoCalibration: Phase 2 ready - Movement Analysis (\(config.movementAnalysisFrames) frames)") }
     }
     
     /// Process movement analysis for Phase 2
@@ -547,27 +550,29 @@ public class TrackingDetector: ObjectDetector {
             return
         }
         
-        print("AutoCalibration: Phase 2 complete - Analyzing movement patterns...")
-        
+        if TrackingParameters.debugLogging { print("AutoCalibration: Phase 2 complete - Analyzing movement patterns...") }
+
         // Immediately mark as no longer in movement analysis to prevent re-entry
         isMovementAnalysisPhase = false
         calibrationPhase = .completed
-        
+
         // Analyze collected movement data
         let movementArray = Array(fishMovementData.values)
         let analysis = MovementAnalyzer.determineDirection(from: movementArray)
-        
-        print("AutoCalibration: Direction analysis - Confidence: \(analysis.confidence), Qualified tracks: \(analysis.qualifiedTracksCount)")
-        
+
+        if TrackingParameters.debugLogging {
+            print("AutoCalibration: Direction analysis - Confidence: \(analysis.confidence), Qualified tracks: \(analysis.qualifiedTracksCount)")
+        }
+
         // Apply detected direction if confidence is sufficient
         if let detectedDirection = analysis.predominantDirection {
-            print("AutoCalibration: Auto-detected direction: \(detectedDirection)")
+            if TrackingParameters.debugLogging { print("AutoCalibration: Auto-detected direction: \(detectedDirection)") }
             setCountingDirection(detectedDirection)
 
             // Already on @MainActor, execute callback directly
             onDirectionDetected?(detectedDirection)
         } else {
-            print("AutoCalibration: No clear direction detected, keeping original: \(originalCountingDirection)")
+            if TrackingParameters.debugLogging { print("AutoCalibration: No clear direction detected, keeping original: \(originalCountingDirection)") }
         }
 
         // Complete entire calibration process
@@ -601,7 +606,7 @@ public class TrackingDetector: ObjectDetector {
         // Reset current pixel buffer reference to avoid processing stale data
         currentPixelBuffer = nil
         
-        print("AutoCalibration: Complete calibration finished")
+        if TrackingParameters.debugLogging { print("AutoCalibration: Complete calibration finished") }
     }
     
     /// Generate a comprehensive calibration summary
@@ -690,6 +695,8 @@ public class TrackingDetector: ObjectDetector {
             }
 
 
+            let detectionCount = detectionBoxes.count
+
             // Update tracks with new detections using tracker
             // Note: Must run on main actor to access tracker state
             Task { @MainActor [weak self] in
@@ -705,6 +712,12 @@ public class TrackingDetector: ObjectDetector {
                     // Normal counting - process frame through counter
                     let countingResult = self.counter.processFrame(tracks: self.trackedObjects)
                     // Counter handles all counting logic internally
+
+                    // Periodic detection+tracking summary every 150 frames
+                    self.diagFrameCount += 1
+                    if TrackingParameters.debugLogging && self.diagFrameCount % 150 == 0 {
+                        print("[DIAG] PIPELINE frame=\(self.diagFrameCount): detections=\(detectionCount) active_tracks=\(self.trackedObjects.count)")
+                    }
                 }
             }
             

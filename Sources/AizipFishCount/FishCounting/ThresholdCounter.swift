@@ -252,6 +252,13 @@ public class ThresholdCounter: CounterProtocol {
         // Increment frame count for each update
         frameCount += 1
 
+        // Periodic pipeline summary every 150 frames (~5s at 30fps)
+        if TrackingParameters.debugLogging && frameCount % 150 == 0 {
+            let activeTracks = tracks.count
+            let countedSoFar = countedTracks.values.filter { $0 }.count
+            print("[DIAG] SUMMARY frame=\(frameCount): active_tracks=\(activeTracks) counted_tracks=\(countedSoFar) total_count=\(totalCount) thresh=\(thresholds.map { String(format: "%.2f", $0) })")
+        }
+
         // Clean up old data periodically (every 10 frames ~0.3-0.7 sec at 15-30 FPS)
         // More frequent cleanup prevents dictionary bloat in dense, long recordings
         if frameCount % 10 == 0 {
@@ -312,12 +319,18 @@ public class ThresholdCounter: CounterProtocol {
         if countedTracks[trackId] != true {
             totalCount += 1
             countedTracks[trackId] = true
-            
+
             // Mark the track as counted in cached tracks
             if let trackIndex = cachedTracks.firstIndex(where: { $0.trackId == trackId }) {
                 cachedTracks[trackIndex].markCounted()
             }
-            
+
+            if TrackingParameters.debugLogging {
+                let pos = previousPositions[trackId]
+                let posStr = pos.map { String(format: "(%.3f,%.3f)", $0.x, $0.y) } ?? "?"
+                print("[DIAG] COUNT: #\(trackId) pos=\(posStr) thresh=\(thresholds.map { String(format: "%.2f", $0) }) total=\(totalCount)")
+            }
+
             return true
         }
         return false
@@ -326,10 +339,53 @@ public class ThresholdCounter: CounterProtocol {
     /// Clean up data for tracks that no longer exist
     /// - Parameter currentTrackIds: Set of currently active track IDs
     private func cleanupOldTracks(currentTrackIds: Set<Int>) {
-        // Remove keys for tracks that no longer exist
-        let keysToRemove = countedTracks.keys.filter { !currentTrackIds.contains($0) }
+        // previousPositions is the master set — all active tracks have an entry here.
+        // countedTracks entries for departed fish are intentionally preserved (see below).
+        let keysToRemove = previousPositions.keys.filter { !currentTrackIds.contains($0) }
         for key in keysToRemove {
-            countedTracks.removeValue(forKey: key)
+            let wasCounted = countedTracks[key] == true
+            if !wasCounted, let lastPos = previousPositions[key] {
+                // Convert to counting coordinate to compare against thresholds
+                let unified = UnifiedCoordinateSystem.UnifiedRect(x: lastPos.x, y: lastPos.y, width: 0, height: 0)
+                let counting = UnifiedCoordinateSystem.toCounting(unified, countingDirection: countingDirection)
+                let coord = (countingDirection == .leftToRight || countingDirection == .rightToLeft) ? counting.x : counting.y
+                let threshStr = thresholds.map { String(format: "%.2f", $0) }.joined(separator: ",")
+
+                // Retroactive counting: fish that passed all thresholds but were never caught.
+                // This handles fish that entered the frame already past the counting zone
+                // (e.g., detected for the first time in the top 40% of screen for bottomToTop).
+                // Condition: last known position is beyond all thresholds AND last movement
+                // was in the expected direction (prevents counting fish that wandered back).
+                let expectedDir = expectedMovementDirection(for: countingDirection)
+                let lastDir = crossingDirections[key]
+                let passedAllThresholds: Bool
+                switch countingDirection {
+                case .bottomToTop:
+                    passedAllThresholds = lastPos.y < (thresholds.min() ?? 1.0)
+                case .topToBottom:
+                    passedAllThresholds = lastPos.y > (thresholds.max() ?? 0.0)
+                case .leftToRight:
+                    passedAllThresholds = lastPos.x > (thresholds.max() ?? 0.0)
+                case .rightToLeft:
+                    passedAllThresholds = lastPos.x < (thresholds.min() ?? 1.0)
+                }
+
+                if passedAllThresholds && lastDir == expectedDir {
+                    if TrackingParameters.debugLogging {
+                        print("[DIAG] RETRO_COUNT: #\(key) pos=\(String(format: "(%.3f,%.3f)", lastPos.x, lastPos.y)) thresh=[\(threshStr)] dir=\(countingDirection)")
+                    }
+                    _ = countObject(trackId: key)
+                } else if TrackingParameters.debugLogging {
+                    print("[DIAG] TRACK_LOST_UNCOUNTED: #\(key) counting_pos=\(String(format: "%.3f", coord)) thresh=[\(threshStr)] dir=\(countingDirection)")
+                }
+            }
+            // IMPORTANT: Never remove countedTracks[id] = true entries.
+            // OCSort uses monotonically increasing IDs — a counted ID is never reassigned to a
+            // different fish. Preserving the entry prevents double-counting when OCSort temporarily
+            // loses and re-confirms the same track ID.
+            if !wasCounted {
+                countedTracks.removeValue(forKey: key)
+            }
             previousPositions.removeValue(forKey: key)
             historyPositions.removeValue(forKey: key)
             crossingDirections.removeValue(forKey: key)

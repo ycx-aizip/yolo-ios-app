@@ -111,6 +111,11 @@ public class AlbumVideoSource: NSObject, FrameSource, ResultsListener, Inference
     private var isProcessingFrame = false
     private var shouldForceStop = false
     
+    /// Shared CIContext for pixel buffer → UIImage conversion.
+    /// CIContext creation requires GPU context setup and is expensive (~ms per call).
+    /// Creating one per frame at 60fps causes significant CPU/GPU overhead.
+    private let ciContext = CIContext()
+
     // MARK: - Performance Metrics (similar to other frame sources)
     
     // Frame Processing State
@@ -443,7 +448,7 @@ public class AlbumVideoSource: NSObject, FrameSource, ResultsListener, Inference
     public func resetProcessingState() {
         isProcessingFrame = false
         isModelProcessing = false
-        print("Album: Processing state reset - ready for normal inference")
+        if TrackingParameters.debugLogging { print("Album: Processing state reset - ready for normal inference") }
     }
     
     /// Completion handler for content selection UI
@@ -528,7 +533,7 @@ public class AlbumVideoSource: NSObject, FrameSource, ResultsListener, Inference
             
             // CRITICAL: Ensure coordinate transformation is ready immediately
             updateVideoContentRect()
-            print("Album: Frame size captured and coordinate transformation updated: \(Int(frameWidth))×\(Int(frameHeight))")
+            if TrackingParameters.debugLogging { print("Album: Frame size captured and coordinate transformation updated: \(Int(frameWidth))×\(Int(frameHeight))") }
         }
         
         lastFramePreparationTime = (CACurrentMediaTime() - framePreparationStartTime) * 1000
@@ -545,12 +550,12 @@ public class AlbumVideoSource: NSObject, FrameSource, ResultsListener, Inference
             // Calibration mode - use pixel buffer directly
             trackingDetector.processFrame(pixelBuffer)
             
-            if shouldLogPerformance(frameCount: frameProcessingCount) {
+            if TrackingParameters.debugLogging && shouldLogPerformance(frameCount: frameProcessingCount) {
                 logPipelineAnalysis(mode: "calibration")
             }
             return
         }
-        
+
         // Normal inference mode - only if not already processing
         if inferenceOK && !isModelProcessing {
             let conversionStartTime = CACurrentMediaTime()
@@ -566,8 +571,8 @@ public class AlbumVideoSource: NSObject, FrameSource, ResultsListener, Inference
             }
         }
         
-        // Log performance analysis every 300 frames
-        if shouldLogPerformance(frameCount: frameProcessingCount) {
+        // Log performance analysis every 300 frames (debug only)
+        if TrackingParameters.debugLogging && shouldLogPerformance(frameCount: frameProcessingCount) {
             logPipelineAnalysis(mode: "inference")
         }
     }
@@ -575,12 +580,9 @@ public class AlbumVideoSource: NSObject, FrameSource, ResultsListener, Inference
     // OPTIMIZED: Direct pixel buffer to UIImage conversion
     private func createUIImageFromPixelBuffer(_ pixelBuffer: CVPixelBuffer) -> UIImage? {
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        let context = CIContext()
-        
-        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
+        guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else {
             return nil
         }
-        
         return UIImage(cgImage: cgImage)
     }
     

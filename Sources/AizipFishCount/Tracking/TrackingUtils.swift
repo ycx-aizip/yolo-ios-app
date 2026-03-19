@@ -43,6 +43,15 @@ import UIKit
 /// Centralized management of tracking parameters
 public struct TrackingParameters {
 
+    // MARK: - Debug Logging
+    // ─────────────────────────────────────────────────────────────────────
+    // Toggle this flag to enable/disable all diagnostic output.
+    // When false (default): only lifecycle events are printed (errors, video load).
+    // When true: [DIAG] pipeline logs, frame-rate breakdowns, and per-count
+    //            events are printed — useful for parameter tuning runs.
+    // ─────────────────────────────────────────────────────────────────────
+    nonisolated(unsafe) public static var debugLogging: Bool = false
+
     // MARK: - Shared Configuration (All Trackers)
 
     /// Parameters shared across all tracking algorithms
@@ -305,14 +314,24 @@ public struct TrackingParameters {
     ///   creates robust tracking in dense, non-linear scenarios.
     public static let coreMLOCSortConfig = OCSortConfig(
         detThresh: 0.2,               // ✅ Below CoreML threshold (0.25) for consistent splitting
-        maxAge: 30,                   // ✅ Python default
+        maxAge: 20,                   // ⚙️ TUNED: 20 (default 30) — prunes dead trackers faster,
+                                      //    shrinks association matrix in dense scenes (O(n³) cost).
+                                      //    Higher than 15: gives OCSort more time to re-ID briefly
+                                      //    occluded fish, reducing ID fragmentation that causes
+                                      //    overcounting via retroactive counting of short fragments.
         minHits: 3,                   // ✅ Python default
-        iouThreshold: 0.25,            // ✅ Python runtime default (smart default for OC-SORT)
-        deltaT: 2,                    // ✅ Python default (was 1, changed to match Python)
+        iouThreshold: 0.25,           // ✅ Python runtime default (smart default for OC-SORT)
+        deltaT: 1,                    // ⚙️ TUNED: Instantaneous velocity — fish make rapid turns,
+                                      //    deltaT=1 captures current direction; deltaT>1 averages
+                                      //    over a longer window and mis-predicts direction during turns.
+                                      //    SYNERGY: accurate velocity makes high vdcWeight effective.
         assoFunc: "iou",              // ✅ Python default
         inertia: 0.2,                 // ✅ Python default
         useByte: false,               // ✅ Python default (no low-conf dets from CoreML)
-        vdcWeight: 0.5                // ⚙️ TUNED: High VDC weight for dense fish tracking
+        vdcWeight: 0.9                // ⚙️ TUNED: High VDC disambiguates fish in dense schools.
+                                      //    When multiple fish overlap (similar IoU), velocity direction
+                                      //    breaks the tie and prevents ID switches when fish cross paths.
+                                      //    REQUIRES deltaT=1 for accurate instantaneous velocity.
     )
 
     // MARK: - Direction-Specific Configurations

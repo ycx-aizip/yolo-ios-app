@@ -37,6 +37,7 @@ yolo-ios-app/
 - **Code Style**: Swift conventions, `// MARK: -` for sections
 - **Documentation**: Docstrings for public APIs
 - **Performance**: Use Accelerate framework for math operations
+- **Debug Logging**: Enable debug logging by setting `TrackingParameters.debugLogging = true` in `ThresholdCounter.swift`, new debugging should be added with `if TrackingParameters.debugLogging { ... }`
 - **Testing**: Test with all frame sources (Camera, Album, UVC)
 
 ### After Changes
