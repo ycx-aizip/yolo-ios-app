@@ -135,6 +135,8 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   }
   private var busy = false
   private var currentBuffer: CVPixelBuffer?
+  // /// Timestamp of last periodic fish ID log (for 5-second interval logging)
+  // var lastIDLogTime: CFTimeInterval = 0
   var framesDone = 0
   var t0 = 0.0
   var t1 = 0.0
@@ -791,17 +793,7 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     selection.selectionChanged()
     currentFrameSource.inferenceOK = true
     if frameSourceType == .videoFile, let albumSource = albumVideoSource {
-      if !self.pauseButton.isEnabled {
-        albumSource.stop()
-        Task { @MainActor in
-          if let player = albumSource.playerLayer?.player {
-            player.seek(to: CMTime.zero)
-            albumSource.start()
-          }
-        }
-      } else {
-        albumSource.start()
-      }
+      albumSource.start()
     } else if frameSourceType == .uvc, let uvcSource = uvcVideoSource {
       uvcSource.start()
     } else {
@@ -880,6 +872,8 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         self.currentFrameSource = self.videoCapture
         self.frameSourceType = .camera
         self.currentFrameSource.inferenceOK = true
+        self.playButton.isEnabled = false
+        self.pauseButton.isEnabled = true
         self.start(position: .back)
       }
     case .videoFile:
@@ -928,6 +922,8 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
         self.currentFrameSource = self.albumVideoSource!
         self.frameSourceType = .videoFile
         self.currentFrameSource.inferenceOK = true
+        self.playButton.isEnabled = false
+        self.pauseButton.isEnabled = true
       }
     default:
       break

@@ -148,6 +148,24 @@ extension FishCountView {
       let trackedObjects = trackingDetector.getTrackedObjects()
       let trackingInfo = trackingDetector.getAllTrackingInfo()
 
+      // // Collect IDs being displayed this frame
+      // let displayedIDs = trackedObjects.prefix(boundingBoxViews.count).compactMap { $0.lastDetection != nil ? $0.trackId : nil }
+
+      // // Every frame: check for duplicate IDs and log immediately if found
+      // let uniqueIDs = Set(displayedIDs)
+      // if uniqueIDs.count < displayedIDs.count {
+      //   let duplicates = Dictionary(grouping: displayedIDs, by: { $0 })
+      //     .filter { $1.count > 1 }.keys.sorted()
+      //   print("[FRAME_IDS] ⚠️ DUPLICATE IDs from tracker: \(duplicates) | all_on_screen=\(displayedIDs.sorted())")
+      // }
+
+      // // Every 5 seconds: log all IDs on screen
+      // let now = CACurrentMediaTime()
+      // if now - lastIDLogTime >= 5.0 {
+      //   lastIDLogTime = now
+      //   print("[FRAME_IDS] 5s: fish_count=\(trackingDetector.getCount()) on_screen=\(displayedIDs.sorted())")
+      // }
+
       // Display each tracked object (ensures unique IDs)
       for i in 0..<min(trackedObjects.count, boundingBoxViews.count) {
         let track = trackedObjects[i]
