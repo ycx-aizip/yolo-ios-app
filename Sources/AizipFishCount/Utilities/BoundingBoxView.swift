@@ -1,11 +1,3 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  BoundingBoxView for Ultralytics YOLO App
-//  This class is designed to visualize bounding boxes and labels for detected objects in the YOLOv8 models within the Ultralytics YOLO app.
-//  It leverages Core Animation layers to draw the bounding boxes and text labels dynamically on the detection video feed.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
 //  BoundingBoxView facilitates the clear representation of detection results, improving user interaction with the app by
 //  providing immediate visual feedback on detected objects, including their classification and confidence level.
 

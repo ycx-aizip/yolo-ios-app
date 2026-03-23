@@ -29,7 +29,7 @@ public final class AutoCalibrationConfig: @unchecked Sendable {
     /// Enable Phase 1: OpenCV edge detection for threshold calibration
     public var isThresholdCalibrationEnabled: Bool = false
     
-    /// Enable Phase 2: YOLO movement analysis for direction detection
+    /// Enable Phase 2: AZFishCount movement analysis for direction detection
     public var isDirectionCalibrationEnabled: Bool = true
     
     // MARK: - Frame Count Settings

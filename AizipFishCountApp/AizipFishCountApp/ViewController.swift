@@ -1,10 +1,4 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO app, providing the main user interface for model selection and visualization.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
-//  The ViewController serves as the primary interface for users to interact with YOLO models.
+//  The ViewController serves as the primary interface for users to interact with AZFishCount models.
 //  It provides the ability to select different models, tasks (detection, segmentation, classification, etc.),
 //  and visualize results in real-time. The controller manages the loading of local and remote models,
 //  handles UI updates during model loading and inference, and provides functionality for capturing
@@ -20,10 +14,10 @@ import UIKit
 import AizipFishCount
 import Visualization
 
-/// The main view controller for the YOLO iOS application, handling model selection and visualization.
+/// The main view controller for the AZFishCount iOS application, handling model selection and visualization.
 class ViewController: UIViewController, FishCountViewActionDelegate {
 
-  @IBOutlet weak var yoloView: FishCountView!
+  @IBOutlet weak var AZFishCountView: FishCountView!
   @IBOutlet var View0: UIView!
   @IBOutlet var segmentedControl: UISegmentedControl! // Will be hidden, but keeping the outlet for compatibility
   @IBOutlet weak var labelName: UILabel!
@@ -125,7 +119,7 @@ class ViewController: UIViewController, FishCountViewActionDelegate {
     labelName.isHidden = true
     
     // Hide the zoom label
-    yoloView.labelZoom.isHidden = true
+    AZFishCountView.labelZoom.isHidden = true
     
     // Hide the model table view by default
     modelTableView.isHidden = true
@@ -134,7 +128,7 @@ class ViewController: UIViewController, FishCountViewActionDelegate {
     setupTableView()
     
     // Set up the FishCountView action delegate
-    yoloView.actionDelegate = self
+    AZFishCountView.actionDelegate = self
     
     // Setup logo tap gesture
     logoImage.isUserInteractionEnabled = true
@@ -170,7 +164,7 @@ class ViewController: UIViewController, FishCountViewActionDelegate {
     }
     
     // Ensure FishCountView toolbar has consistent transparency
-    yoloView.toolbar.backgroundColor = .clear
+    AZFishCountView.toolbar.backgroundColor = .clear
   }
 
   private func loadModelsForAllTasks() {
@@ -221,7 +215,7 @@ class ViewController: UIViewController, FishCountViewActionDelegate {
     for fileName in fileNames {
       let baseName = (fileName as NSString).deletingPathExtension.lowercased()
 
-      if baseName.hasPrefix("yolo"),
+      if baseName.hasPrefix("AZFishCount"),
         let lastChar = baseName.last,
         officialOrder.keys.contains(lastChar)
       {
@@ -337,10 +331,10 @@ class ViewController: UIViewController, FishCountViewActionDelegate {
       return
     }
     isLoadingModel = true
-    yoloView.resetLayers()
+    AZFishCountView.resetLayers()
     if !firstLoad {
       showLoadingOverlay()
-      yoloView.setInferenceFlag(ok: false)
+      AZFishCountView.setInferenceFlag(ok: false)
     } else {
       firstLoad = false
     }
@@ -357,7 +351,7 @@ class ViewController: UIViewController, FishCountViewActionDelegate {
     if entry.isLocalBundle {
       DispatchQueue.global().async { [weak self] in
         guard let self = self else { return }
-        let yoloTask = self.convertTaskNameToYOLOTask(task)
+        let AZFishCountTask = self.convertTaskNameToAZFishCountTask(task)
 
         guard let folderURL = self.tasks.first(where: { $0.name == task })?.folder,
           let folderPathURL = Bundle.main.url(forResource: folderURL, withExtension: nil)
@@ -372,7 +366,7 @@ class ViewController: UIViewController, FishCountViewActionDelegate {
         DispatchQueue.main.async {
           self.downloadProgressLabel.isHidden = false
           self.downloadProgressLabel.text = "Loading \(entry.displayName)"
-          self.yoloView.setModel(modelPathOrName: modelURL.path, task: yoloTask) { result in
+          self.AZFishCountView.setModel(modelPathOrName: modelURL.path, task: AZFishCountTask) { result in
             switch result {
             case .success():
               self.finishLoadingModel(success: true, modelName: entry.displayName)
@@ -384,13 +378,13 @@ class ViewController: UIViewController, FishCountViewActionDelegate {
         }
       }
     } else {
-      let yoloTask = self.convertTaskNameToYOLOTask(task)
+      let AZFishCountTask = self.convertTaskNameToAZFishCountTask(task)
 
-      let key = entry.identifier  // "yolov8n", "yolov8m-seg", etc.
+      let key = entry.identifier  // "AZFishCountv8n", "AZFishCountv8m-seg", etc.
 
       if ModelCacheManager.shared.isModelDownloaded(key: key) {
         loadCachedModelAndSetToFishCountView(
-          key: key, yoloTask: yoloTask, displayName: entry.displayName)
+          key: key, AZFishCountTask: AZFishCountTask, displayName: entry.displayName)
       } else {
         guard let remoteURL = entry.remoteURL else {
           self.finishLoadingModel(success: false, modelName: entry.displayName)
@@ -401,7 +395,7 @@ class ViewController: UIViewController, FishCountViewActionDelegate {
         self.downloadProgressView.isHidden = false
         self.downloadProgressLabel.isHidden = false
 
-        let localZipFileName = remoteURL.lastPathComponent  // ex. "yolov8n.mlpackage.zip"
+        let localZipFileName = remoteURL.lastPathComponent  // ex. "AZFishCountv8n.mlpackage.zip"
 
         ModelCacheManager.shared.loadModel(
           from: localZipFileName,
@@ -415,14 +409,14 @@ class ViewController: UIViewController, FishCountViewActionDelegate {
           }
           self.loadCachedModelAndSetToFishCountView(
             key: loadedKey,
-            yoloTask: yoloTask,
+            AZFishCountTask: AZFishCountTask,
             displayName: entry.displayName)
         }
       }
     }
   }
 
-  private func loadCachedModelAndSetToFishCountView(key: String, yoloTask: YOLOTask, displayName: String)
+  private func loadCachedModelAndSetToFishCountView(key: String, AZFishCountTask: AZFishCountTask, displayName: String)
   {
     let localModelURL = ModelCacheManager.shared.getDocumentsDirectory()
       .appendingPathComponent(key)
@@ -431,7 +425,7 @@ class ViewController: UIViewController, FishCountViewActionDelegate {
     DispatchQueue.main.async {
       self.downloadProgressLabel.isHidden = false
       self.downloadProgressLabel.text = "Loading \(displayName)"
-      self.yoloView.setModel(modelPathOrName: localModelURL.path, task: yoloTask) { result in
+      self.AZFishCountView.setModel(modelPathOrName: localModelURL.path, task: AZFishCountTask) { result in
         switch result {
         case .success():
           self.finishLoadingModel(success: true, modelName: displayName)
@@ -464,7 +458,7 @@ class ViewController: UIViewController, FishCountViewActionDelegate {
       if !self.firstLoad {
         self.hideLoadingOverlay()
       }
-      self.yoloView.setInferenceFlag(ok: true)
+      self.AZFishCountView.setInferenceFlag(ok: true)
 
       if success {
         print("Finished loading model: \(modelName)")
@@ -482,7 +476,7 @@ class ViewController: UIViewController, FishCountViewActionDelegate {
     }
   }
 
-  private func convertTaskNameToYOLOTask(_ task: String) -> YOLOTask {
+  private func convertTaskNameToAZFishCountTask(_ task: String) -> AZFishCountTask {
     switch task {
     case "Detect": return .detect
     case "Segment": return .segment

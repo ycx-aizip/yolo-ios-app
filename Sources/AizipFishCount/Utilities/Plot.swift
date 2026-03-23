@@ -1,10 +1,4 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO Package, providing visualization utilities.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
-//  The Plot module provides visualization utilities for rendering YOLO model results.
+//  The Plot module provides visualization utilities for rendering AZFishCount model results.
 //  It includes functions for drawing bounding boxes, segmentation masks, pose keypoints,
 //  classification results, and oriented bounding boxes on images. The module implements
 //  specialized rendering algorithms for each type of prediction, handles color management
@@ -19,7 +13,7 @@ import Foundation
 import QuartzCore
 import UIKit
 
-public let ultralyticsColors: [UIColor] = [
+public let fishUIColors: [UIColor] = [
   UIColor(red: 4 / 255, green: 42 / 255, blue: 255 / 255, alpha: 0.6),
   UIColor(red: 11 / 255, green: 219 / 255, blue: 235 / 255, alpha: 0.6),
   UIColor(red: 243 / 255, green: 243 / 255, blue: 243 / 255, alpha: 0.6),
@@ -90,7 +84,7 @@ let skeleton = [
   [5, 7],
 ]
 
-public func drawYOLODetections(on ciImage: CIImage, result: YOLOResult) -> UIImage {
+public func drawAZFishCountDetections(on ciImage: CIImage, result: AZFishCountResult) -> UIImage {
   let context = CIContext(options: nil)
   guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
     return UIImage()
@@ -109,8 +103,8 @@ public func drawYOLODetections(on ciImage: CIImage, result: YOLOResult) -> UIIma
   drawContext.draw(cgImage, in: CGRect(origin: .zero, size: imageSize))
   drawContext.restoreGState()
   for box in result.boxes {
-    let colorIndex = box.index % ultralyticsColors.count
-    let color = ultralyticsColors[colorIndex]
+    let colorIndex = box.index % fishUIColors.count
+    let color = fishUIColors[colorIndex]
     let lineWidth = CGFloat(width) * 0.01
     drawContext.setStrokeColor(color.cgColor)
     drawContext.setLineWidth(lineWidth)
@@ -247,8 +241,8 @@ func generateCombinedMaskImage(
     let startIdx = originalIndex * HW
 
     // Get class color
-    let _colorIndex = classID % ultralyticsColors.count
-    let color = ultralyticsColors[_colorIndex].toRGBComponents()!
+    let _colorIndex = classID % fishUIColors.count
+    let color = fishUIColors[_colorIndex].toRGBComponents()!
     let r = UInt8(color.red)
     let g = UInt8(color.green)
     let b = UInt8(color.blue)
@@ -345,7 +339,7 @@ func composeImageWithMask(
   return UIImage(cgImage: composedImage)
 }
 
-public func drawYOLOClassifications(on ciImage: CIImage, result: YOLOResult) -> UIImage {
+public func drawAZFishCountClassifications(on ciImage: CIImage, result: AZFishCountResult) -> UIImage {
   let context = CIContext(options: nil)
   guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
     return UIImage()
@@ -369,9 +363,9 @@ public func drawYOLOClassifications(on ciImage: CIImage, result: YOLOResult) -> 
   for (i, candidate) in top5.enumerated() {
     var colorIndex = 0
     if let index = result.names.firstIndex(of: candidate) {
-      colorIndex = index % ultralyticsColors.count
+      colorIndex = index % fishUIColors.count
     }
-    let color = ultralyticsColors[colorIndex]
+    let color = fishUIColors[colorIndex]
     let lineWidth = CGFloat(width) * 0.01
     drawContext.setStrokeColor(color.cgColor)
     drawContext.setLineWidth(lineWidth)
@@ -671,8 +665,8 @@ class OBBRenderer {
       let shapeLayer = bundle.shapeLayer
 
       let textLayer = bundle.textLayer
-      let index = detection.index % ultralyticsColors.count
-      let color = ultralyticsColors[index]
+      let index = detection.index % fishUIColors.count
+      let color = fishUIColors[index]
 
       let corners = detection.box.toPolygon()
       let path = UIBezierPath()
@@ -760,8 +754,8 @@ func drawOBBsOnCIImage(
   cgContext.setLineWidth(lineWidth)
 
   for detection in obbDetections {
-    let colorIndex = detection.index % ultralyticsColors.count
-    let color = ultralyticsColors[colorIndex]
+    let colorIndex = detection.index % fishUIColors.count
+    let color = fishUIColors[colorIndex]
     cgContext.setStrokeColor(color.cgColor)
 
     let corners = detection.box.toPolygon()

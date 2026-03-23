@@ -1,10 +1,4 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO app, handling machine learning model management.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
-//  The ModelDownloadManager and related classes provide a complete system for managing YOLO models.
+//  The ModelDownloadManager and related classes provide a complete system for managing AZFishCount models.
 //  This includes downloading models from remote URLs, caching loaded models in memory, handling model
 //  extraction from ZIP archives, and managing the lifecycle of models on the device. The implementation
 //  includes progress tracking for downloads, prioritization of download tasks, and memory management
@@ -16,7 +10,7 @@ import CoreML
 import Foundation
 import ZIPFoundation
 
-/// A structure representing a YOLO model with metadata for display and loading.
+/// A structure representing a AZFishCount model with metadata for display and loading.
 struct ModelEntry {
   let displayName: String
 
@@ -54,12 +48,12 @@ class ModelCacheManager {
   }
 
   func loadBundledModel() {
-    if let url = getModelFileURL(fileName: "yolov8m"),
+    if let url = getModelFileURL(fileName: "AZFishCountv8m"),
       let bundledModel = try? MLModel(contentsOf: url)
     {
-      addModelToCache(bundledModel, for: "yolov8m")
+      addModelToCache(bundledModel, for: "AZFishCountv8m")
       let documentsURL = getDocumentsDirectory()
-      let destinationURL = documentsURL.appendingPathComponent("yolov8m").appendingPathExtension(
+      let destinationURL = documentsURL.appendingPathComponent("AZFishCountv8m").appendingPathExtension(
         "mlmodelc")
 
       do {

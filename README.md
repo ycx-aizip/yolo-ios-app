@@ -19,7 +19,7 @@ Development repository for Fish Counting iOS SDK. Contains source code, build sc
 
 **Frontend** (`Visualization`):
 - **FishCountView** - Main UI component with drawing, controls, gestures
-- **YOLOCamera** - Camera integration and frame capture
+- **AZFishCountCamera** - Camera integration and frame capture
 - **FishCountView+BackendDependencies** - Only file that imports AizipFishCount
 - **Distribution**: Source code (partners can customize)
 

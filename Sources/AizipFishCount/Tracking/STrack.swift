@@ -1,7 +1,7 @@
 // from Aizip
 //
 //  STrack.swift
-//  YOLO
+//  AZFishCount
 //
 //  Single object tracking representation that uses Kalman filtering for state estimation.
 //  Adapts Python's STrack class from Ultralytics' ByteTrack implementation.
@@ -9,7 +9,7 @@
 import Foundation
 import UIKit
 
-// CountingDirection needs to be defined in the same module (YOLO) to be accessible
+// CountingDirection needs to be defined in the same module (AZFishCount) to be accessible
 
 /**
  * TrackState

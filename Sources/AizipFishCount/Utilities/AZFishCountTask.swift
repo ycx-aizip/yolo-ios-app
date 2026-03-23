@@ -1,10 +1,5 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO Package, defining the supported inference tasks.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
-//  The YOLOTask enum defines the different types of computer vision tasks that the YOLO models can perform.
+
+//  The AZFishCountTask enum defines the different types of computer vision tasks that the AZFishCount models can perform.
 //  Each task represents a distinct type of machine learning capability, from basic object detection to
 //  more advanced tasks like instance segmentation, pose estimation, oriented bounding box detection,
 //  and image classification. This enum is used throughout the application to configure the model loading
@@ -12,13 +7,13 @@
 
 import Foundation
 
-/// Represents the different computer vision tasks supported by YOLO models.
+/// Represents the different computer vision tasks supported by AZFishCount models.
 ///
 /// This enumeration defines the various computer vision tasks that can be performed
-/// by YOLO models, each requiring different model architectures and processing pipelines.
+/// by AZFishCount models, each requiring different model architectures and processing pipelines.
 /// The task type determines how the model processes input images and what kind of
 /// results it produces.
-public enum YOLOTask {
+public enum AZFishCountTask {
   /// Standard object detection task that identifies and localizes objects with bounding boxes.
   ///
   /// Detection models produce rectangular bounding boxes around detected objects

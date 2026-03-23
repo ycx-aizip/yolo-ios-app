@@ -1,11 +1,6 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO Package, defining data structures for model inference results.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
-//  The YOLOResult and related structures define the data models for storing and processing
-//  the output from YOLO model inference. This includes bounding boxes for object detection,
+
+//  The AZFishCountResult and related structures define the data models for storing and processing
+//  the output from AZFishCount model inference. This includes bounding boxes for object detection,
 //  masks for segmentation, probability distributions for classification, keypoints for pose estimation,
 //  and oriented bounding boxes for rotated object detection. These structures maintain the
 //  results in a consistent format across different tasks, making it easier to process and
@@ -15,9 +10,9 @@ import CoreGraphics
 import Foundation
 import UIKit
 
-/// Represents the complete results from a YOLO model inference, containing task-specific outputs.
+/// Represents the complete results from a AZFishCount model inference, containing task-specific outputs.
 ///
-/// This structure consolidates all outputs from YOLO model inference across different task types.
+/// This structure consolidates all outputs from AZFishCount model inference across different task types.
 /// It can store bounding boxes for object detection, masks for segmentation, probability
 /// distributions for classification, keypoints for pose estimation, and oriented
 /// bounding boxes for rotated object detection. The structure also maintains performance
@@ -27,7 +22,7 @@ import UIKit
 ///   models will only populate the `boxes` array, while segmentation models will populate
 ///   both `boxes` and `masks`.
 /// - Important: This structure is marked as `@unchecked Sendable` to support concurrent operations.
-public struct YOLOResult: @unchecked Sendable {
+public struct AZFishCountResult: @unchecked Sendable {
   /// The original dimensions of the input image that was processed.
   public let orig_shape: CGSize
 
@@ -63,7 +58,7 @@ public struct YOLOResult: @unchecked Sendable {
   //    let keypoints: [Keypoint]
 }
 
-/// Represents a single bounding box detection from a YOLO model.
+/// Represents a single bounding box detection from a AZFishCount model.
 ///
 /// This structure contains the information for a single detected object,
 /// including its class, confidence score, and location in both normalized
@@ -87,7 +82,7 @@ public struct Box: @unchecked Sendable {
   public let xywhn: CGRect
 }
 
-/// Represents segmentation mask data from a YOLO segmentation model.
+/// Represents segmentation mask data from a AZFishCount segmentation model.
 ///
 /// This structure contains both the raw per-pixel mask data for each detected object
 /// and an optional pre-rendered combined mask as a CGImage for visualization.
@@ -101,7 +96,7 @@ public struct Masks: @unchecked Sendable {
   public let combinedMask: CGImage?
 }
 
-/// Represents classification probability results from a YOLO classification model.
+/// Represents classification probability results from a AZFishCount classification model.
 ///
 /// This structure contains the top predicted classes and their confidence scores,
 /// providing both the single highest confidence prediction and the top 5 predictions.
@@ -121,7 +116,7 @@ public struct Probs: @unchecked Sendable {
   public var top5Confs: [Float]
 }
 
-/// Represents keypoint detection results from a YOLO pose estimation model.
+/// Represents keypoint detection results from a AZFishCount pose estimation model.
 ///
 /// This structure contains the detected keypoints (e.g., body joints) for a human figure,
 /// storing both normalized and image-space coordinates along with confidence values.

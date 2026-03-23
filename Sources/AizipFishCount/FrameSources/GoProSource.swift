@@ -1,7 +1,7 @@
 // // from softbank_fishcount_ios
 // //
 // //  GoProSource.swift
-// //  YOLO
+// //  AZFishCount
 // //
 // //  Implementation of a frame source that connects to GoPro cameras via WiFi
 // //  using the OpenGoPro HTTP API and RTSP streaming.
@@ -145,7 +145,7 @@
     
 //     /// Delegate for receiving frame output and performance metrics
 //     weak var delegate: FrameSourceDelegate?
-//     /// Frame processor for running YOLO inference on extracted frames
+//     /// Frame processor for running AZFishCount inference on extracted frames
 //     var predictor: FrameProcessor!
 //     /// Preview layer (always nil for GoPro since we use VLC player view)
 //     var previewLayer: AVCaptureVideoPreviewLayer? { return nil }
@@ -504,9 +504,9 @@
 //               [.playing, .paused, .buffering].contains(videoPlayer.state) else { return nil }
         
 //         // Hide UI overlays temporarily
-//         if let yoloView = containerView as? FishCountView {
-//             yoloView.hideUIOverlaysForExtraction()
-//             defer { yoloView.restoreUIOverlaysAfterExtraction() }
+//         if let AZFishCountView = containerView as? FishCountView {
+//             AZFishCountView.hideUIOverlaysForExtraction()
+//             defer { AZFishCountView.restoreUIOverlaysAfterExtraction() }
 //         }
         
 //         // Use cached renderer for performance with 1x scale
@@ -538,7 +538,7 @@
 //     /// 2. **Display Update**: Sends frame to delegate for immediate UI display
 //     /// 3. **Calibration Check**: Routes to calibration if in auto-calibration mode
 //     /// 4. **Format Conversion** (~0.2ms): Converts UIImage to CMSampleBuffer for inference
-//     /// 5. **Model Inference** (~24ms): Dispatches to background for YOLO processing
+//     /// 5. **Model Inference** (~24ms): Dispatches to background for AZFishCount processing
 //     /// 
 //     /// Performance: Total pipeline ~38-45ms (22+ FPS actual throughput with event-driven approach)
 //     /// 
@@ -640,7 +640,7 @@
 //     /// 
 //     /// - Parameters:
 //     ///   - frameImage: The extracted frame to process for inference
-//     ///   - predictor: The FrameProcessor (YOLO model) to run inference
+//     ///   - predictor: The FrameProcessor (AZFishCount model) to run inference
 //     /// - Returns: True indicating inference was dispatched successfully
 //     @MainActor
 //     private func processInferenceFrame(_ frameImage: UIImage, predictor: FrameProcessor) -> Bool {
@@ -669,7 +669,7 @@
 //     /// Converts extracted UIImage to CMSampleBuffer for model inference
 //     /// 
 //     /// Performs the format conversion from UIImage to the CMSampleBuffer format
-//     /// required by the Vision framework and YOLO model. Uses standard conversion
+//     /// required by the Vision framework and AZFishCount model. Uses standard conversion
 //     /// functions with proper pixel format handling for the GoPro source type.
 //     /// 
 //     /// - Parameter image: UIImage from frame extraction
@@ -909,11 +909,11 @@
 //             object: self, userInfo: ["frameSize": size]
 //         )
         
-//         if let yoloView = videoCaptureDelegate as? FishCountView {
-//             yoloView.goProLastFrameSize = size
+//         if let AZFishCountView = videoCaptureDelegate as? FishCountView {
+//             AZFishCountView.goProLastFrameSize = size
 //             DispatchQueue.main.async {
-//                 yoloView.setNeedsLayout()
-//                 yoloView.layoutIfNeeded()
+//                 AZFishCountView.setNeedsLayout()
+//                 AZFishCountView.layoutIfNeeded()
 //             }
 //         }
 //     }
@@ -1014,7 +1014,7 @@
 //         }
 //     }
     
-//     nonisolated func on(result: YOLOResult) {
+//     nonisolated func on(result: AZFishCountResult) {
 //         Task { @MainActor in
 //             self.handleInferenceCompletion(result: result)
 //         }
@@ -1022,7 +1022,7 @@
     
 //     /// Handles inference completion and UI updates
 //     @MainActor
-//     private func handleInferenceCompletion(result: YOLOResult) {
+//     private func handleInferenceCompletion(result: AZFishCountResult) {
 //         // Clear processing flag and trigger next frame extraction
 //         isModelProcessing = false
 //         DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
@@ -1071,11 +1071,11 @@
 //         DispatchQueue.main.async {
 //             containerView.setNeedsDisplay()
             
-//             if let yoloView = containerView as? FishCountView {
-//                 yoloView.setNeedsLayout()
-//                 yoloView.layoutIfNeeded()
+//             if let AZFishCountView = containerView as? FishCountView {
+//                 AZFishCountView.setNeedsLayout()
+//                 AZFishCountView.layoutIfNeeded()
                 
-//                 for box in yoloView.boundingBoxViews {
+//                 for box in AZFishCountView.boundingBoxViews {
 //                     if !box.shapeLayer.isHidden {
 //                         box.shapeLayer.zPosition = 1000
 //                         box.textLayer.zPosition = 1001
@@ -1131,8 +1131,8 @@
         
 //         setupPlayerViewInContainer(view)
         
-//         if predictor == nil, let yoloView = view as? FishCountView {
-//             predictor = yoloView.getCurrentPredictor()
+//         if predictor == nil, let AZFishCountView = view as? FishCountView {
+//             predictor = AZFishCountView.getCurrentPredictor()
 //         }
 //     }
     
@@ -1159,8 +1159,8 @@
 //         containerView.layoutIfNeeded()
 //         videoPlayer?.drawable = playerView
         
-//         if let yoloView = containerView as? FishCountView {
-//             for box in yoloView.boundingBoxViews {
+//         if let AZFishCountView = containerView as? FishCountView {
+//             for box in AZFishCountView.boundingBoxViews {
 //                 box.addToLayer(playerView.layer)
 //             }
 //         }

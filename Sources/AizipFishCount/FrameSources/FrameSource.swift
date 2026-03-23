@@ -2,7 +2,7 @@
 //
 //  The FrameSource component provides an abstraction layer for different sources of video frames,
 //  such as camera feeds, video files, or image sequences. This protocol-based design enables
-//  the YOLO model to process frames regardless of their origin, maintaining a consistent
+//  the AZFishCount model to process frames regardless of their origin, maintaining a consistent
 //  pipeline from frame acquisition to model inference and result visualization. The protocol
 //  defines essential methods for starting and stopping frame delivery, and delegates for
 //  receiving frames and performance metrics.
@@ -56,7 +56,7 @@ enum FrameSourceSettings {
     /// Standard documentation for the expected input format for predictors
     /// This provides guidance on what frame sources should provide to predictors
     static let predictorInputFormatDescription = """
-    The standard input format for YOLO predictors depends on the source type:
+    The standard input format for AZFishCount predictors depends on the source type:
     
     For Camera Sources:
     - Pixel Format: 32-bit BGRA (kCVPixelFormatType_32BGRA)

@@ -1,10 +1,4 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO Package, defining core prediction interfaces.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
-//  The Predictor protocol and related interfaces define the contract for all YOLO model prediction
+//  The Predictor protocol and related interfaces define the contract for all AZFishCount model prediction
 //  implementations. This includes methods for processing images and camera frames, as well as
 //  listener protocols for receiving prediction results and performance metrics. The protocol-based
 //  design enables a consistent API across different model types (detection, segmentation, classification)
@@ -14,21 +8,21 @@
 import CoreImage
 import Vision
 
-/// Protocol for receiving YOLO model prediction results.
+/// Protocol for receiving AZFishCount model prediction results.
 ///
-/// This protocol defines a callback mechanism for receiving results from YOLO model inference.
+/// This protocol defines a callback mechanism for receiving results from AZFishCount model inference.
 /// Implementers receive notifications with processed results when model inference is complete.
 public protocol ResultsListener: AnyObject {
   /// Called when a new prediction result is available.
   ///
-  /// - Parameter result: The processed YOLO model prediction result, containing detections,
+  /// - Parameter result: The processed AZFishCount model prediction result, containing detections,
   ///   segmentation masks, or other task-specific outputs.
-  func on(result: YOLOResult)
+  func on(result: AZFishCountResult)
 }
 
 /// Protocol for receiving model inference performance metrics.
 ///
-/// This protocol defines a callback mechanism for monitoring the performance of YOLO model inference.
+/// This protocol defines a callback mechanism for monitoring the performance of AZFishCount model inference.
 /// Implementers receive notifications with timing information to track inference speed.
 public protocol InferenceTimeListener: AnyObject {
   /// Called when inference timing information is available.
@@ -43,9 +37,9 @@ public protocol InferenceTimeListener: AnyObject {
 //    func on(fpsRate: Double)
 //}
 
-/// Core protocol for YOLO model predictors.
+/// Core protocol for AZFishCount model predictors.
 ///
-/// This protocol defines the contract that all YOLO model prediction implementations must fulfill.
+/// This protocol defines the contract that all AZFishCount model prediction implementations must fulfill.
 /// It provides methods for processing both camera frames and static images, and managing prediction state.
 /// Specialized implementations exist for different model types (detection, segmentation, etc.).
 public protocol Predictor {
@@ -62,8 +56,8 @@ public protocol Predictor {
   /// Processes a static image and returns results synchronously.
   ///
   /// - Parameter image: The CIImage to process.
-  /// - Returns: A YOLOResult containing the prediction outputs.
-  func predictOnImage(image: CIImage) -> YOLOResult
+  /// - Returns: A AZFishCountResult containing the prediction outputs.
+  func predictOnImage(image: CIImage) -> AZFishCountResult
 
   /// The class labels used by the model for categorizing detections.
   var labels: [String] { get set }
@@ -72,7 +66,7 @@ public protocol Predictor {
   var isUpdating: Bool { get set }
 }
 
-/// Errors that can occur during YOLO model prediction.
+/// Errors that can occur during AZFishCount model prediction.
 ///
 /// This enumeration defines the different types of errors that may be encountered
 /// during model loading, configuration, and inference operations.

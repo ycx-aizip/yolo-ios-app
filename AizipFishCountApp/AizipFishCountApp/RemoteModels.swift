@@ -1,10 +1,4 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO app, defining remotely available YOLO models.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
-//  The RemoteModels file defines a registry of downloadable YOLO models available for each task type.
+//  The RemoteModels file defines a registry of downloadable AZFishCount models available for each task type.
 //  It provides a structured mapping between task categories (detection, segmentation, classification, etc.)
 //  and the available models with their remote download URLs. These models are presented to users in the
 //  application interface, allowing them to download and use additional models beyond those bundled with
@@ -16,145 +10,145 @@ import Foundation
 /// A dictionary mapping task names to available remote models with their download URLs.
 public let remoteModelsInfo: [String: [(modelName: String, downloadURL: URL)]] = [
   "Detect": [
-    //        ("yolo11n",  URL(string: "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11n.mlpackage.zip")!),
-    //        ("yolo11s",  URL(string: "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11s.mlpackage.zip")!),
-    //        ("yolo11m",  URL(string: "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11m.mlpackage.zip")!),
+    //        ("AZFishCount11n",  URL(string: "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11n.mlpackage.zip")!),
+    //        ("AZFishCount11s",  URL(string: "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11s.mlpackage.zip")!),
+    //        ("AZFishCount11m",  URL(string: "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11m.mlpackage.zip")!),
     (
-      "yolo11l",
+      "AZFishCount11l",
       URL(
         string:
-          "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11l.mlpackage.zip"
+          "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11l.mlpackage.zip"
       )!
     ),
     (
-      "yolo11x",
+      "AZFishCount11x",
       URL(
         string:
-          "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11x.mlpackage.zip"
+          "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11x.mlpackage.zip"
       )!
     ),
   ],
   "Segment": [
-    //        ("yolo11n-seg",  URL(string: "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11n-seg.mlpackage.zip")!),
+    //        ("AZFishCount11n-seg",  URL(string: "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11n-seg.mlpackage.zip")!),
     (
-      "yolo11s-seg",
+      "AZFishCount11s-seg",
       URL(
         string:
-          "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11s-seg.mlpackage.zip"
+          "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11s-seg.mlpackage.zip"
       )!
     ),
     (
-      "yolo11m-seg",
+      "AZFishCount11m-seg",
       URL(
         string:
-          "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11m-seg.mlpackage.zip"
+          "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11m-seg.mlpackage.zip"
       )!
     ),
     (
-      "yolo11l-seg",
+      "AZFishCount11l-seg",
       URL(
         string:
-          "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11l-seg.mlpackage.zip"
+          "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11l-seg.mlpackage.zip"
       )!
     ),
     (
-      "yolo11x-seg",
+      "AZFishCount11x-seg",
       URL(
         string:
-          "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11x-seg.mlpackage.zip"
+          "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11x-seg.mlpackage.zip"
       )!
     ),
   ],
   "Classify": [
-    //        ("yolo11n-cls", URL(string: "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11n-clswasq5.mlpackage.zip")!),
+    //        ("AZFishCount11n-cls", URL(string: "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11n-clswasq5.mlpackage.zip")!),
     (
-      "yolo11s-cls",
+      "AZFishCount11s-cls",
       URL(
         string:
-          "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11s-cls.mlpackage.zip"
+          "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11s-cls.mlpackage.zip"
       )!
     ),
     (
-      "yolo11m-cls",
+      "AZFishCount11m-cls",
       URL(
         string:
-          "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11m-cls.mlpackage.zip"
+          "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11m-cls.mlpackage.zip"
       )!
     ),
     (
-      "yolo11l-cls",
+      "AZFishCount11l-cls",
       URL(
         string:
-          "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11l-cls.mlpackage.zip"
+          "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11l-cls.mlpackage.zip"
       )!
     ),
     (
-      "yolo11x-cls",
+      "AZFishCount11x-cls",
       URL(
         string:
-          "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11x-cls.mlpackage.zip"
+          "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11x-cls.mlpackage.zip"
       )!
     ),
   ],
   "Pose": [
-    //        ("yolo11n-pose", URL(string: "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11n-pose.mlpackage.zip")!),
+    //        ("AZFishCount11n-pose", URL(string: "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11n-pose.mlpackage.zip")!),
     (
-      "yolo11s-pose",
+      "AZFishCount11s-pose",
       URL(
         string:
-          "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11s-pose.mlpackage.zip"
+          "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11s-pose.mlpackage.zip"
       )!
     ),
     (
-      "yolo11m-pose",
+      "AZFishCount11m-pose",
       URL(
         string:
-          "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11m-pose.mlpackage.zip"
+          "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11m-pose.mlpackage.zip"
       )!
     ),
     (
-      "yolo11l-pose",
+      "AZFishCount11l-pose",
       URL(
         string:
-          "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11l-pose.mlpackage.zip"
+          "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11l-pose.mlpackage.zip"
       )!
     ),
     (
-      "yolo11x-pose",
+      "AZFishCount11x-pose",
       URL(
         string:
-          "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11x-pose.mlpackage.zip"
+          "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11x-pose.mlpackage.zip"
       )!
     ),
   ],
   "Obb": [
-    //        ("yolo11n-obb",  URL(string: "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11n-obb.mlpackage.zip")!),
+    //        ("AZFishCount11n-obb",  URL(string: "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11n-obb.mlpackage.zip")!),
     (
-      "yolo11s-obb",
+      "AZFishCount11s-obb",
       URL(
         string:
-          "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11s-obb.mlpackage.zip"
+          "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11s-obb.mlpackage.zip"
       )!
     ),
     (
-      "yolo11m-obb",
+      "AZFishCount11m-obb",
       URL(
         string:
-          "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11m-obb.mlpackage.zip"
+          "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11m-obb.mlpackage.zip"
       )!
     ),
     (
-      "yolo11l-obb",
+      "AZFishCount11l-obb",
       URL(
         string:
-          "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11l-obb.mlpackage.zip"
+          "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11l-obb.mlpackage.zip"
       )!
     ),
     (
-      "yolo11x-obb",
+      "AZFishCount11x-obb",
       URL(
         string:
-          "https://github.com/ultralytics/yolo-ios-app/releases/download/v8.3.0/yolo11x-obb.mlpackage.zip"
+          "https://github.com/ultralytics/AZFishCount-ios-app/releases/download/v8.3.0/AZFishCount11x-obb.mlpackage.zip"
       )!
     ),
   ],

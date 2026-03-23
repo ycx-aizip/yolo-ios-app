@@ -1,9 +1,3 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO Package, implementing human pose estimation functionality.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
 //  The PoseEstimater class extends the BasePredictor to provide human pose and keypoint detection.
 //  It processes model outputs to identify human subjects and their body keypoints (joints such as
 //  eyes, shoulders, elbows, wrists, hips, knees, ankles, etc.). The class converts the model's raw
@@ -17,7 +11,7 @@ import Foundation
 import UIKit
 import Vision
 
-/// Specialized predictor for YOLO pose estimation models that identify human body keypoints.
+/// Specialized predictor for AZFishCount pose estimation models that identify human body keypoints.
 class PoseEstimater: BasePredictor, @unchecked Sendable {
   var colorsForMask: [(red: UInt8, green: UInt8, blue: UInt8)] = []
 
@@ -36,7 +30,7 @@ class PoseEstimater: BasePredictor, @unchecked Sendable {
           boxes.append(person.box)
           keypointsList.append(person.keypoints)
         }
-        let result = YOLOResult(
+        let result = AZFishCountResult(
           orig_shape: inputSize, boxes: boxes, masks: nil, probs: nil, keypointsList: keypointsList,
           annotatedImage: nil, speed: 0, fps: 0, originalImage: nil, names: labels)
         self.currentOnResultsListener?.on(result: result)
@@ -56,10 +50,10 @@ class PoseEstimater: BasePredictor, @unchecked Sendable {
 
   }
 
-  override func predictOnImage(image: CIImage) -> YOLOResult {
+  override func predictOnImage(image: CIImage) -> AZFishCountResult {
     let requestHandler = VNImageRequestHandler(ciImage: image, options: [:])
     guard let request = visionRequest else {
-      let emptyResult = YOLOResult(orig_shape: inputSize, boxes: [], speed: 0, names: labels)
+      let emptyResult = AZFishCountResult(orig_shape: inputSize, boxes: [], speed: 0, names: labels)
       return emptyResult
     }
     var boxes = [Box]()
@@ -67,7 +61,7 @@ class PoseEstimater: BasePredictor, @unchecked Sendable {
     let imageWidth = image.extent.width
     let imageHeight = image.extent.height
     self.inputSize = CGSize(width: imageWidth, height: imageHeight)
-    var result = YOLOResult(orig_shape: .zero, boxes: [], speed: 0, names: labels)
+    var result = AZFishCountResult(orig_shape: .zero, boxes: [], speed: 0, names: labels)
 
     do {
       try requestHandler.perform([request])
@@ -95,7 +89,7 @@ class PoseEstimater: BasePredictor, @unchecked Sendable {
             ciImage: image, keypointsList: keypointsForImage, confsList: confsList,
             boundingBoxes: boxes, originalImageSize: inputSize)
           updateTime()
-          return YOLOResult(
+          return AZFishCountResult(
             orig_shape: inputSize, boxes: boxes, masks: nil, probs: nil,
             keypointsList: keypointsList, annotatedImage: annotatedImage, speed: self.t2,
             fps: 1 / self.t4, originalImage: nil, names: labels)

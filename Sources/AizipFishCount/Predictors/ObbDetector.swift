@@ -1,9 +1,3 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO Package, implementing oriented bounding box detection.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
 //  The ObbDetector class provides functionality for detecting objects with oriented (rotated)
 //  bounding boxes. Unlike standard object detection that uses axis-aligned boxes, this implementation
 //  handles objects at arbitrary orientations by predicting the center, width, height, and rotation
@@ -17,7 +11,7 @@ import Foundation
 import UIKit
 import Vision
 
-/// Specialized predictor for YOLO models that detect objects using oriented (rotated) bounding boxes.
+/// Specialized predictor for AZFishCount models that detect objects using oriented (rotated) bounding boxes.
 class ObbDetector: BasePredictor, @unchecked Sendable {
 
   override func processObservations(for request: VNRequest, error: Error?) {
@@ -40,7 +34,7 @@ class ObbDetector: BasePredictor, @unchecked Sendable {
         }
 
         self.currentOnResultsListener?.on(
-          result: YOLOResult(
+          result: AZFishCountResult(
             orig_shape: inputSize, boxes: [], obb: obbResults, speed: 0, names: labels))
         self.updateTime()
       }
@@ -58,16 +52,16 @@ class ObbDetector: BasePredictor, @unchecked Sendable {
 
   }
 
-  override func predictOnImage(image: CIImage) -> YOLOResult {
+  override func predictOnImage(image: CIImage) -> AZFishCountResult {
     let requestHandler = VNImageRequestHandler(ciImage: image, options: [:])
     guard let request = visionRequest else {
-      let emptyResult = YOLOResult(orig_shape: inputSize, boxes: [], speed: 0, names: labels)
+      let emptyResult = AZFishCountResult(orig_shape: inputSize, boxes: [], speed: 0, names: labels)
       return emptyResult
     }
     let imageWidth = image.extent.width
     let imageHeight = image.extent.height
     self.inputSize = CGSize(width: imageWidth, height: imageHeight)
-    var result = YOLOResult(orig_shape: inputSize, boxes: [], speed: 0, names: labels)
+    var result = AZFishCountResult(orig_shape: inputSize, boxes: [], speed: 0, names: labels)
 
     do {
       try requestHandler.perform([request])
@@ -91,7 +85,7 @@ class ObbDetector: BasePredictor, @unchecked Sendable {
           }
           let annotatedImage = drawOBBsOnCIImage(ciImage: image, obbDetections: obbResults)
           updateTime()
-          return YOLOResult(
+          return AZFishCountResult(
             orig_shape: inputSize, boxes: [], masks: nil, probs: nil, keypointsList: [],
             obb: obbResults, annotatedImage: annotatedImage, speed: self.t2, fps: 1 / self.t4,
             originalImage: nil, names: labels)

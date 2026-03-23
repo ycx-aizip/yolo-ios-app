@@ -1,10 +1,4 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO Package, providing the base infrastructure for model prediction.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
-//  The BasePredictor class is the foundation for all task-specific predictors in the YOLO framework.
+//  The BasePredictor class is the foundation for all task-specific predictors in the AZFishCount framework.
 //  It manages the loading and initialization of CoreML models, handling common operations such as
 //  model loading, class label extraction, and inference timing. The class provides an asynchronous
 //  model loading mechanism that runs on background threads and includes support for configuring
@@ -16,9 +10,9 @@ import Foundation
 import UIKit
 import Vision
 
-/// Base class for all YOLO model predictors, handling common model loading and inference logic.
+/// Base class for all AZFishCount model predictors, handling common model loading and inference logic.
 ///
-/// The BasePredictor serves as the foundation for all task-specific YOLO model predictors.
+/// The BasePredictor serves as the foundation for all task-specific AZFishCount model predictors.
 /// It manages CoreML model loading, initialization, and common inference operations.
 /// Specialized predictors (for detection, segmentation, etc.) inherit from this class
 /// and override the prediction-specific methods to handle task-specific processing.
@@ -298,10 +292,10 @@ public class BasePredictor: Predictor, @unchecked Sendable {
   /// Subclasses must override this method to implement task-specific processing.
   ///
   /// - Parameter image: The CIImage to process.
-  /// - Returns: A YOLOResult containing the prediction outputs.
-  public func predictOnImage(image: CIImage) -> YOLOResult {
+  /// - Returns: A AZFishCountResult containing the prediction outputs.
+  public func predictOnImage(image: CIImage) -> AZFishCountResult {
     // Base implementation returns an empty result - must be overridden by subclasses
-    return YOLOResult(orig_shape: .zero, boxes: [], speed: 0, names: [])
+    return AZFishCountResult(orig_shape: .zero, boxes: [], speed: 0, names: [])
   }
 
   /// Extracts the required input dimensions from the model description.

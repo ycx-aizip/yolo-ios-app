@@ -1,10 +1,4 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO Package, providing real-time camera-based object detection.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
-//  The YOLOCamera component provides a SwiftUI view for real-time object detection using device cameras.
+//  The AZFishCountCamera component provides a SwiftUI view for real-time object detection using device cameras.
 //  It wraps the underlying FishCountView component to provide a clean SwiftUI interface for camera feed processing,
 //  model inference, and result display. The component automatically handles camera setup, frame capture,
 //  model loading, and inference processing, making it simple to add real-time object detection capabilities
@@ -15,17 +9,17 @@ import AVFoundation
 import SwiftUI
 import AizipFishCount
 
-/// A SwiftUI view that provides real-time camera-based object detection using YOLO models.
-public struct YOLOCamera: View {
-  @State private var yoloResult: YOLOResult?
+/// A SwiftUI view that provides real-time camera-based object detection using AZFishCount models.
+public struct AZFishCountCamera: View {
+  @State private var AZFishCountResult: AZFishCountResult?
 
   public let modelPathOrName: String
-  public let task: YOLOTask
+  public let task: AZFishCountTask
   public let cameraPosition: AVCaptureDevice.Position
 
   public init(
     modelPathOrName: String,
-    task: YOLOTask = .detect,
+    task: AZFishCountTask = .detect,
     cameraPosition: AVCaptureDevice.Position = .back
   ) {
     self.modelPathOrName = modelPathOrName
@@ -39,24 +33,24 @@ public struct YOLOCamera: View {
       task: task,
       cameraPosition: cameraPosition
     ) { result in
-      self.yoloResult = result
+      self.AZFishCountResult = result
     }
   }
 }
 
 struct FishCountViewRepresentable: UIViewRepresentable {
   let modelPathOrName: String
-  let task: YOLOTask
+  let task: AZFishCountTask
   let cameraPosition: AVCaptureDevice.Position
-  let onDetection: ((YOLOResult) -> Void)?
+  let onDetection: ((AZFishCountResult) -> Void)?
 
   func makeUIView(context: Context) -> FishCountView {
-    let yoloView = FishCountView(
+    let AZFishCountView = FishCountView(
       frame: .zero,
       modelPathOrName: modelPathOrName,
       task: task
     )
-    return yoloView
+    return AZFishCountView
   }
 
   func updateUIView(_ uiView: FishCountView, context: Context) {

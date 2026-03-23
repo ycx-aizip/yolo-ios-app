@@ -1,10 +1,4 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO Package, implementing image classification functionality.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
-//  The Classifier class implements image classification using YOLO models. Unlike object detection
+//  The Classifier class implements image classification using AZFishCount models. Unlike object detection
 //  or segmentation, it focuses on identifying the primary subject of an image rather than locating
 //  objects within it. The class processes model outputs to extract classification probabilities,
 //  identifying the top predicted class and confidence score. It supports multiple output formats
@@ -16,7 +10,7 @@ import Foundation
 import UIKit
 import Vision
 
-/// Specialized predictor for YOLO classification models that identify the subject of an image.
+/// Specialized predictor for AZFishCount classification models that identify the subject of an image.
 class Classifier: BasePredictor {
 
   override func setConfidenceThreshold(confidence: Double) {
@@ -111,7 +105,7 @@ class Classifier: BasePredictor {
 
     self.currentOnInferenceTimeListener?.on(inferenceTime: self.t2 * 1000, fpsRate: 1 / self.t4)  // t2 seconds to ms
     //                self.currentOnFpsRateListener?.on(fpsRate: 1 / self.t4)
-    let result = YOLOResult(
+    let result = AZFishCountResult(
       orig_shape: inputSize, boxes: [], probs: probs, speed: self.t2, fps: 1 / self.t4,
       names: labels)
 
@@ -119,10 +113,10 @@ class Classifier: BasePredictor {
 
   }
 
-  override func predictOnImage(image: CIImage) -> YOLOResult {
+  override func predictOnImage(image: CIImage) -> AZFishCountResult {
     let requestHandler = VNImageRequestHandler(ciImage: image, options: [:])
     guard let request = visionRequest else {
-      let emptyResult = YOLOResult(orig_shape: inputSize, boxes: [], speed: 0, names: labels)
+      let emptyResult = AZFishCountResult(orig_shape: inputSize, boxes: [], speed: 0, names: labels)
       return emptyResult
     }
 
@@ -202,9 +196,9 @@ class Classifier: BasePredictor {
       print(error)
     }
 
-    var result = YOLOResult(
+    var result = AZFishCountResult(
       orig_shape: inputSize, boxes: [], probs: probs, speed: t1, names: labels)
-    let annotatedImage = drawYOLOClassifications(on: image, result: result)
+    let annotatedImage = drawAZFishCountClassifications(on: image, result: result)
     result.annotatedImage = annotatedImage
     return result
   }

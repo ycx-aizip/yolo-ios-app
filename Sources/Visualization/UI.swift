@@ -12,7 +12,7 @@ public protocol FishCountViewActionDelegate: AnyObject {
 // MARK: - FishCountView Main Class
 /// FishCountView - Primary UI component for real-time fish counting and object detection
 ///
-/// This class provides a comprehensive interface for real-time YOLO model inference with specialized
+/// This class provides a comprehensive interface for real-time AZFishCount model inference with specialized
 /// fish counting capabilities. It handles camera setup, model loading, video frame processing,
 /// rendering of detection results, and user interactions such as pinch-to-zoom.
 ///
@@ -27,7 +27,7 @@ public protocol FishCountViewActionDelegate: AnyObject {
 public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   // MARK: - Public Properties
   /// Callback for detection results
-  var onDetection: ((YOLOResult) -> Void)?
+  var onDetection: ((AZFishCountResult) -> Void)?
   /// Delegate for handling model selection actions
   public weak var actionDelegate: FishCountViewActionDelegate?
   // MARK: - Frame Source Properties
@@ -42,8 +42,8 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
   /// UVC video source for external USB cameras
   internal var uvcVideoSource: UVCVideoSource?
   // MARK: - Model and Task Properties
-  /// Current YOLO task type (detect, classify, segment, etc.)
-  var task = YOLOTask.detect
+  /// Current AZFishCount task type (detect, classify, segment, etc.)
+  var task = AZFishCountTask.detect
   /// Model name for display
   var modelName: String = ""
   // MARK: - Detection and Tracking Properties
@@ -150,7 +150,7 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
    * This initializer sets up the complete FishCountView with camera source,
    * loads the specified model, configures UI, and starts video capture.
    */
-  public init(frame: CGRect, modelPathOrName: String, task: YOLOTask) {
+  public init(frame: CGRect, modelPathOrName: String, task: AZFishCountTask) {
     self.videoCapture = CameraVideoSource()
     self.currentFrameSource = self.videoCapture
     super.init(frame: frame)
@@ -198,10 +198,10 @@ public class FishCountView: UIView, VideoCaptureDelegate, FrameSourceDelegate {
     }
   }
   /**
-   * Called when YOLO prediction results are available
+   * Called when AZFishCount prediction results are available
    * For fish counting, displays bounding boxes with tracking information
    */
-  public func onPredict(result: YOLOResult) {
+  public func onPredict(result: AZFishCountResult) {
     if !isCalibrating {
       showBoxes(predictions: result)
       onDetection?(result)

@@ -26,9 +26,9 @@ extension FishCountView {
   
   // MARK: - Model Management (*** BACKEND DEPENDENCIES ***)
   /**
-   * Loads and configures a YOLO model for the specified task
+   * Loads and configures a AZFishCount model for the specified task
    *
-   * This method handles loading different types of YOLO models from file paths or bundle resources.
+   * This method handles loading different types of AZFishCount models from file paths or bundle resources.
    * It supports detection, classification, segmentation, pose estimation, OBB detection, and fish counting tasks.
    *
    * Backend Dependencies:
@@ -39,11 +39,11 @@ extension FishCountView {
    *
    * - Parameters:
    *   - modelPathOrName: File path to .mlmodel/.mlpackage/.mlmodelc or bundle resource name
-   *   - task: The YOLO task type to perform with this model
+   *   - task: The AZFishCount task type to perform with this model
    *   - completion: Optional callback with loading result
    */
   public func setModel(
-    modelPathOrName: String, task: YOLOTask, completion: ((Result<Void, Error>) -> Void)? = nil
+    modelPathOrName: String, task: AZFishCountTask, completion: ((Result<Void, Error>) -> Void)? = nil
   ) {
     activityIndicator.startAnimating()
     boundingBoxViews.forEach { box in
@@ -132,7 +132,7 @@ extension FishCountView {
    * - TrackingDetector.getTrackInfo() - get track ID
    * - TrackingDetector.getCount() - get current count
    */
-  func showBoxes(predictions: YOLOResult) {
+  func showBoxes(predictions: AZFishCountResult) {
     let width = self.bounds.width
     let height = self.bounds.height
 
@@ -242,8 +242,8 @@ extension FishCountView {
             height: prediction.xywhn.height)
           bestClass = prediction.cls
           confidence = CGFloat(prediction.conf)
-          let colorIndex = prediction.index % ultralyticsColors.count
-          boxColor = ultralyticsColors[colorIndex]
+          let colorIndex = prediction.index % fishUIColors.count
+          boxColor = fishUIColors[colorIndex]
           label = String(format: "%@ %.1f", bestClass, confidence * 100)
           alpha = CGFloat((confidence - 0.2) / (1.0 - 0.2) * 0.9)
         default:
@@ -252,8 +252,8 @@ extension FishCountView {
           bestClass = prediction.cls
           confidence = CGFloat(prediction.conf)
           label = String(format: "%@ %.1f", bestClass, confidence * 100)
-          let colorIndex = prediction.index % ultralyticsColors.count
-          boxColor = ultralyticsColors[colorIndex]
+          let colorIndex = prediction.index % fishUIColors.count
+          boxColor = fishUIColors[colorIndex]
           alpha = CGFloat((confidence - 0.2) / (1.0 - 0.2) * 0.9)
         }
 

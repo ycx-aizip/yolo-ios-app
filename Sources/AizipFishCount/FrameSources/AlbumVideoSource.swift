@@ -1,12 +1,6 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO Package, providing video file playback for inference.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
 //  The AlbumVideoSource component provides functionality to play videos from the device's
-//  photo library and process the frames through YOLO models. It manages video playback,
-//  frame extraction, and delivery of frames to the YOLO processing pipeline. The component
+//  photo library and process the frames through AZFishCount models. It manages video playback,
+//  frame extraction, and delivery of frames to the AZFishCount processing pipeline. The component
 //  implements the FrameSource protocol to maintain compatibility with the existing architecture
 //  and enables seamless switching between camera feed and pre-recorded videos.
 //  Please note: upon testing, the current Album mode only works for 16:9 videos taken originally from the iPhone or GoPro camera.
@@ -402,7 +396,7 @@ public class AlbumVideoSource: NSObject, FrameSource, ResultsListener, Inference
         }
     }
     
-    public func on(result: YOLOResult) {
+    public func on(result: AZFishCountResult) {
         let postProcessingStartTime = CACurrentMediaTime()
         let timestamp = CACurrentMediaTime()
         

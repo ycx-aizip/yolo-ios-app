@@ -1,7 +1,7 @@
 // from Aizip
 //
 //  ByteTracker.swift
-//  YOLO
+//  AZFishCount
 //
 //  Core tracking algorithm using ByteTrack approach.
 //  Adapted from the Python ByteTracker implementation with optimizations for Swift.

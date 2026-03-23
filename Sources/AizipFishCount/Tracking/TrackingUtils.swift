@@ -19,7 +19,7 @@ import UIKit
  *
  * Architecture Overview:
  * ---------------------
- * 1. Object Detection: YOLO-based detection provides bounding boxes for each fish
+ * 1. Object Detection: AZFishCount-based detection provides bounding boxes for each fish
  * 2. Detection Association: Tracking algorithm associates detections across frames
  * 3. Track Management: Tracks lifecycle (new → tracked → lost → removed)
  * 4. Threshold Crossing: Detection of when fish cross counting lines
@@ -286,8 +286,8 @@ public struct TrackingParameters {
     /// CoreML-adapted OC-SORT configuration (iOS deployment)
     ///
     /// DIFFERENCE from Python:
-    /// - Python YOLO: Returns varying confidence dets → OC-SORT splits into high/low
-    /// - CoreML YOLO: Built-in NMS filters at 0.25 → only returns high-conf dets (≥0.25)
+    /// - Python AZFishCount: Returns varying confidence dets → OC-SORT splits into high/low
+    /// - CoreML AZFishCount: Built-in NMS filters at 0.25 → only returns high-conf dets (≥0.25)
     ///
     /// Solution: Set detThresh=0.2 (below CoreML's 0.25) to ensure consistent classification
     /// All CoreML dets → high confidence bucket → Stage 1 & 3 matching active

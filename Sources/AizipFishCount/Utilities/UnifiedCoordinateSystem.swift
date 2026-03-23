@@ -1,4 +1,4 @@
-// Unified Coordinate Transformation System for YOLO iOS App
+// Unified Coordinate Transformation System for AZFishCount iOS App
 // This system establishes a single intermediate coordinate space that all sources convert to,
 // then provides unified transformations to UI, counting, and detection display.
 
@@ -7,7 +7,7 @@ import CoreGraphics
 import Vision
 import AVFoundation
 
-// Note: CountingDirection and FrameSource are defined in the same YOLO module
+// Note: CountingDirection and FrameSource are defined in the same AZFishCount module
 // so they should be accessible without additional imports
 
 // MARK: - Unified Coordinate System Definition

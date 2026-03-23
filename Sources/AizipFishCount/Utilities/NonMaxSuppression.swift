@@ -1,9 +1,3 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO Package, providing utilities for post-processing detections.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
 //  The NonMaxSuppression utility provides a fundamental algorithm for filtering redundant
 //  object detections. When multiple bounding boxes detect the same object, non-maximum suppression
 //  selects the best detection and suppresses overlapping boxes with lower confidence scores.

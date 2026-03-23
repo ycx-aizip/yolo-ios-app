@@ -1,9 +1,3 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO app, enabling YOLO11 model previews on iOS devices.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
 //  The AppDelegate initializes app settings, manages system-level configurations, and facilitates
 //  the integration of additional services such as Firebase analytics.
 //  This file includes the app's delegate class, responsible for handling the app's lifecycle events,

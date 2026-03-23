@@ -1,9 +1,3 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO Package, implementing instance segmentation functionality.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
 //  The Segmenter class extends BasePredictor to provide instance segmentation capabilities.
 //  Instance segmentation not only detects objects but also identifies the precise pixels
 //  belonging to each object. The class processes complex model outputs including prototype masks
@@ -17,7 +11,7 @@ import Foundation
 import UIKit
 import Vision
 
-/// Specialized predictor for YOLO segmentation models that identify objects and their pixel-level masks.
+/// Specialized predictor for AZFishCount segmentation models that identify objects and their pixel-level masks.
 class Segmenter: BasePredictor, @unchecked Sendable {
   var colorsForMask: [(red: UInt8, green: UInt8, blue: UInt8)] = []
 
@@ -76,7 +70,7 @@ class Segmenter: BasePredictor, @unchecked Sendable {
           return
         }
         var maskResults = Masks(masks: procceessedMasks.1, combinedMask: procceessedMasks.0)
-        let result = YOLOResult(
+        let result = AZFishCountResult(
           orig_shape: self.inputSize, boxes: boxes, masks: maskResults, speed: self.t2,
           fps: 1 / self.t4, names: self.labels)
         self.updateTime()
@@ -96,10 +90,10 @@ class Segmenter: BasePredictor, @unchecked Sendable {
 
   }
 
-  override func predictOnImage(image: CIImage) -> YOLOResult {
+  override func predictOnImage(image: CIImage) -> AZFishCountResult {
     let requestHandler = VNImageRequestHandler(ciImage: image, options: [:])
     guard let request = visionRequest else {
-      let emptyResult = YOLOResult(orig_shape: inputSize, boxes: [], speed: 0, names: labels)
+      let emptyResult = AZFishCountResult(orig_shape: inputSize, boxes: [], speed: 0, names: labels)
       return emptyResult
     }
     var boxes = [Box]()
@@ -107,20 +101,20 @@ class Segmenter: BasePredictor, @unchecked Sendable {
     let imageWidth = image.extent.width
     let imageHeight = image.extent.height
     self.inputSize = CGSize(width: imageWidth, height: imageHeight)
-    var result = YOLOResult(orig_shape: .zero, boxes: [], speed: 0, names: labels)
+    var result = AZFishCountResult(orig_shape: .zero, boxes: [], speed: 0, names: labels)
 
     do {
       try requestHandler.perform([request])
       if let results = request.results as? [VNCoreMLFeatureValueObservation] {
         //                DispatchQueue.main.async { [self] in
         guard results.count == 2 else {
-          return YOLOResult(orig_shape: .zero, boxes: [], speed: 0, names: labels)
+          return AZFishCountResult(orig_shape: .zero, boxes: [], speed: 0, names: labels)
         }
         var pred: MLMultiArray
         var masks: MLMultiArray
         guard let out0 = results[0].featureValue.multiArrayValue,
           let out1 = results[1].featureValue.multiArrayValue
-        else { return YOLOResult(orig_shape: .zero, boxes: [], speed: 0, names: labels) }
+        else { return AZFishCountResult(orig_shape: .zero, boxes: [], speed: 0, names: labels) }
         let out0dim = checkShapeDimensions(of: out0)
         let out1dim = checkShapeDimensions(of: out1)
         if out0dim == 4 {
@@ -164,7 +158,7 @@ class Segmenter: BasePredictor, @unchecked Sendable {
 
           ) as? (CGImage?, [[[Float]]])
         else {
-          return YOLOResult(
+          return AZFishCountResult(
             orig_shape: inputSize, boxes: boxes, masks: nil, annotatedImage: nil, speed: 0,
             names: labels)
         }
@@ -177,10 +171,10 @@ class Segmenter: BasePredictor, @unchecked Sendable {
         }
         self.t4 = (CACurrentMediaTime() - self.t3) * 0.05 + self.t4 * 0.95  // smoothed delivered FPS
         self.t3 = CACurrentMediaTime()
-        result = YOLOResult(
+        result = AZFishCountResult(
           orig_shape: inputSize, boxes: boxes, masks: maskResults, annotatedImage: annotatedImage,
           speed: self.t2, fps: 1 / self.t4, names: labels)
-        annotatedImage = drawYOLODetections(on: CIImage(image: annotatedImage!)!, result: result)
+        annotatedImage = drawAZFishCountDetections(on: CIImage(image: annotatedImage!)!, result: result)
         result.annotatedImage = annotatedImage
         return result
 

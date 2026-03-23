@@ -1,9 +1,3 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO Package, managing camera capture for real-time inference.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
 //  The CameraVideoSource component manages the camera and video processing pipeline for real-time
 //  object detection. It handles setting up the AVCaptureSession, managing camera devices,
 //  configuring camera properties like focus and exposure, and processing video frames for
@@ -19,7 +13,7 @@ import Vision
 /// Protocol for receiving video capture frame processing results.
 @MainActor
 public protocol VideoCaptureDelegate: AnyObject {
-  func onPredict(result: YOLOResult)
+  func onPredict(result: AZFishCountResult)
   func onInferenceTime(speed: Double, fps: Double)
   func onClearBoxes()
 }
@@ -94,17 +88,17 @@ public class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
   
   // MARK: - Device-Specific Camera Configuration
   
-  /// Determines the optimal camera session preset for YOLO model performance
+  /// Determines the optimal camera session preset for AZFishCount model performance
   /// 
-  /// All devices now use HD 720p (1280×720) for optimal YOLO processing:
-  /// - YOLO model uses 640×640 input, so 1280×720 provides perfect 2:1 scaling
+  /// All devices now use HD 720p (1280×720) for optimal AZFishCount processing:
+  /// - AZFishCount model uses 640×640 input, so 1280×720 provides perfect 2:1 scaling
   /// - Significantly reduces processing overhead compared to higher resolutions
   /// - Maintains excellent visual quality through resizeAspectFill display scaling
   /// - Previous performance issue was due to .photo preset using ~4M+ pixels vs 720p's ~0.9M pixels
   @MainActor
   private var optimalSessionPreset: AVCaptureSession.Preset {
-    // Unified resolution for optimal YOLO performance across all devices
-    return .hd1280x720  // 1280×720 resolution - perfect for 640×640 YOLO input
+    // Unified resolution for optimal AZFishCount performance across all devices
+    return .hd1280x720  // 1280×720 resolution - perfect for 640×640 AZFishCount input
   }
   
   /// Gets a human-readable description of the current session preset
@@ -112,7 +106,7 @@ public class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
   private var sessionPresetDescription: String {
     switch optimalSessionPreset {
     case .hd1280x720:
-      return "HD 1280×720 (Optimized for YOLO)"
+      return "HD 1280×720 (Optimized for AZFishCount)"
     case .hd1920x1080:
       return "Full HD 1920×1080"
     case .photo:
@@ -182,7 +176,7 @@ public class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
     Task { @MainActor in
       let deviceType = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
       let presetDescription = self.sessionPresetDescription
-      print("Camera: Configuring \(deviceType) with \(presetDescription) for unified YOLO optimization")
+      print("Camera: Configuring \(deviceType) with \(presetDescription) for unified AZFishCount optimization")
     }
 
     captureDevice = bestCaptureDevice(position: position)
@@ -342,7 +336,7 @@ public class CameraVideoSource: NSObject, FrameSource, @unchecked Sendable {
       
       // Check if we should process for calibration
       // Phase 1 (threshold detection): Use special calibration processing (!inferenceOK)
-      // Phase 2 (movement analysis): Use normal YOLO inference (inferenceOK)
+      // Phase 2 (movement analysis): Use normal AZFishCount inference (inferenceOK)
       let isTrackingDetector = predictor is TrackingDetector
       let shouldProcessForThresholdCalibration = !inferenceOK && isTrackingDetector
       
@@ -585,7 +579,7 @@ extension CameraVideoSource: ResultsListener, InferenceTimeListener {
     }
   }
 
-  public func on(result: YOLOResult) {
+  public func on(result: AZFishCountResult) {
     let postProcessingStartTime = CACurrentMediaTime()
     let timestamp = CACurrentMediaTime()
     

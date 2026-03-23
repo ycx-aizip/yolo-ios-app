@@ -1,9 +1,3 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO Package, managing UVC external camera capture for real-time inference.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
 //  The UVCVideoSource component manages external UVC camera capture for real-time object detection
 //  on iPad devices with USB-C ports running iPadOS 17+. It extends the camera capture pipeline
 //  to support USB Video Class (UVC) compliant devices such as Logitech webcams, HDMI capture cards,
@@ -1266,7 +1260,7 @@ extension UVCVideoSource: ResultsListener, InferenceTimeListener {
         }
     }
 
-    public func on(result: YOLOResult) {
+    public func on(result: AZFishCountResult) {
         let postProcessingStartTime = CACurrentMediaTime()
         let timestamp = CACurrentMediaTime()
         

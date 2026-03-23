@@ -30,7 +30,7 @@ public class TrackingDetectorConfig {
     /// Shared singleton instance
     public static let shared = TrackingDetectorConfig()
     
-    /// Default confidence threshold for YOLO detection
+    /// Default confidence threshold for AZFishCount detection
     public var defaultConfidenceThreshold: Float = 0.25
 
     /// Default IoU threshold for non-maximum suppression
@@ -76,7 +76,7 @@ public class TrackingDetectorConfig {
  *   - Updates tracking state for visualization
  *
  * Implementation Details:
- * - Extends ObjectDetector class to maintain compatibility with YOLO app
+ * - Extends ObjectDetector class to maintain compatibility with AZFishCount app
  * - Implements threshold crossing logic similar to `check_threshold_crossing` in Python
  * - Maintains tracking states similar to `track_states` dictionary in Python
  * - Provides methods to integrate tracking information with visualization
@@ -111,7 +111,7 @@ public class TrackingDetector: ObjectDetector {
     /// Current calibration phase
     enum CalibrationPhase {
         case thresholdDetection    // Phase 1: OpenCV edge detection
-        case movementAnalysis      // Phase 2: YOLO + movement analysis
+        case movementAnalysis      // Phase 2: AZFishCount + movement analysis
         case completed            // Calibration finished
     }
     
@@ -731,7 +731,7 @@ public class TrackingDetector: ObjectDetector {
             self.currentOnInferenceTimeListener?.on(inferenceTime: self.t2 * 1000, fpsRate: 1 / self.t4)
             
             // Add tracking information to the result
-            let result = YOLOResult(
+            let result = AZFishCountResult(
                 orig_shape: inputSize, 
                 boxes: boxes, 
                 speed: self.t2, 
@@ -753,11 +753,11 @@ public class TrackingDetector: ObjectDetector {
             switch calibrationPhase {
             case .thresholdDetection:
                 processFrameForCalibration(pixelBuffer)
-                return  // Only return for threshold detection - skip normal YOLO
+                return  // Only return for threshold detection - skip normal AZFishCount
             case .movementAnalysis:
-                // Movement analysis uses normal YOLO inference, so we let it continue
+                // Movement analysis uses normal AZFishCount inference, so we let it continue
                 // The movement analysis happens in processObservations
-                // Don't return here - continue to normal YOLO processing
+                // Don't return here - continue to normal AZFishCount processing
                 break
             case .completed:
                 // Should not reach here, but handle gracefully

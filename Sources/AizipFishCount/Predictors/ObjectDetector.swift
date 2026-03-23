@@ -1,14 +1,8 @@
-// Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-//
-//  This file is part of the Ultralytics YOLO Package, implementing object detection functionality.
-//  Licensed under AGPL-3.0. For commercial use, refer to Ultralytics licensing: https://ultralytics.com/license
-//  Access the source code: https://github.com/ultralytics/yolo-ios-app
-//
 //  The ObjectDetector class provides specialized functionality for detecting objects in images
-//  using YOLO models. It processes Vision framework results to extract bounding boxes, class labels,
+//  using AZFishCount models. It processes Vision framework results to extract bounding boxes, class labels,
 //  and confidence scores from model predictions. The class handles both real-time frame processing
 //  and single image analysis, converting the Vision API's normalized coordinates to image coordinates,
-//  and packaging the results in the standardized YOLOResult format. It includes performance monitoring
+//  and packaging the results in the standardized AZFishCountResult format. It includes performance monitoring
 //  for inference time and frame rate, and offers runtime adjustable parameters such as confidence
 //  threshold and IoU threshold for non-maximum suppression.
 
@@ -16,9 +10,9 @@ import Foundation
 import UIKit
 import Vision
 
-/// Specialized predictor for YOLO object detection models that identifies and localizes objects in images.
+/// Specialized predictor for AZFishCount object detection models that identifies and localizes objects in images.
 ///
-/// This class processes the outputs from YOLO object detection models, extracting bounding boxes,
+/// This class processes the outputs from AZFishCount object detection models, extracting bounding boxes,
 /// class labels, and confidence scores. It handles both real-time camera feed processing and
 /// single image analysis, converting the normalized coordinates from the Vision framework
 /// to image coordinates and applying non-maximum suppression to filter duplicative detections.
@@ -93,7 +87,7 @@ public class ObjectDetector: BasePredictor {
 
       self.currentOnInferenceTimeListener?.on(inferenceTime: self.t2 * 1000, fpsRate: 1 / self.t4)  // t2 seconds to ms
       //                self.currentOnFpsRateListener?.on(fpsRate: 1 / self.t4)
-      let result = YOLOResult(
+      let result = AZFishCountResult(
         orig_shape: inputSize, boxes: boxes, speed: self.t2, fps: 1 / self.t4, names: labels)
 
       self.currentOnResultsListener?.on(result: result)
@@ -108,11 +102,11 @@ public class ObjectDetector: BasePredictor {
   /// from setting up the Vision request to processing the detection results.
   ///
   /// - Parameter image: The CIImage to analyze for object detection.
-  /// - Returns: A YOLOResult containing the detected objects with bounding boxes, class labels, and confidence scores.
-  public override func predictOnImage(image: CIImage) -> YOLOResult {
+  /// - Returns: A AZFishCountResult containing the detected objects with bounding boxes, class labels, and confidence scores.
+  public override func predictOnImage(image: CIImage) -> AZFishCountResult {
     let requestHandler = VNImageRequestHandler(ciImage: image, options: [:])
     guard let request = visionRequest else {
-      let emptyResult = YOLOResult(orig_shape: inputSize, boxes: [], speed: 0, names: labels)
+      let emptyResult = AZFishCountResult(orig_shape: inputSize, boxes: [], speed: 0, names: labels)
       return emptyResult
     }
     var boxes = [Box]()
@@ -150,7 +144,7 @@ public class ObjectDetector: BasePredictor {
     }
     let speed = Date().timeIntervalSince(start)
 
-    let result = YOLOResult(orig_shape: inputSize, boxes: boxes, speed: t1, names: labels)
+    let result = AZFishCountResult(orig_shape: inputSize, boxes: boxes, speed: t1, names: labels)
     return result
   }
 }
