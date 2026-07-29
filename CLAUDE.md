@@ -2,14 +2,14 @@
 
 ## Overview
 
-Swift implementation of the fish counting SDK with binary distribution. Development repository containing source code, build scripts, and an example app. Backend (`AizipFishCount`) compiles to an xcframework; frontend (`Visualization`) ships as source. Maintain algorithmic parity with the Python reference in `../vision_yolo/`.
+Swift implementation of the fish counting SDK. Development repository containing source code, build scripts, and an example app. Both `AizipFishCount` (backend) and `Visualization` (frontend) ship to partners as source; a legacy xcframework build path is retained but is not the default. Maintain algorithmic parity with the Python reference in `../vision_fish_count/`.
 
 ## Structure
 
 ```
 yolo-ios-app/
 ├── Sources/                        # Canonical source (edit here)
-│   ├── AizipFishCount/             # Backend → compiled to xcframework
+│   ├── AizipFishCount/             # Backend → distributed as source
 │   │   ├── PublicAPI/              # FishCountSession protocol
 │   │   ├── Predictors/             # TrackingDetector, ObjectDetector
 │   │   ├── Tracking/               # ByteTracker, OCSort, STrack, Kalman filters
@@ -23,8 +23,9 @@ yolo-ios-app/
 │   └── AizipFishCountApp.xcodeproj
 ├── Packages/opencv2/               # OpenCV dependency (app-level only)
 ├── Scripts/
-│   ├── build_aizipfishcount_xcframework.sh  # Build binary
-│   └── release.sh                           # Package for distribution
+│   ├── release_source.sh                    # Current: package source distribution
+│   ├── build_aizipfishcount_xcframework.sh  # Legacy: build binary
+│   └── release.sh                           # Legacy: package binary distribution
 └── .build/                         # Build output
 ```
 
@@ -36,7 +37,7 @@ yolo-ios-app/
 - Comments: only when the *why* isn't obvious from the code. No section dividers, no restating what the code does.
 
 ### Before changes
-1. Read the Python reference (`../vision_yolo/projects/fish_count/`).
+1. Read the Python reference (`../vision_fish_count/app/counter/` for counting, `../vision_fish_count/deploy/` for the export/preprocessing contract).
 2. Check implementation logs (`../docs/Implementations/`).
 3. Explain planned changes.
 
@@ -71,10 +72,13 @@ xcodebuild -configuration Debug \
            -quiet | grep -E "error:|warning:|BUILD|SUCCEEDED|FAILED" | head -50
 ```
 
-**Release (distribution)**:
+**Release (distribution)** — current flow is a full Swift source release:
 ```bash
-./Scripts/build_aizipfishcount_xcframework.sh  # Build xcframework
-./Scripts/release.sh                            # Package to ../Aizip_softbank_fishcount_ipad/
+./Scripts/release_source.sh   # Package source to ../Aizip_softbank_fishcount_ipad/
+```
+Legacy binary path (kept, not the default — only for an IP-protected release):
+```bash
+./Scripts/build_aizipfishcount_xcframework.sh && ./Scripts/release.sh
 ```
 
 ### Performance targets
@@ -87,4 +91,4 @@ xcodebuild -configuration Debug \
 - **Architecture**: `../docs/architecture.md` — system design
 - **Implementations**: `../docs/Implementations/*.md` — implementation details of the core modules
 - **Preview**: `../docs/preview/*.md` — review of previously implemented modules or algorithms
-- **Python reference**: `../vision_yolo/CLAUDE.md` — original algorithms
+- **Python reference**: `../vision_fish_count/CLAUDE.md` — detection, tracking, counting, and export
