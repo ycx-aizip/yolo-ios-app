@@ -13,7 +13,6 @@ import Accelerate
  * KalmanFilter
  *
  * Maps to Python Implementation:
- * - Primary Correspondence: `KalmanFilterXYAH` class in `ultralytics/trackers/kalman_filter.py`
  * - Core functionality:
  *   - Provides motion prediction for object tracking
  *   - Implements 8-dimensional state vector tracking position and velocity

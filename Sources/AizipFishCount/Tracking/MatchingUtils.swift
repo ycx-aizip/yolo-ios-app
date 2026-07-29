@@ -13,7 +13,6 @@ import UIKit
  * MatchingUtils
  *
  * Maps to Python Implementation:
- * - Primary Correspondence: Functions in `ultralytics/trackers/matching.py`
  * - Core functionality:
  *   - Calculates distances between detections and tracks
  *   - Performs optimal assignment for track matching

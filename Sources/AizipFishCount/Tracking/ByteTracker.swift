@@ -13,7 +13,6 @@ import UIKit
  * ByteTracker
  *
  * Maps to Python Implementation:
- * - Primary Correspondence: `BYTETracker` class in `ultralytics/trackers/bytetrack.py`
  * - Core functionality:
  *   - Manages track objects across frames
  *   - Associates new detections with existing tracks

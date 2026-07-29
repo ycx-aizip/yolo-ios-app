@@ -1,5 +1,5 @@
 // OpenCVWrapper.swift
-// Wrapper to expose OpenCVBridge functionality to the YOLO package
+// Wrapper to expose OpenCVBridge functionality
 
 import Foundation
 import CoreVideo

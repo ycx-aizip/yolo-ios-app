@@ -4,7 +4,6 @@
 //  AZFishCount
 //
 //  Single object tracking representation that uses Kalman filtering for state estimation.
-//  Adapts Python's STrack class from Ultralytics' ByteTrack implementation.
 
 import Foundation
 import UIKit
@@ -30,7 +29,6 @@ public enum TrackState {
  * STrack
  *
  * Maps to Python Implementation:
- * - Primary Correspondence: `STrack` class in `ultralytics/trackers/bytetrack.py`
  * - Core functionality:
  *   - Represents a single tracked object
  *   - Maintains state and position information
